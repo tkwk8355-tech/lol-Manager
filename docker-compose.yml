@@ -1,0 +1,40 @@
+services:
+  db:
+    image: mariadb:11
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: ${DB_NAME:-lolclient}
+      MYSQL_USER: ${DB_USER:-cmjeon}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-cmjeon}
+    volumes:
+      - db_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: always
+    ports:
+      - "8355:8355"
+    environment:
+      RIOT_API_KEY: ${RIOT_API_KEY}
+      RIOT_PLATFORM: ${RIOT_PLATFORM:-kr}
+      RIOT_REGION: ${RIOT_REGION:-asia}
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-cmjeon}
+      DB_PASSWORD: ${DB_PASSWORD:-cmjeon}
+      DB_NAME: ${DB_NAME:-lolclient}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-1234}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data:
