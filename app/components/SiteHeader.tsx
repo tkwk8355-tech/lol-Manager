@@ -19,8 +19,9 @@ export default function SiteHeader() {
   const nav = [
     { href: "/",        icon: "🏠", label: "홈",       guard: false },
     { href: "/party",   icon: "🛡️", label: "파티모집",  guard: true  },
-    { href: "/scrim",   icon: "⚔️", label: "내전 매칭", guard: true  },
+    { href: "/scrim",   icon: "⚔️", label: "내전 통계", guard: true  },
     { href: "/search",  icon: "🔍", label: "전적 검색", guard: false },
+    { href: "/points",  icon: "💰", label: "포인트",    guard: true  },
     { href: "/userInfo",icon: "👥", label: user?.role === "admin" ? "클랜원 관리" : "클랜원", guard: true },
   ];
 

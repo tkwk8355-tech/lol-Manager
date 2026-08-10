@@ -7,13 +7,12 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-export type Role = "admin" | "member";
+export type Role = "admin" | "subadmin" | "member";
 export interface AuthUser {
   userId: number;
   username: string;
   nickname: string;
   role: Role;
-  linkedRiotId: string | null; // 연동된 클랜원의 등록된 롤 ID (없으면 파티 생성/참가 불가)
 }
 
 interface AuthContextValue {
@@ -97,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider
       value={{
-        user, loading, isAdmin: user?.role === "admin", login, logout, refresh,
+        user, loading, isAdmin: user?.role === "admin" || user?.role === "subadmin", login, logout, refresh,
         authModalOpen, authModalMode, openAuthModal, closeAuthModal,
       }}
     >

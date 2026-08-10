@@ -198,20 +198,49 @@ async function createSchema(): Promise<void> {
     CREATE TABLE IF NOT EXISTS party_participants (
       id         INT AUTO_INCREMENT PRIMARY KEY,
       party_id   INT NOT NULL,
-      user_id    INT NOT NULL,
+      user_id    INT NULL,
       nickname   VARCHAR(100) NOT NULL,
       line       VARCHAR(20),
       is_waiting TINYINT NOT NULL DEFAULT 0,
       joined_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY uniq_party_user (party_id, user_id),
-      CONSTRAINT fk_pp_party FOREIGN KEY (party_id) REFERENCES parties(id) ON DELETE CASCADE,
-      CONSTRAINT fk_pp_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      CONSTRAINT fk_pp_party FOREIGN KEY (party_id) REFERENCES parties(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
   // line에 라인 2개(예: "TOP,JG")까지 저장할 수 있도록 기존 테이블 컬럼 폭을 넉넉히 늘린다.
   await pool.query(`ALTER TABLE party_participants MODIFY COLUMN line VARCHAR(20)`);
   // 정원이 다 차도 추가로 신청한 사람은 "대기"로 들어갈 수 있게 하는 컬럼.
   await pool.query(`ALTER TABLE party_participants ADD COLUMN IF NOT EXISTS is_waiting TINYINT NOT NULL DEFAULT 0`);
+  // user_id를 NULL 허용으로 변경 (운영진 수기 입력 시 계정 미연동 닉네임도 저장 가능)
+  await pool.query(`ALTER TABLE party_participants MODIFY COLUMN user_id INT NULL`);
+  // 기존 FK(user_id → users) 제거 (NULL 허용 후 FK가 있으면 NULL 삽입 시 오류)
+  const [ppFkRows] = await pool.query(
+    `SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'party_participants'
+     AND COLUMN_NAME = 'user_id' AND REFERENCED_TABLE_NAME = 'users'`
+  ) as any[];
+  for (const row of ppFkRows) {
+    try { await pool.query(`ALTER TABLE party_participants DROP FOREIGN KEY ${row.CONSTRAINT_NAME}`); } catch {}
+  }
+  // (party_id, user_id) UNIQUE는 user_id가 NULL이면 중복 허용이 되므로 제거
+  const [ppUqRows] = await pool.query(
+    `SELECT INDEX_NAME FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'party_participants'
+     AND INDEX_NAME = 'uniq_party_user'`
+  ) as any[];
+  if ((ppUqRows as any[])[0]) {
+    try { await pool.query(`ALTER TABLE party_participants DROP INDEX uniq_party_user`); } catch {}
+  }
+
+  // 파티 참가자 변경 이력 — 펑 시 전체 기간 동안 등록된 모든 클랜원 대상으로 전적 조회
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS party_participant_history (
+      id         INT AUTO_INCREMENT PRIMARY KEY,
+      party_id   INT NOT NULL,
+      nickname   VARCHAR(100) NOT NULL,
+      added_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_pph_party FOREIGN KEY (party_id) REFERENCES parties(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
 
   // 내전 모집(신청) 단계용 테이블. 일반 클랜원은 이 모집 공고만 보고 신청/취소할 수 있고,
   // 점수표/경기 기록 같은 상세 데이터는 못 본다. 운영진이 모집을 열고(open),
@@ -243,6 +272,42 @@ async function createSchema(): Promise<void> {
       UNIQUE KEY uniq_recruit_user (recruit_id, user_id),
       CONSTRAINT fk_recruit_part_recruit FOREIGN KEY (recruit_id) REFERENCES scrim_recruits(id) ON DELETE CASCADE,
       CONSTRAINT fk_recruit_part_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 포인트 로그 테이블
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS point_logs (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      member_id   INT NOT NULL,
+      points      INT NOT NULL,
+      type        VARCHAR(20) NOT NULL,
+      games       INT NOT NULL DEFAULT 0,
+      comment     VARCHAR(255),
+      given_by    INT NULL,
+      ref_id      INT NULL,
+      created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_pl_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS total_points INT NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS gender VARCHAR(1) NULL`);
+  await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS birth_date DATE NULL`);
+  await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS birth_year INT NULL`);
+  await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS position VARCHAR(20) NULL DEFAULT '일반'`);
+  await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'`);
+  await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS status_note VARCHAR(255) NULL`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS warnings (
+      id         INT AUTO_INCREMENT PRIMARY KEY,
+      member_id  INT NOT NULL,
+      type       VARCHAR(30) NOT NULL,
+      reason     VARCHAR(500),
+      warned_at  DATE NOT NULL,
+      given_by   INT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_warn_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 

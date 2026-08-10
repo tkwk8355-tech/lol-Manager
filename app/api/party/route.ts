@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import mysql from "mysql2/promise";
 import { getPool, ensureSchema } from "@/lib/db";
-import { requireAuth } from "@/lib/auth";
-import { resolvePartyIdentity } from "@/lib/party";
-import { parseLineInput } from "@/lib/partyLine";
+import { requireAuth, requireAdmin } from "@/lib/auth";
+import { getMatchIds, getMatch } from "@/lib/riot";
+import { givePoints } from "@/lib/points";
 
 export const dynamic = "force-dynamic";
 
-// 방장 롤 ID·참가자 명단 같은 클랜 내부 정보가 노출되므로, 목록 조회도 로그인해야 볼 수 있게 한다.
-
-// 파티 종류: 칼바람 / 일반 협곡 / 자유랭크 / 솔로랭크.
-// aram만 라인 구분이 없고, 나머지 세 개는 모두 협곡(5v5)이라 라인 선택을 쓴다.
-const MODES = ["aram", "normal", "flex", "solo"];
+const MODES = ["aram", "normal", "flex", "solo", "scrim"];
 
 interface PartyRow {
   id: number;
@@ -25,7 +22,7 @@ interface PartyRow {
 }
 interface ParticipantRow {
   party_id: number;
-  user_id: number;
+  user_id: number | null;
   nickname: string;
   line: string | null;
   is_waiting: number;
@@ -45,18 +42,12 @@ function shapeParty(p: PartyRow, participants: ParticipantRow[]) {
     participants: participants.filter((pp) => !pp.is_waiting).map((pp) => ({
       userId: pp.user_id,
       nickname: pp.nickname,
-      line: pp.line,
     })),
-    waiting: participants.filter((pp) => pp.is_waiting).map((pp) => ({
-      userId: pp.user_id,
-      nickname: pp.nickname,
-      line: pp.line,
-    })),
+    waiting: [],
   };
 }
 
-// GET /api/party?mode=aram|normal|flex|solo|all — 모집 중/최근 파티 목록 조회
-// mode=all이면 종류 구분 없이 전체를 최신순으로 보여준다.
+// GET /api/party?mode=...
 export async function GET(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return auth.response;
@@ -71,11 +62,11 @@ export async function GET(req: NextRequest) {
     const [parties] = mode === "all"
       ? await pool.query(
           `SELECT id, mode, max_size, status, host_user_id, host_nickname, note, start_at, created_at
-           FROM parties WHERE status != 'ended' ORDER BY created_at DESC LIMIT 50`
+           FROM parties WHERE status != 'ended' AND start_at >= NOW() - INTERVAL 24 HOUR ORDER BY start_at ASC LIMIT 50`
         ) as [PartyRow[], any]
       : await pool.query(
           `SELECT id, mode, max_size, status, host_user_id, host_nickname, note, start_at, created_at
-           FROM parties WHERE mode = ? AND status != 'ended' ORDER BY created_at DESC LIMIT 50`,
+           FROM parties WHERE mode = ? AND status != 'ended' AND start_at >= NOW() - INTERVAL 24 HOUR ORDER BY start_at ASC LIMIT 50`,
           [mode]
         ) as [PartyRow[], any];
 
@@ -102,56 +93,44 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/party — 파티 생성 (로그인한 계정이 방장이 되어 자동 참가)
+// POST /api/party — 파티 생성 (운영진만)
 export async function POST(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return auth.response;
+  if (auth.session.role !== "admin" && auth.session.role !== "subadmin") {
+    return NextResponse.json({ error: "운영진만 파티를 생성할 수 있습니다." }, { status: 403 });
+  }
   try {
     const body = await req.json().catch(() => ({}));
     const mode: string = body.mode;
     const note: string | null = body.note ? String(body.note).trim().slice(0, 255) : null;
+    const nicknames: string[] = Array.isArray(body.participants)
+      ? body.participants.map((n: string) => String(n).trim()).filter(Boolean)
+      : [];
 
     if (!MODES.includes(mode)) {
       return NextResponse.json({ error: "모드를 선택하세요." }, { status: 400 });
     }
 
-    // 라인은 최대 2개까지 고를 수 있고, ALL은 다른 라인과 함께 고를 수 없다.
-    const lineResult = parseLineInput(body.line);
-    if (!lineResult.ok) {
-      return NextResponse.json({ error: lineResult.error }, { status: 400 });
-    }
-    const line = lineResult.value;
-
-    // 시작 시각(선택): "HH:mm" 형태로 받아서 오늘/내일 날짜에 붙인다.
-    // 이미 지난 시각이면 다음날로 간주한다(예: 밤 11시에 "01:00" 입력).
     let startAt: string | null = null;
     if (body.startTime) {
       const m = /^(\d{1,2}):(\d{2})$/.exec(String(body.startTime).trim());
       if (!m) return NextResponse.json({ error: "시작 시간 형식이 올바르지 않습니다. (HH:mm)" }, { status: 400 });
-      const hh = Number(m[1]);
-      const mm = Number(m[2]);
+      const hh = Number(m[1]), mm = Number(m[2]);
       if (hh > 23 || mm > 59) return NextResponse.json({ error: "시작 시간이 올바르지 않습니다." }, { status: 400 });
-      const now = new Date();
-      const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0);
-      if (target.getTime() < now.getTime() - 60 * 1000) target.setDate(target.getDate() + 1);
+      const dateStr = body.startDate ? String(body.startDate).trim() : new Date().toISOString().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return NextResponse.json({ error: "날짜 형식이 올바르지 않습니다." }, { status: 400 });
       const p = (n: number) => String(n).padStart(2, "0");
-      startAt = `${target.getFullYear()}-${p(target.getMonth() + 1)}-${p(target.getDate())} ${p(target.getHours())}:${p(target.getMinutes())}:00`;
+      startAt = `${dateStr} ${p(hh)}:${p(mm)}:00`;
+      if (new Date(startAt) > new Date()) {
+        return NextResponse.json({ error: "시작 시간은 현재 시각 이후로 설정할 수 없습니다." }, { status: 400 });
+      }
     }
 
     await ensureSchema();
     const pool = getPool();
     const { userId } = auth.session;
-
-    // 파티에 표시될 이름은 로그인 닉네임이 아니라, 연동된 클랜원의 등록된 본계정 롤 ID다.
-    const identity = await resolvePartyIdentity(userId);
-    if (!identity) {
-      return NextResponse.json(
-        { error: "클랜원 계정과 연동되어 있지 않습니다. 운영진에게 계정 연동을 요청하세요." },
-        { status: 403 }
-      );
-    }
-
-    // 솔로랭크는 실제 게임에서 솔로/듀오까지만 같은 파티로 큐를 돌릴 수 있어 최대 2명.
+    const hostNickname = auth.session.nickname ?? "운영진";
     const maxSize = mode === "solo" ? 2 : 5;
 
     const conn = await pool.getConnection();
@@ -160,13 +139,22 @@ export async function POST(req: NextRequest) {
       const [res] = await conn.query(
         `INSERT INTO parties (mode, max_size, status, host_user_id, host_nickname, note, start_at)
          VALUES (?, ?, 'open', ?, ?, ?, ?)`,
-        [mode, maxSize, userId, identity.displayName, note, startAt]
+        [mode, maxSize, userId, hostNickname, note, startAt]
       ) as any;
       const partyId = res.insertId;
-      await conn.query(
-        `INSERT INTO party_participants (party_id, user_id, nickname, line) VALUES (?, ?, ?, ?)`,
-        [partyId, userId, identity.displayName, line]
-      );
+
+      for (const nick of nicknames) {
+        await conn.query(
+          `INSERT INTO party_participants (party_id, user_id, nickname, line) VALUES (?, NULL, ?, NULL)`,
+          [partyId, nick]
+        );
+        // 이력에도 기록
+        await conn.query(
+          `INSERT INTO party_participant_history (party_id, nickname) VALUES (?, ?)`,
+          [partyId, nick]
+        );
+      }
+
       await conn.commit();
       return NextResponse.json({ id: partyId });
     } catch (err) {
@@ -181,36 +169,203 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// DELETE /api/party?id=1 — 파티를 즉시 종료(펑)한다.
-// "방장이었던 사람"이 아니라 "지금 그 파티에 남아있는 참가자"라면 누구나 펑칠 수 있다.
-// (예: 방장이 겜 시작 후 명단에서 이름을 뺐다면, 방장은 더 이상 펑 권한이 없고
-//  실제로 파티에 남아있는 사람들이 펑을 칠 수 있어야 한다.)
-export async function DELETE(req: NextRequest) {
+// PATCH /api/party — 파티 참가자 수정 (운영진만)
+export async function PATCH(req: NextRequest) {
   const auth = requireAuth(req);
+  if (!auth.ok) return auth.response;
+  if (auth.session.role !== "admin" && auth.session.role !== "subadmin") {
+    return NextResponse.json({ error: "운영진만 수정할 수 있습니다." }, { status: 403 });
+  }
+  try {
+    const body = await req.json().catch(() => ({}));
+    const partyId = Number(body.id);
+    const nicknames: string[] = Array.isArray(body.participants)
+      ? body.participants.map((n: string) => String(n).trim()).filter(Boolean)
+      : [];
+    if (!partyId) return NextResponse.json({ error: "id가 필요합니다." }, { status: 400 });
+
+    await ensureSchema();
+    const pool = getPool();
+
+    const [rows] = await pool.query("SELECT id, status FROM parties WHERE id = ?", [partyId]) as [any[], any];
+    if (!rows[0]) return NextResponse.json({ error: "존재하지 않는 파티입니다." }, { status: 404 });
+    if (rows[0].status === "ended") return NextResponse.json({ error: "종료된 파티는 수정할 수 없습니다." }, { status: 400 });
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // 기존 참가자 삭제 후 새 명단으로 교체
+      await conn.query("DELETE FROM party_participants WHERE party_id = ?", [partyId]);
+      for (const nick of nicknames) {
+        await conn.query(
+          `INSERT INTO party_participants (party_id, user_id, nickname, line) VALUES (?, NULL, ?, NULL)`,
+          [partyId, nick]
+        );
+        // 이력에 없는 닉네임만 추가 (중복 방지)
+        const [histRows] = await conn.query(
+          "SELECT id FROM party_participant_history WHERE party_id = ? AND nickname = ?",
+          [partyId, nick]
+        ) as [any[], any];
+        if (!histRows.length) {
+          await conn.query(
+            `INSERT INTO party_participant_history (party_id, nickname) VALUES (?, ?)`,
+            [partyId, nick]
+          );
+        }
+      }
+
+      await conn.commit();
+      return NextResponse.json({ ok: true });
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: "수정 실패" }, { status: 500 });
+  }
+}
+
+// DELETE /api/party?id=1 — 파티 종료(펑), 운영진만
+export async function DELETE(req: NextRequest) {
+  const auth = requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     const id = Number(new URL(req.url).searchParams.get("id"));
+    const games = Number(new URL(req.url).searchParams.get("games") ?? "-1");
     if (!id) return NextResponse.json({ error: "id가 필요합니다." }, { status: 400 });
 
     await ensureSchema();
     const pool = getPool();
-    const [rows] = await pool.query("SELECT id FROM parties WHERE id = ?", [id]) as [any[], any];
+    const [rows] = await pool.query("SELECT id, mode, created_at, start_at FROM parties WHERE id = ?", [id]) as [any[], any];
     if (!rows[0]) return NextResponse.json({ error: "존재하지 않는 파티입니다." }, { status: 404 });
-
-    if (auth.session.role !== "admin") {
-      const [partRows] = await pool.query(
-        "SELECT 1 FROM party_participants WHERE party_id = ? AND user_id = ?",
-        [id, auth.session.userId]
-      ) as [any[], any];
-      if (!partRows[0]) {
-        return NextResponse.json({ error: "현재 파티에 참가 중인 사람만 종료할 수 있습니다." }, { status: 403 });
-      }
-    }
+    const party = rows[0];
 
     await pool.query("UPDATE parties SET status = 'ended', ended_at = NOW() WHERE id = ?", [id]);
+
+    try {
+      if (party.mode === "aram") {
+        if (games >= 0) await awardAramPoints(pool, id, party, games);
+      } else {
+        await awardPartyPoints(pool, id, party);
+      }
+    } catch (e) {
+      console.error("[points] 전적 조회 실패 (점수 미지급):", e);
+    }
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "삭제 실패" }, { status: 500 });
+  }
+}
+
+// 칼바람: 판수 입력 기반 점수 지급 (4판당 5점, 하루 최대 5점)
+async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRow, games: number) {
+  const points = Math.min(Math.floor(games / 4) * 5, 5);
+  if (points <= 0) return;
+
+  const [histRows] = await pool.query(
+    `SELECT DISTINCT nickname FROM party_participant_history WHERE party_id = ?`,
+    [partyId]
+  ) as [any[], any];
+  if (histRows.length < 2) return;
+
+  const today = new Date().toISOString().slice(0, 10);
+  for (const h of histRows) {
+    const [mRows] = await pool.query(
+      `SELECT m.id AS member_id FROM members m
+       JOIN accounts a ON a.member_id = m.id AND a.is_main = 1 AND a.game_name = ?`,
+      [h.nickname]
+    ) as [any[], any];
+    if (!mRows.length) continue;
+    const memberId = mRows[0].member_id;
+    const [already] = await pool.query(
+      `SELECT id FROM point_logs WHERE member_id = ? AND type = 'flex' AND DATE(created_at) = ?`,
+      [memberId, today]
+    ) as [any[], any];
+    if (already.length > 0) continue;
+    await givePoints(pool, memberId, points, "flex", games, `칼바람 ${games}판`, null, partyId);
+  }
+}
+async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyRow) {
+  const [histRows] = await pool.query(
+    `SELECT DISTINCT nickname FROM party_participant_history WHERE party_id = ?`,
+    [partyId]
+  ) as [any[], any];
+  console.log(`[award] partyId=${partyId} mode=${party.mode} hist=${histRows.map((r:any)=>r.nickname).join(",")}`);
+  if (histRows.length < 2) { console.log(`[award] skip: hist < 2`); return; }
+
+  const memberData: { memberId: number; puuids: string[] }[] = [];
+  for (const h of histRows) {
+    const [mRows] = await pool.query(
+      `SELECT m.id AS member_id, a.puuid
+       FROM members m
+       JOIN accounts main_a ON main_a.member_id = m.id AND main_a.is_main = 1 AND main_a.game_name = ?
+       LEFT JOIN accounts a ON a.member_id = m.id AND a.puuid IS NOT NULL`,
+      [h.nickname]
+    ) as [any[], any];
+    if (!mRows.length) { console.log(`[award] no member for nickname=${h.nickname}`); continue; }
+    const memberId = mRows[0].member_id;
+    const puuids = [...new Set(mRows.map((r: any) => r.puuid).filter(Boolean))] as string[];
+    console.log(`[award] ${h.nickname} memberId=${memberId} puuids=${puuids.length}`);
+    if (puuids.length) memberData.push({ memberId, puuids });
+  }
+  if (memberData.length < 2) { console.log(`[award] skip: memberData < 2`); return; }
+
+  const createdMs = new Date(party.created_at.replace(" ", "T")).getTime();
+  const startTime = Math.floor((createdMs - 24 * 60 * 60 * 1000) / 1000);
+  const endTime = Math.floor(Date.now() / 1000);
+  const minGames = 3;
+  const pointsToGive = party.mode === "solo" ? 5 : 10;
+  const queueIds = party.mode === "solo" ? [420] : party.mode === "flex" ? [440] : [400, 430];
+  const pointType = party.mode === "solo" ? "solo" : party.mode === "flex" ? "flex" : "normal";
+  const queueType = party.mode === "solo" ? "ranked" : "normal";
+  console.log(`[award] startTime=${new Date(startTime*1000).toISOString()} endTime=${new Date(endTime*1000).toISOString()} queueIds=${queueIds} queueType=${queueType}`);
+
+  const allPartyPuuids = new Set(memberData.flatMap((m) => m.puuids));
+  const today = new Date().toISOString().slice(0, 10);
+
+  for (const { memberId, puuids } of memberData) {
+    const [alreadyRows] = await pool.query(
+      `SELECT id FROM point_logs WHERE member_id = ? AND type = ? AND DATE(created_at) = ?`,
+      [memberId, pointType, today]
+    ) as [any[], any];
+    if (alreadyRows.length > 0) { console.log(`[award] skip memberId=${memberId}: already given today`); continue; }
+
+    const myMatchIds = new Set<string>();
+    for (const puuid of puuids) {
+      const ids = await getMatchIds(puuid, 50, startTime, queueType).catch((e) => { console.log(`[award] getMatchIds err puuid=${puuid}`, e.message); return [] as string[]; });
+      ids.forEach((id) => myMatchIds.add(id));
+    }
+    console.log(`[award] memberId=${memberId} matchIds=${myMatchIds.size}`);
+
+    let validGames = 0;
+    let checkedCount = 0;
+    for (const mid of myMatchIds) {
+      try {
+        const match = await getMatch(mid);
+        const created = Math.floor(match.info.gameCreation / 1000);
+        if (created < startTime || created > endTime) continue;
+        const matchPuuids = match.info.participants.map((p: any) => p.puuid);
+        const hasPartyMate = matchPuuids.some(
+          (p: string) => !puuids.includes(p) && allPartyPuuids.has(p)
+        );
+        if (checkedCount < 3) {
+          console.log(`[award] match=${mid} queueId=${match.info.queueId} hasPartyMate=${hasPartyMate} created=${new Date(created*1000).toISOString()}`);
+          checkedCount++;
+        }
+        if (!queueIds.includes(match.info.queueId)) continue;
+        if (hasPartyMate) validGames++;
+      } catch { continue; }
+    }
+    console.log(`[award] memberId=${memberId} validGames=${validGames} minGames=${minGames}`);
+
+    if (validGames < minGames) { console.log(`[award] skip memberId=${memberId}: validGames=${validGames} < ${minGames}`); continue; }
+    await givePoints(pool, memberId, pointsToGive, pointType, validGames, `파티 ${validGames}판 달성`, null, partyId);
+    console.log(`[award] gave ${pointsToGive}pts to memberId=${memberId}`);
   }
 }

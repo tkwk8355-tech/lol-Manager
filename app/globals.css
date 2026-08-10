@@ -3649,3 +3649,89 @@ a {
 .party-mode-badge.mode-normal { background: rgba(46,204,113,0.18); color: #2ecc71; }
 .party-mode-badge.mode-flex   { background: rgba(155,89,182,0.18); color: #c39bd3; }
 .party-mode-badge.mode-solo   { background: rgba(231,76,60,0.18);  color: #f1948a; }
+.party-mode-badge.mode-scrim  { background: rgba(230,126,34,0.18); color: #e67e22; }
+
+/* ====================== 파티 생성: 참가자 닉네임 입력 ====================== */
+.party-participants-input {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.party-participants-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.party-participant-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.party-participant-nick-input {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 13px;
+}
+.party-participant-nick-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.party-participant-remove {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.party-participant-remove:hover {
+  border-color: var(--loss-accent);
+  color: var(--loss-text);
+}
+.party-participant-add {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.party-participant-add:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* 참가자 행 오른쪽 작은 + 버튼 */
+.party-participant-add-inline {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 5px;
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+}
+.party-participant-add-inline:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

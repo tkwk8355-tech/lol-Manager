@@ -11,6 +11,7 @@ export async function POST(req: NextRequest) {
       members: Array<{
         nickname: string;
         birthYear?: number;
+        birthDate?: string;
         mainLine?: string;
         subLine?: string;
         accounts: Array<{ gameName: string; tagLine: string; isMain: boolean }>;
@@ -32,8 +33,8 @@ export async function POST(req: NextRequest) {
       if (!m.nickname?.trim()) { errors.push("빈 이름은 건너뜁니다."); continue; }
       try {
         const [result] = await pool.query(
-          "INSERT INTO members (nickname, birth_year, main_line, sub_line) VALUES (?, ?, ?, ?)",
-          [m.nickname.trim(), m.birthYear || null, m.mainLine?.trim() || null, m.subLine?.trim() || null]
+          "INSERT INTO members (nickname, birth_year, birth_date, main_line, sub_line, position, status) VALUES (?, ?, ?, ?, ?, '일반', 'active')",
+          [m.nickname.trim(), m.birthYear || null, m.birthDate || null, m.mainLine?.trim() || null, m.subLine?.trim() || null]
         ) as any;
         const memberId = result.insertId;
         addedMembers++;

@@ -1,0 +1,90 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getPool, ensureSchema } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
+import { givePoints } from "@/lib/points";
+
+export const dynamic = "force-dynamic";
+
+// GET /api/points?memberId=1  — 특정 클랜원 포인트 로그
+// GET /api/points              — 전체 로그 (운영진만)
+export async function GET(req: NextRequest) {
+  const auth = requireAuth(req);
+  if (!auth.ok) return auth.response;
+  await ensureSchema();
+  const pool = getPool();
+  const memberId = new URL(req.url).searchParams.get("memberId");
+
+  if (memberId) {
+    const [logs] = await pool.query(
+      `SELECT pl.id, pl.points, pl.type, pl.games, pl.comment, pl.created_at,
+              m2.nickname AS given_by_name
+       FROM point_logs pl
+       LEFT JOIN users u ON u.id = pl.given_by
+       LEFT JOIN members m2 ON m2.id = u.member_id
+       WHERE pl.member_id = ?
+       ORDER BY pl.created_at DESC`,
+      [memberId]
+    ) as [any[], any];
+    const [totRows] = await pool.query(
+      `SELECT total_points FROM members WHERE id = ?`, [memberId]
+    ) as [any[], any];
+    return NextResponse.json({ logs, totalPoints: totRows[0]?.total_points ?? 0 });
+  }
+
+  // 전체 로그 (운영진만)
+  if (auth.session.role !== "admin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
+  const [logs] = await pool.query(
+    `SELECT pl.id, pl.member_id,
+            COALESCE((SELECT a.game_name FROM accounts a WHERE a.member_id = pl.member_id AND a.is_main = 1 LIMIT 1), '알수없음') AS nickname,
+            pl.points, pl.type, pl.games,
+            pl.comment, pl.created_at,
+            COALESCE((SELECT a2.game_name FROM users u JOIN accounts a2 ON a2.member_id = u.member_id AND a2.is_main = 1 WHERE u.id = pl.given_by LIMIT 1), u2.nickname) AS given_by_name
+     FROM point_logs pl
+     LEFT JOIN users u2 ON u2.id = pl.given_by
+     ORDER BY pl.created_at DESC LIMIT 200`
+  ) as [any[], any];
+  return NextResponse.json({ logs });
+}
+
+// POST /api/points — 운영진 수동 포인트 지급
+export async function POST(req: NextRequest) {
+  const auth = requireAuth(req);
+  if (!auth.ok) return auth.response;
+  if (auth.session.role !== "admin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
+
+  const body = await req.json().catch(() => ({}));
+  const memberId = Number(body.memberId);
+  const points = Number(body.points);
+  const comment = String(body.comment ?? "").trim().slice(0, 255);
+
+  if (!memberId || !points || !comment) {
+    return NextResponse.json({ error: "memberId, points, comment 필수" }, { status: 400 });
+  }
+
+  await ensureSchema();
+  const pool = getPool();
+  const [rows] = await pool.query("SELECT id FROM members WHERE id = ?", [memberId]) as [any[], any];
+  if (!rows[0]) return NextResponse.json({ error: "존재하지 않는 클랜원" }, { status: 404 });
+
+  await givePoints(pool, memberId, points, "manual", 0, comment, auth.session.userId, null);
+  return NextResponse.json({ ok: true });
+}
+
+// DELETE /api/points?id=1 — 포인트 로그 취소 (운영진만)
+export async function DELETE(req: NextRequest) {
+  const auth = requireAuth(req);
+  if (!auth.ok) return auth.response;
+  if (auth.session.role !== "admin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
+
+  const id = Number(new URL(req.url).searchParams.get("id"));
+  if (!id) return NextResponse.json({ error: "id 필수" }, { status: 400 });
+
+  await ensureSchema();
+  const pool = getPool();
+  const [rows] = await pool.query("SELECT member_id, points FROM point_logs WHERE id = ?", [id]) as [any[], any];
+  if (!rows[0]) return NextResponse.json({ error: "존재하지 않는 로그" }, { status: 404 });
+
+  await pool.query("UPDATE members SET total_points = total_points - ? WHERE id = ?", [rows[0].points, rows[0].member_id]);
+  await pool.query("DELETE FROM point_logs WHERE id = ?", [id]);
+  return NextResponse.json({ ok: true });
+}

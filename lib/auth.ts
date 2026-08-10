@@ -12,7 +12,7 @@ import { NextResponse } from "next/server";
 export const SESSION_COOKIE_NAME = "session";
 export const SESSION_MAX_AGE_SEC = 60 * 60 * 24 * 7; // 7일
 
-export type Role = "admin" | "member";
+export type Role = "admin" | "subadmin" | "member";
 
 export interface SessionPayload {
   userId: number;
@@ -84,7 +84,7 @@ export function requireAdmin(
   if (!session) {
     return { ok: false, response: NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 }) };
   }
-  if (session.role !== "admin") {
+  if (session.role !== "admin" && session.role !== "subadmin") {
     return { ok: false, response: NextResponse.json({ error: "운영진만 사용할 수 있습니다." }, { status: 403 }) };
   }
   return { ok: true, session };

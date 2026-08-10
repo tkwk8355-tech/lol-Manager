@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool, ensureSchema } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
+import { givePoints } from "@/lib/points";
 
 interface ParticipantInput { memberId: number; team: number; line?: string; }
 interface ResultInput { memberId: number; champion?: string; kills: number; deaths: number; assists: number; }
@@ -164,6 +165,21 @@ export async function PATCH(req: NextRequest) {
         );
       }
       await conn.commit();
+
+      // 내전 결과 등록 시 참가자 전원 30점 지급 (하루 한도)
+      const today = new Date().toISOString().slice(0, 10);
+      const [partRows] = await pool.query(
+        "SELECT member_id FROM scrim_participants WHERE match_id = ?", [id]
+      ) as [any[], any];
+      for (const p of partRows) {
+        const [alreadyRows] = await pool.query(
+          `SELECT id FROM point_logs WHERE member_id = ? AND type = 'scrim' AND DATE(created_at) = ?`,
+          [p.member_id, today]
+        ) as [any[], any];
+        if (alreadyRows.length > 0) continue;
+        await givePoints(pool, p.member_id, 30, "scrim", 1, "내전 참여", null, id);
+      }
+
       return NextResponse.json({ ok: true });
     } catch (err) {
       await conn.rollback();

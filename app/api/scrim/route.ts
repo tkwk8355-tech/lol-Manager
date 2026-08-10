@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { getPool, ensureSchema } from "@/lib/db";
-import { tierBaseScore, higherTier, computeModeStats, type ScrimGameLine, type TierInfo } from "@/lib/scrim";
 
-// GET 핸들러가 request 객체를 받지 않으면 Next.js가 프로덕션 빌드에서
-// 이 응답을 정적으로 캐싱해버려, DB가 바뀌어도 계속 옛 데이터를 반환하는
-// 문제가 있었다. 매 요청마다 새로 실행되도록 강제한다.
 export const dynamic = "force-dynamic";
+
+const TIER_ORDER = ["IRON","BRONZE","SILVER","GOLD","PLATINUM","EMERALD","DIAMOND","MASTER","GRANDMASTER","CHALLENGER"];
+const RANK_ORDER: Record<string,number> = { IV:0, III:1, II:2, I:3 };
+
+function tierScore(tier: string|null, rank: string|null, lp: number) {
+  if (!tier) return -1;
+  return TIER_ORDER.indexOf(tier) * 400 + (RANK_ORDER[rank ?? "IV"] ?? 0) * 100 + (lp ?? 0);
+}
 
 export async function GET() {
   try {
@@ -15,61 +19,70 @@ export async function GET() {
     const [members] = await pool.query("SELECT id, nickname FROM members ORDER BY nickname ASC") as [any[], any];
 
     const [accTiers] = await pool.query(
-      `SELECT member_id, is_main, solo_tier, solo_rank, solo_lp
-       FROM accounts ORDER BY is_main DESC, id ASC`
+      `SELECT member_id, is_main, solo_tier, solo_rank, solo_lp FROM accounts ORDER BY is_main DESC, id ASC`
     ) as [any[], any];
 
-    const tierByMember = new Map<number, TierInfo | null>();
+    const tierByMember = new Map<number, { tier:string; rank:string; lp:number } | null>();
     const mainSeen = new Set<number>();
     for (const a of accTiers) {
-      const cur: TierInfo | null = a.solo_tier
-        ? { tier: a.solo_tier, rank: a.solo_rank || "I", lp: a.solo_lp || 0 }
-        : null;
+      const cur = a.solo_tier ? { tier: a.solo_tier, rank: a.solo_rank||"I", lp: a.solo_lp||0 } : null;
       if (a.is_main && !mainSeen.has(a.member_id)) {
         mainSeen.add(a.member_id);
         tierByMember.set(a.member_id, cur);
         continue;
       }
       if (mainSeen.has(a.member_id)) continue;
-      tierByMember.set(a.member_id, higherTier(tierByMember.get(a.member_id) ?? null, cur));
+      const prev = tierByMember.get(a.member_id) ?? null;
+      tierByMember.set(a.member_id,
+        tierScore(cur?.tier??null, cur?.rank??null, cur?.lp??0) > tierScore(prev?.tier??null, prev?.rank??null, prev?.lp??0) ? cur : prev
+      );
     }
 
     const [parts] = await pool.query(
-      `SELECT p.member_id, m.mode, p.team, m.winner_team,
-              p.kills, p.deaths, p.assists
+      `SELECT p.member_id, p.line, p.kills, p.deaths, p.assists
        FROM scrim_participants p
-       JOIN scrim_matches m ON m.id = p.match_id
-       WHERE m.status = 'done'`
+       JOIN scrim_matches m ON m.id = p.match_id WHERE m.status = 'done'`
     ) as [any[], any];
 
-    const gamesByMember = new Map<number, { aram: ScrimGameLine[]; rift: ScrimGameLine[] }>();
+    const LINES = ["TOP","JG","MID","ADC","SUP"];
+    const statMap = new Map<number, {
+      lineStats: Record<string,{games:number;kills:number;deaths:number;assists:number}>;
+      kills:number; deaths:number; assists:number; games:number
+    }>();
     for (const p of parts) {
-      if (!gamesByMember.has(p.member_id)) gamesByMember.set(p.member_id, { aram: [], rift: [] });
-      const bucket = gamesByMember.get(p.member_id)!;
-      const line: ScrimGameLine = { win: p.team === p.winner_team, kills: p.kills, deaths: p.deaths, assists: p.assists };
-      if (p.mode === "aram") bucket.aram.push(line);
-      else if (p.mode === "rift") bucket.rift.push(line);
+      if (!statMap.has(p.member_id)) statMap.set(p.member_id, {
+        lineStats:{TOP:{games:0,kills:0,deaths:0,assists:0},JG:{games:0,kills:0,deaths:0,assists:0},MID:{games:0,kills:0,deaths:0,assists:0},ADC:{games:0,kills:0,deaths:0,assists:0},SUP:{games:0,kills:0,deaths:0,assists:0}},
+        kills:0, deaths:0, assists:0, games:0
+      });
+      const s = statMap.get(p.member_id)!;
+      const line = (p.line ?? "").toUpperCase();
+      if (LINES.includes(line)) {
+        s.lineStats[line].games++;
+        s.lineStats[line].kills += p.kills;
+        s.lineStats[line].deaths += p.deaths;
+        s.lineStats[line].assists += p.assists;
+      }
+      s.kills += p.kills; s.deaths += p.deaths; s.assists += p.assists; s.games++;
     }
 
     const players = members.map((m) => {
       const t = tierByMember.get(m.id) ?? null;
-      const base = tierBaseScore(t?.tier, t?.rank, t?.lp);
-      const g = gamesByMember.get(m.id) ?? { aram: [], rift: [] };
+      const s = statMap.get(m.id) ?? {
+        lineStats:{TOP:{games:0,kills:0,deaths:0,assists:0},JG:{games:0,kills:0,deaths:0,assists:0},MID:{games:0,kills:0,deaths:0,assists:0},ADC:{games:0,kills:0,deaths:0,assists:0},SUP:{games:0,kills:0,deaths:0,assists:0}},
+        kills:0, deaths:0, assists:0, games:0
+      };
+      const lineCounts = Object.fromEntries(LINES.map((l) => [l, s.lineStats[l].games]));
+      const kda = s.games > 0 ? ((s.kills + s.assists) / Math.max(s.deaths, 1)).toFixed(2) : null;
       return {
-        memberId: m.id,
-        nickname: m.nickname,
-        tier: t?.tier ?? null,
-        rank: t?.rank ?? null,
-        lp: t?.lp ?? 0,
-        baseScore: Math.round(base * 10) / 10,
-        aram: computeModeStats(base, g.aram),
-        rift: computeModeStats(base, g.rift),
+        memberId: m.id, nickname: m.nickname,
+        tier: t?.tier ?? null, rank: t?.rank ?? null, lp: t?.lp ?? 0,
+        lineCounts, lineStats: s.lineStats, kills: s.kills, deaths: s.deaths, assists: s.assists, games: s.games, kda,
       };
     });
 
     return NextResponse.json({ players });
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: "내전 명단 조회 실패" }, { status: 500 });
+    return NextResponse.json({ error: "내전 통계 조회 실패" }, { status: 500 });
   }
 }

@@ -3,12 +3,8 @@ import { getPool, ensureSchema } from "@/lib/db";
 import { higherTier, type TierInfo } from "@/lib/scrim";
 import { requireAuth } from "@/lib/auth";
 
-// GET 핸들러가 request 객체를 받지 않으면 Next.js가 프로덕션 빌드에서
-// 이 응답을 정적으로 캐싱해버려, DB가 바뀌어도(삭제/추가) 계속 옛 데이터를
-// 반환하는 문제가 있었다. 매 요청마다 새로 실행되도록 강제한다.
 export const dynamic = "force-dynamic";
 
-// 클랜원 명단(이름/티어/계정 정보)은 클랜 내부 정보이므로 로그인해야 조회 가능하다.
 export async function GET(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return auth.response;
@@ -16,14 +12,22 @@ export async function GET(req: NextRequest) {
     await ensureSchema();
     const pool = getPool();
     const [rows] = await pool.query(`
-      SELECT m.id AS member_id, m.nickname, m.memo, m.birth_year, m.main_line, m.sub_line,
+      SELECT m.id AS member_id, m.memo, m.birth_date, m.birth_year, m.gender,
+             m.main_line, m.sub_line, m.position, m.status, m.status_note,
+             m.total_points,
              a.id AS account_id, a.game_name, a.tag_line, a.is_main,
              a.puuid, a.games_total, a.games_2w, a.last_synced_at,
              a.solo_tier, a.solo_rank, a.solo_lp
       FROM members m
       LEFT JOIN accounts a ON a.member_id = m.id
-      ORDER BY m.nickname ASC, a.is_main DESC, a.id ASC
+      ORDER BY m.id ASC, a.is_main DESC, a.id ASC
     `) as [any[], any];
+
+    const [warnRows] = await pool.query(
+      `SELECT member_id, COUNT(*) AS cnt FROM warnings GROUP BY member_id`
+    ) as [any[], any];
+    const warnCount = new Map<number, number>();
+    for (const w of warnRows) warnCount.set(w.member_id, Number(w.cnt));
 
     const map = new Map<number, any>();
     const mainTier = new Map<number, TierInfo | null>();
@@ -33,11 +37,19 @@ export async function GET(req: NextRequest) {
       if (!map.has(r.member_id)) {
         map.set(r.member_id, {
           id: r.member_id,
-          nickname: r.nickname,
+          nickname: "",       // 본계정 game_name으로 채움
+          displayName: "",    // 본계정 game_name#tagLine
           memo: r.memo,
-          birthYear: r.birth_year,
+          birthDate: r.birth_date ?? null,
+          birthYear: r.birth_year ?? null,
+          gender: r.gender ?? null,
           mainLine: r.main_line,
           subLine: r.sub_line,
+          position: r.position ?? "일반",
+          status: r.status ?? "active",
+          statusNote: r.status_note ?? null,
+          totalPoints: r.total_points ?? 0,
+          warningCount: 0,
           accounts: [],
           gamesTotal: 0,
           games2w: 0,
@@ -65,7 +77,12 @@ export async function GET(req: NextRequest) {
         m.gamesTotal += gt;
         m.games2w += g2;
 
-        if (r.is_main && accTier && !mainTier.get(r.member_id)) {
+        // 본계정 game_name을 표시명으로 사용
+        if (r.is_main && !m.nickname) {
+          m.nickname = r.game_name;
+          m.displayName = `${r.game_name}#${r.tag_line}`;
+        }
+        if (r.is_main && accTier && !mainTier.has(r.member_id)) {
           mainTier.set(r.member_id, accTier);
         }
         bestTier.set(r.member_id, higherTier(bestTier.get(r.member_id) ?? null, accTier));
@@ -74,9 +91,21 @@ export async function GET(req: NextRequest) {
 
     for (const [id, m] of map) {
       m.tier = mainTier.get(id) ?? bestTier.get(id) ?? null;
+      m.warningCount = warnCount.get(id) ?? 0;
+      // 본계정이 없으면 첫 번째 계정 이름 사용, 계정도 없으면 id로 표시
+      if (!m.nickname) {
+        m.nickname = m.accounts[0]?.gameName ?? `클랜원#${id}`;
+        m.displayName = m.accounts[0]
+          ? `${m.accounts[0].gameName}#${m.accounts[0].tagLine}`
+          : `클랜원#${id}`;
+      }
     }
 
-    return NextResponse.json({ members: [...map.values()] });
+    // 본계정 game_name 기준 가나다/알파벳 정렬
+    const sorted = [...map.values()].sort((a, b) =>
+      a.nickname.localeCompare(b.nickname, "ko")
+    );
+    return NextResponse.json({ members: sorted });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "DB 조회 실패" }, { status: 500 });
