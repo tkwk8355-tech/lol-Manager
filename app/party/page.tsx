@@ -264,6 +264,8 @@ export default function PartyPage() {
                 }}
                 maxLength={5}
                 required
+                onInvalid={(e) => (e.target as HTMLInputElement).setCustomValidity("시작 시간을 입력하세요.")}
+                onInput={(e) => (e.target as HTMLInputElement).setCustomValidity("")}
               />
               <div className="party-participants-input">
                 <span className="party-participants-label">참가자</span>
@@ -282,7 +284,7 @@ export default function PartyPage() {
           {loading && <p className="party-empty">불러오는 중...</p>}
           {!loading && parties.length === 0 && <p className="party-empty">모집 중인 파티가 없습니다.</p>}
 
-          <div className="party-list">
+          <div className="party-list" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
             {parties.map((p) => {
               const isEditing = editingId === p.id;
               return (

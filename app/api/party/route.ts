@@ -62,11 +62,11 @@ export async function GET(req: NextRequest) {
     const [parties] = mode === "all"
       ? await pool.query(
           `SELECT id, mode, max_size, status, host_user_id, host_nickname, note, start_at, created_at
-           FROM parties WHERE status != 'ended' AND start_at >= NOW() - INTERVAL 24 HOUR ORDER BY start_at ASC LIMIT 50`
+           FROM parties WHERE status != 'ended' ORDER BY COALESCE(start_at, created_at) ASC LIMIT 50`
         ) as [PartyRow[], any]
       : await pool.query(
           `SELECT id, mode, max_size, status, host_user_id, host_nickname, note, start_at, created_at
-           FROM parties WHERE mode = ? AND status != 'ended' AND start_at >= NOW() - INTERVAL 24 HOUR ORDER BY start_at ASC LIMIT 50`,
+           FROM parties WHERE mode = ? AND status != 'ended' ORDER BY COALESCE(start_at, created_at) ASC LIMIT 50`,
           [mode]
         ) as [PartyRow[], any];
 
@@ -113,6 +113,9 @@ export async function POST(req: NextRequest) {
     }
 
     let startAt: string | null = null;
+    if (!body.startTime) {
+      return NextResponse.json({ error: "시작 시간을 입력하세요." }, { status: 400 });
+    }
     if (body.startTime) {
       const m = /^(\d{1,2}):(\d{2})$/.exec(String(body.startTime).trim());
       if (!m) return NextResponse.json({ error: "시작 시간 형식이 올바르지 않습니다. (HH:mm)" }, { status: 400 });
@@ -122,9 +125,7 @@ export async function POST(req: NextRequest) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return NextResponse.json({ error: "날짜 형식이 올바르지 않습니다." }, { status: 400 });
       const p = (n: number) => String(n).padStart(2, "0");
       startAt = `${dateStr} ${p(hh)}:${p(mm)}:00`;
-      if (new Date(startAt) > new Date()) {
-        return NextResponse.json({ error: "시작 시간은 현재 시각 이후로 설정할 수 없습니다." }, { status: 400 });
-      }
+
     }
 
     await ensureSchema();

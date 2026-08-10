@@ -1194,21 +1194,17 @@ export default function UserInfoPage() {
           {historyLoading && <p className="party-empty">불러오는 중...</p>}
           {!historyLoading && historyData && (
             historyData.parties.length === 0
-              ? <p className="empty">오늘 파티 내역이 없습니다.</p>
-              : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              ? <p className="empty">펑한 파티 내역이 없습니다.</p>
+              : <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
                   {historyData.parties.map((p) => (
                     <div key={p.id} className="home-panel" style={{ padding: "12px 16px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                         <span className={`party-mode-badge mode-${p.mode}`}>{MODE_KO[p.mode] ?? p.mode}</span>
-                        {p.note && <span style={{ fontWeight: 700, fontSize: 14 }}>{p.note}</span>}
-                        <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: "auto" }}>
-                          {p.startAt ? p.startAt.slice(11, 16) : "-"}
-                        </span>
-                        {p.status === "ended"
-                          ? <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5, background: "rgba(231,76,60,0.18)", color: "#f1948a" }}>펑</span>
-                          : <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5, background: "rgba(46,204,113,0.18)", color: "#2ecc71" }}>진행중</span>}
+                        {p.note && <span style={{ fontWeight: 700, fontSize: 13 }}>{p.note}</span>}
+                        <span style={{ fontSize: 11, color: "var(--muted)", marginLeft: "auto" }}>{p.startAt ? p.startAt.slice(5, 16).replace("T", " ") : "-"}</span>
+                        <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5, background: "rgba(231,76,60,0.18)", color: "#f1948a" }}>펑</span>
                       </div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                         {p.participants.map((nick) => (
                           <span key={nick} style={{ fontSize: 12, padding: "2px 8px", borderRadius: 12, background: "var(--card-2)", color: "var(--text)" }}>{nick}</span>
                         ))}

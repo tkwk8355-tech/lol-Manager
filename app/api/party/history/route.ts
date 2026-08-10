@@ -15,15 +15,12 @@ export async function GET(req: NextRequest) {
     await ensureSchema();
     const pool = getPool();
 
-    const today = new Date().toISOString().slice(0, 10);
-    const start = `${today} 00:00:00`;
-
     const [parties] = await pool.query(
       `SELECT p.id, p.mode, p.note, p.status, p.created_at, p.ended_at, p.start_at, p.host_nickname
        FROM parties p
-       WHERE p.start_at >= ?
-       ORDER BY p.start_at DESC`,
-      [start]
+       WHERE p.status = 'ended'
+       ORDER BY p.ended_at DESC
+       LIMIT 100`
     ) as [any[], any];
 
     const partyIds = parties.map((p: any) => p.id);
