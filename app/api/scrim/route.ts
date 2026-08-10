@@ -39,7 +39,8 @@ export async function GET() {
     }
 
     const [parts] = await pool.query(
-      `SELECT p.member_id, p.line, p.kills, p.deaths, p.assists, p.result
+      `SELECT p.member_id, p.line, p.kills, p.deaths, p.assists,
+              CASE WHEN m.winner_team > 0 AND p.team = m.winner_team THEN 1 ELSE 0 END AS win
        FROM scrim_participants p
        JOIN scrim_matches m ON m.id = p.match_id WHERE m.status = 'done'`
     ) as [any[], any];
@@ -63,7 +64,7 @@ export async function GET() {
         s.lineStats[line].assists += p.assists;
       }
       s.kills += p.kills; s.deaths += p.deaths; s.assists += p.assists; s.games++;
-      if (p.result === "win") s.wins++;
+      if (p.win === 1) s.wins++;
     }
 
     const players = members.map((m) => {
