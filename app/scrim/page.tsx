@@ -28,7 +28,7 @@ interface Player {
   tier: string|null; rank: string|null; lp: number;
   lineCounts: Record<string,number>;
   lineStats: Record<string,LineStat>;
-  kills: number; deaths: number; assists: number; games: number; kda: string|null;
+  kills: number; deaths: number; assists: number; games: number; wins: number; kda: string|null; winRate: number|null;
 }
 
 export default function ScrimPage() {
@@ -78,8 +78,9 @@ export default function ScrimPage() {
               <button className="modal-close" onClick={() => setDetail(null)}>×</button>
             </div>
             <div style={{ marginBottom: 12, fontSize: 13, color: "var(--muted)" }}>
-              총 {detail.games}판 · 통합 KDA {detail.kda ?? "-"}
-              {" · "}{detail.kills}/{detail.deaths}/{detail.assists}
+              총 {detail.games}판 · {detail.wins}승 {detail.games - detail.wins}패
+              {detail.winRate !== null && ` · 승률 ${detail.winRate}%`}
+              {" · "}KDA {detail.kda ?? "-"} ({detail.kills}/{detail.deaths}/{detail.assists})
             </div>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
@@ -94,14 +95,15 @@ export default function ScrimPage() {
                 {LINES.filter((l) => detail.lineStats[l].games > 0).map((l) => {
                   const s = detail.lineStats[l];
                   const kda = ((s.kills + s.assists) / Math.max(s.deaths, 1)).toFixed(2);
+                  const info = LINE_MAP[l];
                   return (
                     <tr key={l} style={{ borderBottom: "1px solid var(--border)" }}>
                       <td style={{ padding: "7px 8px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
-                        {LINE_MAP[l] && (
+                        {info && (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={lineIconUrl(LINE_MAP[l].icon)} alt={l} width={16} height={16} />
+                          <img src={lineIconUrl(info.icon)} alt={info.label} width={18} height={18} />
                         )}
-                        {l}
+                        {info?.label ?? l}
                       </td>
                       <td style={{ padding: "7px 8px", textAlign: "center" }}>{s.games}판</td>
                       <td style={{ padding: "7px 8px", textAlign: "center", color: "var(--muted)" }}>
@@ -139,6 +141,7 @@ export default function ScrimPage() {
                   </th>
                 ))}
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>총판수</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>승률</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>KDA</th>
               </tr>
             </thead>
@@ -151,6 +154,11 @@ export default function ScrimPage() {
                     <span className={`tier-badge tier-${(p.tier ?? "unranked").toLowerCase()}`}>
                       {tierLabel(p.tier, p.rank, p.lp)}
                     </span>
+                    {p.winRate !== null && (
+                      <span style={{ marginLeft: 6, fontSize: 11, color: p.winRate >= 50 ? "var(--win-text)" : "var(--loss-text)" }}>
+                        {p.winRate}%
+                      </span>
+                    )}
                   </td>
                   {LINES.map((l) => (
                     <td key={l} style={{ padding: "8px 8px", textAlign: "center", color: p.lineCounts[l] > 0 ? "var(--text)" : "var(--muted)" }}>
@@ -159,6 +167,10 @@ export default function ScrimPage() {
                   ))}
                   <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)" }}>
                     {p.games > 0 ? `${p.games}판` : "-"}
+                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 700,
+                    color: p.winRate !== null ? (p.winRate >= 50 ? "var(--win-text)" : "var(--loss-text)") : "var(--muted)" }}>
+                    {p.winRate !== null ? `${p.winRate}%` : "-"}
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 700,
                     color: p.kda ? (Number(p.kda) >= 3 ? "var(--win-text)" : "var(--text)") : "var(--muted)" }}>
