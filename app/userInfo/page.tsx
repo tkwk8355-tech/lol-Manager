@@ -123,7 +123,7 @@ export default function UserInfoPage() {
 
   // ��й�ȣ�� �ؾ���� Ŭ������ ����, ����� �ش� �α��� ���� ��й�ȣ�� 1234�� �ʱ�ȭ�Ѵ�.
   async function resetPassword(userId: number, username: string) {
-    if (!confirm(`"${username}" ������ ��й�ȣ�� 1234�� �ʱ�ȭ�ұ��?`)) return;
+    if (!confirm(`"${username}" 의 비밀번호를 1234로 초기화할까요?`)) return;
     setLinkMsg("");
     try {
       const res = await fetch("/api/userinfo/reset-password", {
@@ -132,9 +132,9 @@ export default function UserInfoPage() {
         body: JSON.stringify({ userId }),
       });
       const json = await res.json();
-      if (!res.ok) { setLinkMsg(json.error || "�ʱ�ȭ ����"); return; }
-      alert(`"${username}" ������ ��й�ȣ�� 1234�� �ʱ�ȭ�Ǿ����ϴ�.`);
-    } catch { setLinkMsg("��Ʈ��ũ ����"); }
+      if (!res.ok) { setLinkMsg(json.error || "초기화 실패"); return; }
+      alert(`"${username}" 의 비밀번호가 1234로 초기화되었습니다.`);
+    } catch { setLinkMsg("네트워크 오류"); }
   }
 
   // memberId�� ������ �α��� ������ �ٲ۴�. userId�� null�̸� ���� ����.
@@ -221,7 +221,7 @@ export default function UserInfoPage() {
   // ��� ��� ����
   const [warnModal, setWarnModal] = useState<{ memberId: number; nickname: string } | null>(null);
   const [warnings, setWarnings] = useState<any[]>([]);
-  const [warnForm, setWarnForm] = useState({ type: "� ��ħ ����", reason: "", warnedAt: new Date().toISOString().slice(0, 10) });
+  const [warnForm, setWarnForm] = useState({ type: "운영 방침 위반", reason: "", warnedAt: new Date().toISOString().slice(0, 10) });
   const [warnLoading, setWarnLoading] = useState(false);
 
   async function openWarnModal(m: Member) {
@@ -243,7 +243,7 @@ export default function UserInfoPage() {
       body: JSON.stringify({ memberId: warnModal.memberId, ...warnForm }),
     });
     if (res.ok) {
-      setWarnForm({ type: "� ��ħ ����", reason: "", warnedAt: new Date().toISOString().slice(0, 10) });
+      setWarnForm({ type: "운영 방침 위반", reason: "", warnedAt: new Date().toISOString().slice(0, 10) });
       const r2 = await fetch(`/api/userinfo/warning?memberId=${warnModal.memberId}`);
       const j2 = await r2.json();
       if (r2.ok) setWarnings(j2.warnings);
@@ -291,8 +291,15 @@ export default function UserInfoPage() {
     safePage * pageSize + pageSize
   );
 
-  function openEditModal(m: Member) {
+  async function openEditModal(m: Member) {
     setEditModal(m);
+    setWarnings([]);
+    try {
+      const res = await fetch(`/api/userinfo/warning?memberId=${m.id}`);
+      const json = await res.json();
+      if (res.ok) setWarnings(json.warnings);
+    } catch {}
+
     setEditForm({
       birthYear: m.birthYear ? String(m.birthYear) : "",
       birthMD: m.birthDate ? m.birthDate.slice(5) : "", // YYYY-MM-DD���� MM-DD ����
@@ -886,7 +893,23 @@ export default function UserInfoPage() {
                 {accModalBusy ? "추가 중..." : "+ 계정 추가"}
               </button>
             </div>
-            {/* 저장 / 취소 */}
+            {/* 경고 내역 */}
+            {warnings.length > 0 && (
+              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, fontWeight: 700 }}>⚠️ 경고 {warnings.length}건</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {warnings.map((w) => (
+                    <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 8,
+                      background: "var(--card-2)", borderRadius: 8, padding: "7px 10px", fontSize: 12 }}>
+                      <span style={{ color: "#f1948a", fontWeight: 800, flexShrink: 0 }}>{w.warned_at?.slice(0, 10)}</span>
+                      <span style={{ fontWeight: 700, flexShrink: 0, background: "rgba(231,76,60,0.18)",
+                        color: "#f1948a", padding: "2px 6px", borderRadius: 4, fontSize: 11 }}>{w.type}</span>
+                      <span style={{ flex: 1, color: "var(--muted)", minWidth: 0 }}>{w.reason || "-"}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {/* 저장 / 취소 */}
             <div style={{ display: "flex", gap: 8 }}>
               <button className="sync-btn" style={{ flex: 1 }} onClick={saveEdit}>저장</button>
@@ -1013,7 +1036,7 @@ export default function UserInfoPage() {
         {isAdmin && (
           <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
             <div className="scrim-tabs" style={{ margin: 0, borderBottom: "none" }}>
-              <button className={tab === "accounts" ? "on" : ""} onClick={() => setTab("accounts")}>로그인 계정</button>
+              {user?.role === "admin" && <button className={tab === "accounts" ? "on" : ""} onClick={() => setTab("accounts")}>로그인 계정</button>}
               <button className={tab === "members" ? "on" : ""} onClick={() => setTab("members")}>클랜원</button>
               <button className={tab === "party-history" ? "on" : ""} onClick={() => setTab("party-history")}>파티 내역</button>
               <button className={tab === "points" ? "on" : ""} onClick={() => setTab("points")}>포인트</button>
@@ -1080,7 +1103,7 @@ export default function UserInfoPage() {
       {(isAdmin ? tab === "members" : true) && uploadMsg && <div className="sync-msg">{uploadMsg}</div>}
       {/* 로그인 계정 탭 */}
       {/* 로그인 계정 탭 */}
-      {isAdmin && tab === "accounts" && (
+      {isAdmin && user?.role === "admin" && tab === "accounts" && (
         <div className="home-panel">
           <div className="home-panel-head"><h3>계정 목록</h3></div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -1403,9 +1426,9 @@ export default function UserInfoPage() {
               return (
                 <tr key={m.id} style={{ borderBottom: "1px solid var(--border)" }}>
                   <td style={{ padding: "8px 10px", fontWeight: 700 }}>
-                    <span>
+                    <span style={{ cursor: "pointer", color: "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="#7aa2f7")} onMouseLeave={e => (e.currentTarget.style.color="var(--text)")} onClick={() => openEditModal(m)}>
                       {m.nickname}
-                      {m.warningCount > 0 && <span style={{ fontSize: 11, fontWeight: 800, marginLeft: 6, color: "#f1948a" }}>??{m.warningCount}</span>}
+                      {m.warningCount > 0 && <span style={{ fontSize: 11, fontWeight: 800, marginLeft: 6, color: "#f1948a" }}>⚠️{m.warningCount}</span>}
                     </span>
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "center" }}>
