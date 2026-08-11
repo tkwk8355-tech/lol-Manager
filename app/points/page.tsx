@@ -202,8 +202,8 @@ export default function PointsPage() {
     <div style={{ maxWidth: 1400, margin: "0 auto", padding: "0 16px" }}>
       <div className="scrim-tabs" style={{ marginBottom: 16 }}>
         <button className={subTab === "rank" ? "on" : ""} onClick={() => setSubTab("rank")}>포인트 현황</button>
-        {isAdmin && <button className={subTab === "log" ? "on" : ""} onClick={() => setSubTab("log")}>적립 / 로그</button>}
-        {isAdmin && <button className={subTab === "shop" ? "on" : ""} onClick={() => setSubTab("shop")}>포인트 상점</button>}
+        <button className={subTab === "log" ? "on" : ""} onClick={() => setSubTab("log")}>적립 / 로그</button>
+        <button className={subTab === "shop" ? "on" : ""} onClick={() => setSubTab("shop")}>포인트 상점</button>
       </div>
 
       {/* 상점 구매 모달 */}
@@ -272,7 +272,7 @@ export default function PointsPage() {
       )}
 
       {/* 적립 / 로그 */}
-      {isAdmin && subTab === "log" && (
+      {subTab === "log" && (
         <div>
           <div className="home-panel" style={{ marginBottom: 16 }}>
             <div className="home-panel-head"><h3>포인트 수동 지급</h3></div>
@@ -343,7 +343,7 @@ export default function PointsPage() {
       )}
 
       {/* 포인트 상점 */}
-      {isAdmin && subTab === "shop" && (
+      {subTab === "shop" && (
         <div className="home-panel">
           <div className="home-panel-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <h3>포인트 상점</h3>

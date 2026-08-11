@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
   }
 
   // 전체 로그 (운영진만)
-  if (auth.session.role !== "admin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
+  if (auth.session.role !== "admin" && auth.session.role !== "subadmin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
   const [logs] = await pool.query(
     `SELECT pl.id, pl.member_id,
             COALESCE((SELECT a.game_name FROM accounts a WHERE a.member_id = pl.member_id AND a.is_main = 1 LIMIT 1), '알수없음') AS nickname,
@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return auth.response;
-  if (auth.session.role !== "admin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
+  if (auth.session.role !== "admin" && auth.session.role !== "subadmin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
   const memberId = Number(body.memberId);
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return auth.response;
-  if (auth.session.role !== "admin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
+  if (auth.session.role !== "admin" && auth.session.role !== "subadmin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
 
   const id = Number(new URL(req.url).searchParams.get("id"));
   if (!id) return NextResponse.json({ error: "id 필수" }, { status: 400 });

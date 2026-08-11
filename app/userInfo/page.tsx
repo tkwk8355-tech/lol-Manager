@@ -504,7 +504,11 @@ export default function UserInfoPage() {
   }
 
 
-  const [tab, setTab] = useState<"members" | "accounts" | "party-history" | "points">("accounts");
+  const [tab, setTab] = useState<"members" | "accounts" | "party-history" | "points">("members");
+
+  useEffect(() => {
+    if (user?.role === "admin") setTab("accounts");
+  }, [user?.role]);
 
   // ��Ƽ ���� (���)
   const [historyData, setHistoryData] = useState<{
@@ -1033,18 +1037,16 @@ export default function UserInfoPage() {
       )}
       <div className="ui-head">
         <h2>{isAdmin ? "클랜원 목록" : "클랜원 목록"}</h2>
-        {isAdmin && (
-          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-            <div className="scrim-tabs" style={{ margin: 0, borderBottom: "none" }}>
-              {user?.role === "admin" && <button className={tab === "accounts" ? "on" : ""} onClick={() => setTab("accounts")}>로그인 계정</button>}
-              <button className={tab === "members" ? "on" : ""} onClick={() => setTab("members")}>클랜원</button>
-              <button className={tab === "party-history" ? "on" : ""} onClick={() => setTab("party-history")}>파티 내역</button>
-              <button className={tab === "points" ? "on" : ""} onClick={() => setTab("points")}>포인트</button>
-            </div>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          <div className="scrim-tabs" style={{ margin: 0, borderBottom: "none" }}>
+            {user?.role === "admin" && <button className={tab === "accounts" ? "on" : ""} onClick={() => setTab("accounts")}>로그인 계정</button>}
+            <button className={tab === "members" ? "on" : ""} onClick={() => setTab("members")}>클랜원</button>
+            <button className={tab === "party-history" ? "on" : ""} onClick={() => setTab("party-history")}>파티 내역</button>
+            <button className={tab === "points" ? "on" : ""} onClick={() => setTab("points")}>포인트</button>
           </div>
-        )}
+        </div>
       </div>
-      {isAdmin && tab === "members" && (
+      {tab === "members" && (
         <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
           <button className={`filter-btn ${showInactive ? "on" : ""}`} onClick={() => { setShowInactive(!showInactive); setSpecialFilter(""); setPage(0); }}>
             판수미달
@@ -1061,7 +1063,7 @@ export default function UserInfoPage() {
       {error && <div className="error">{error}</div>}
       {/* 검색창 (클랜원 탭에서만 표시) */}
       {/* 검색창 */}
-      {(isAdmin ? tab === "members" : true) && (
+      {tab === "members" && (
       <div className="search-box">
         <input
           type="text"
@@ -1099,8 +1101,8 @@ export default function UserInfoPage() {
         )}
       </div>
       )}
-      {(isAdmin ? tab === "members" : true) && uploading && <div className="sync-msg">엑셀 업로드 중...</div>}
-      {(isAdmin ? tab === "members" : true) && uploadMsg && <div className="sync-msg">{uploadMsg}</div>}
+      {tab === "members" && uploading && <div className="sync-msg">엑셀 업로드 중...</div>}
+      {tab === "members" && uploadMsg && <div className="sync-msg">{uploadMsg}</div>}
       {/* 로그인 계정 탭 */}
       {/* 로그인 계정 탭 */}
       {isAdmin && user?.role === "admin" && tab === "accounts" && (
@@ -1272,7 +1274,7 @@ export default function UserInfoPage() {
       )}
       {/* 클랜원 목록 */}
       {/* 클랜원 목록 */}
-      {(!isAdmin || tab === "members") && (<>
+      {tab === "members" && (<>
       <div style={{ maxWidth: 1400, margin: "0 auto" }}>
       {isAdmin && !loading && members.length > 0 && (
         <div className="line-filter-bar" style={{ marginBottom: 18 }}>
@@ -1353,7 +1355,7 @@ export default function UserInfoPage() {
         <p>등록된 클랜원이 없습니다.</p>
       )}
 
-      {!isAdmin ? (
+      {false ? (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>

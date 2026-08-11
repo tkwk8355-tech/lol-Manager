@@ -23,7 +23,7 @@ export default function SiteHeader() {
     { href: "/search",  icon: "🔍", label: "전적 검색", guard: false },
     { href: "/points",  icon: "💰", label: "포인트",    guard: true  },
     { href: "/friends", icon: "🤝", label: "지인 관리",  guard: true  },
-    { href: "/userInfo",icon: "👥", label: user?.role === "admin" ? "클랜원 관리" : "클랜원", guard: true },
+    { href: "/userInfo",icon: "👥", label: user?.role === "admin" || user?.role === "subadmin" ? "클랜원 관리" : "클랜원", guard: true },
   ];
 
   return (
@@ -45,7 +45,7 @@ export default function SiteHeader() {
       <div className="site-auth">
         {loading ? null : user ? (
           <div className="auth-user">
-            <span className={`auth-role-badge ${user.role}`}>{user.role === "admin" ? "운영진" : "클랜원"}</span>
+            <span className={`auth-role-badge ${user.role}`}>{user.role === "admin" ? "운영진" : user.role === "subadmin" ? "부운영진" : "클랜원"}</span>
             <button className="auth-nickname-btn" onClick={() => setShowPwModal(true)}>{user.nickname}</button>
             <button className="auth-logout-btn" onClick={logout}>로그아웃</button>
           </div>

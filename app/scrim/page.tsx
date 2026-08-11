@@ -289,7 +289,7 @@ export default function ScrimPage() {
     </div>
   );
 
-  const isAdmin = user.role === "admin";
+  const isAdmin = user.role === "admin" || user.role === "subadmin";
 
   return (
     <div className="scrim">

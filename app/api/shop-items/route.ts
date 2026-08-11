@@ -16,7 +16,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return auth.response;
-  if (auth.session.role !== "admin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
+  if (auth.session.role !== "admin" && auth.session.role !== "subadmin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
   const name = String(body.name ?? "").trim().slice(0, 100);
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return auth.response;
-  if (auth.session.role !== "admin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
+  if (auth.session.role !== "admin" && auth.session.role !== "subadmin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
   const id = Number(body.id);
@@ -64,7 +64,7 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return auth.response;
-  if (auth.session.role !== "admin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
+  if (auth.session.role !== "admin" && auth.session.role !== "subadmin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
 
   const id = Number(new URL(req.url).searchParams.get("id"));
   if (!id) return NextResponse.json({ error: "id 필수" }, { status: 400 });
