@@ -344,8 +344,8 @@ export default function SearchPage() {
 
           <div className="content-grid">
             <aside className="sidebar">
-              <RankCard label="솔로랭크" entry={solo} />
-              <RankCard label="자유랭크" entry={flex} />
+              <RankCard label="솔로랙크" entry={solo} />
+              <RankCard label="자유랙크" entry={flex} />
               <div className="panel">
                 <h3 className="panel-title">함께 플레이한 소환사 <span>(최근 10판)</span></h3>
                 {data.playedWith.length === 0 ? (

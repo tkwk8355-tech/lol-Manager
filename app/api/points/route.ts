@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ logs });
 }
 
-// POST /api/points — 운영진 수동 포인트 지급
+// POST /api/points — 운영진 수동 포인트 지급 or 상점 구매
 export async function POST(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth.ok) return auth.response;
@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
   const memberId = Number(body.memberId);
   const points = Number(body.points);
   const comment = String(body.comment ?? "").trim().slice(0, 255);
+  const type = String(body.type ?? "manual");
 
   if (!memberId || !points || !comment) {
     return NextResponse.json({ error: "memberId, points, comment 필수" }, { status: 400 });
@@ -63,8 +64,16 @@ export async function POST(req: NextRequest) {
 
   await ensureSchema();
   const pool = getPool();
-  const [rows] = await pool.query("SELECT id FROM members WHERE id = ?", [memberId]) as [any[], any];
+  const [rows] = await pool.query("SELECT id, total_points FROM members WHERE id = ?", [memberId]) as [any[], any];
   if (!rows[0]) return NextResponse.json({ error: "존재하지 않는 클랜원" }, { status: 404 });
+
+  // 상점 구매: 포인트 차감 — 음수 방지
+  if (type === "shop") {
+    const current = rows[0].total_points ?? 0;
+    if (current < points) return NextResponse.json({ error: `포인트 부족 (보유: ${current}P)` }, { status: 400 });
+    await givePoints(pool, memberId, -points, "shop", 0, comment, auth.session.userId, null);
+    return NextResponse.json({ ok: true });
+  }
 
   await givePoints(pool, memberId, points, "manual", 0, comment, auth.session.userId, null);
   return NextResponse.json({ ok: true });

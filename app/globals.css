@@ -18,6 +18,14 @@
   box-sizing: border-box;
 }
 
+/* number input 화살표 제거 */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] { -moz-appearance: textfield; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -2745,6 +2753,28 @@ a {
   border-color: rgba(46,204,113,0.35);
 }
 .feature-card.c-green:hover { border-color: #2ecc71; }
+.feature-card.c-yellow {
+  background: linear-gradient(155deg, rgba(241,196,15,0.16), var(--card));
+  border-color: rgba(241,196,15,0.35);
+}
+.feature-card.c-yellow:hover { border-color: #f1c40f; }
+.feature-card.c-pink {
+  background: linear-gradient(155deg, rgba(232,67,147,0.16), var(--card));
+  border-color: rgba(232,67,147,0.35);
+}
+.feature-card.c-pink:hover { border-color: #e84393; }
+.hero-btn.c-yellow {
+  background: linear-gradient(155deg, rgba(241,196,15,0.16), var(--card));
+  border-color: rgba(241,196,15,0.35);
+  color: #f1c40f;
+}
+.hero-btn.c-yellow:hover { border-color: #f1c40f; background: linear-gradient(155deg, rgba(241,196,15,0.28), var(--card)); }
+.hero-btn.c-pink {
+  background: linear-gradient(155deg, rgba(232,67,147,0.16), var(--card));
+  border-color: rgba(232,67,147,0.35);
+  color: #e84393;
+}
+.hero-btn.c-pink:hover { border-color: #e84393; background: linear-gradient(155deg, rgba(232,67,147,0.28), var(--card)); }
 
 /* 최근 ?�전 + ??�� 2??*/
 .home-grid {
@@ -3650,6 +3680,70 @@ a {
 .party-mode-badge.mode-flex   { background: rgba(155,89,182,0.18); color: #c39bd3; }
 .party-mode-badge.mode-solo   { background: rgba(231,76,60,0.18);  color: #f1948a; }
 .party-mode-badge.mode-scrim  { background: rgba(230,126,34,0.18); color: #e67e22; }
+
+/* ====================== 공통 버튼 ====================== */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 20px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  box-shadow: 0 2px 8px rgba(83,131,232,0.25);
+  white-space: nowrap;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #6b97f0;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(83,131,232,0.35);
+}
+.btn-primary:active:not(:disabled) { transform: translateY(0); }
+.btn-primary:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card-2);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.btn-secondary:disabled { opacity: 0.5; cursor: default; }
+
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--loss-accent);
+  background: transparent;
+  color: var(--loss-text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.btn-danger:hover:not(:disabled) { background: var(--loss-bg); }
+.btn-danger:disabled { opacity: 0.5; cursor: default; }
 
 /* ====================== 파티 생성: 참가자 닉네임 입력 ====================== */
 .party-participants-input {

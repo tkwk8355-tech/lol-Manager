@@ -113,10 +113,12 @@ async function createSchema(): Promise<void> {
       kills     INT NOT NULL DEFAULT 0,
       deaths    INT NOT NULL DEFAULT 0,
       assists   INT NOT NULL DEFAULT 0,
+      damage    INT NOT NULL DEFAULT 0,
       CONSTRAINT fk_participants_match FOREIGN KEY (match_id) REFERENCES scrim_matches(id) ON DELETE CASCADE,
       CONSTRAINT fk_participants_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+  await pool.query(`ALTER TABLE scrim_participants ADD COLUMN IF NOT EXISTS damage INT NOT NULL DEFAULT 0`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS played_with (
@@ -308,6 +310,30 @@ async function createSchema(): Promise<void> {
       given_by   INT NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT fk_warn_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS member_friends (
+      id         INT AUTO_INCREMENT PRIMARY KEY,
+      member_id  INT NOT NULL,
+      friend_id  INT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_friend (member_id, friend_id),
+      CONSTRAINT fk_mf_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+      CONSTRAINT fk_mf_friend FOREIGN KEY (friend_id) REFERENCES members(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS shop_items (
+      id         INT AUTO_INCREMENT PRIMARY KEY,
+      name       VARCHAR(100) NOT NULL,
+      cost       INT NOT NULL DEFAULT 0,
+      cond       VARCHAR(50),
+      note       VARCHAR(255),
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 

@@ -5,7 +5,7 @@
 // 호출은 전부 여기(서버)에서 일어난다. 덕분에 키가 브라우저로 노출되지 않는다.
 //
 // 호출 흐름:
-//   Riot ID → (account) puuid → (summoner) 프로필 → (league) 랭크
+//   Riot ID → (account) puuid → (summoner) 프로필 → (league) 랙크
 //                                → (match) 최근 경기 ID들 → 각 경기 상세
 // =============================================================
 
@@ -35,8 +35,8 @@ import {
 // queueId(숫자)를 사람이 읽기 좋은 한국어 큐 이름으로 변환하는 표.
 // (Riot이 큐 ID를 추가/변경할 수 있어, 없는 ID는 gameMode로 대체한다.)
 const QUEUE_NAMES: Record<number, string> = {
-  420: "솔로랭크",
-  440: "자유랭크",
+  420: "솔로랙크",
+  440: "자유랙크",
   400: "일반",
   430: "일반",
   490: "빠른 대전",
@@ -158,7 +158,7 @@ export async function GET(req: NextRequest) {
     // 2) puuid → 소환사 프로필(레벨, 아이콘).
     const summoner = await getSummonerByPuuid(account.puuid, fresh);
 
-    // 3) puuid → 랭크 정보(솔랭/자랭 등).
+    // 3) puuid → 랙크 정보(솔랭/자랭 등).
     const league = await getLeagueEntries(account.puuid, fresh);
 
     // 4) 최근 경기: 경기 ID를 받고, 각 ID의 상세를 10개씩 나눠서 조회.

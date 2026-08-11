@@ -16,9 +16,9 @@ interface Party {
 
 const MODES: Mode[] = ["flex", "solo", "aram", "normal", "scrim"];
 const TABS: Tab[] = ["all", ...MODES];
-const MODE_KO: Record<Mode, string> = { aram: "칼바람", normal: "일반협곡", flex: "자유랭크", solo: "솔로랭크", scrim: "내전" };
+const MODE_KO: Record<Mode, string> = { aram: "칼바람", normal: "일반협곡", flex: "자유랙크", solo: "솔로랙크", scrim: "내전" };
 const MODE_ICON: Record<Mode, string> = { aram: "🌊", normal: "⚔️", flex: "🏆", solo: "👤", scrim: "🛡️" };
-const TAB_KO: Record<Tab, string> = { all: "전체", flex: "자유랭크", solo: "솔로랭크", aram: "칼바람", normal: "일반협곡", scrim: "내전" };
+const TAB_KO: Record<Tab, string> = { all: "전체", flex: "자유랙크", solo: "솔로랙크", aram: "칼바람", normal: "일반협곡", scrim: "내전" };
 
 function fmtStart(startAt: string | null): string {
   if (!startAt) return "미정";

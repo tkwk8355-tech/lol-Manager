@@ -268,7 +268,7 @@ export default function UserInfoPage() {
     // �Ҵ緮 �̴� ���� (�ֱ� 2�� ���� 0��)
     if (showInactive && m.games2w > 0) return false;
     // ����/���� ����
-    if (specialFilter === "rookie" && m.position !== "����") return false;
+    if (specialFilter === "rookie" && m.position !== "수습") return false;
     if (specialFilter === "leave" && m.status !== "leave") return false;
     // �ֶ��� ���� (�Ϲ� Ŭ���� ��ȸ ȭ��)
     if (lineFilter && m.mainLine !== lineFilter) return false;
@@ -593,6 +593,24 @@ export default function UserInfoPage() {
   const MODE_KO: Record<string,string> = { aram:"칼바람", normal:"일반협곡", flex:"자유랙크", solo:"솔로랙크", scrim:"내전" };
 
   // ���� ��� �ٿ�ε�
+  function downloadExcel() {
+    const rows = members.map((m) => ({
+      "닉네임": m.nickname,
+      "직책": m.position,
+      "주라인": m.mainLine || "",
+      "부라인": m.subLine || "",
+      "활동상태": m.status === "active" ? "활동" : "외출",
+      "포인트": m.totalPoints,
+      "본계정": (m.accounts.find((a) => a.isMain) || {}).gameName || "",
+      "티어": m.tier ? tierLabel(m.tier) : "",
+      "경고": m.warningCount,
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "클랜원");
+    XLSX.writeFile(wb, "클랜원_목록.xlsx");
+  }
+
   function downloadTemplate() {
     const template = [
       ["�̸�", "�������", "����(MM-DD)", "�ֶ���", "�ζ���", "����1_�̸�", "����1_�±�", "����1_������", "����2_�̸�", "����2_�±�", "����2_������"],
@@ -1044,6 +1062,9 @@ export default function UserInfoPage() {
         </button>
         {isAdmin && (
           <div className="search-actions">
+            <button className="excel-btn-small" onClick={downloadExcel}>
+              📊 전체 다운로드
+            </button>
             <button className="excel-btn-small" onClick={downloadTemplate}>
               📥 양식 다운로드
             </button>

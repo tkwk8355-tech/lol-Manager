@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/auth";
 import { givePoints } from "@/lib/points";
 
 interface ParticipantInput { memberId: number; team: number; line?: string; }
-interface ResultInput { memberId: number; champion?: string; kills: number; deaths: number; assists: number; }
+interface ResultInput { memberId: number; champion?: string; kills: number; deaths: number; assists: number; damage: number; }
 
 export async function GET(req: NextRequest) {
   try {
@@ -153,13 +153,14 @@ export async function PATCH(req: NextRequest) {
       await conn.query("UPDATE scrim_matches SET status = 'done', winner_team = ? WHERE id = ?", [winnerTeam, id]);
       for (const p of participants) {
         await conn.query(
-          `UPDATE scrim_participants SET champion = ?, kills = ?, deaths = ?, assists = ?
+          `UPDATE scrim_participants SET champion = ?, kills = ?, deaths = ?, assists = ?, damage = ?
            WHERE match_id = ? AND member_id = ?`,
           [
             p.champion || null,
             Math.max(0, Number(p.kills) || 0),
             Math.max(0, Number(p.deaths) || 0),
             Math.max(0, Number(p.assists) || 0),
+            Math.max(0, Number(p.damage) || 0),
             id, Number(p.memberId),
           ]
         );

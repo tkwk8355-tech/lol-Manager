@@ -23,7 +23,7 @@ interface RecentParty {
 }
 
 // ------------------------------ 헬퍼 ------------------------------
-const MODE_KO: Record<string, string> = { aram: "칼바람", normal: "일반 협곡", flex: "자유랭크", solo: "솔랭" };
+const MODE_KO: Record<string, string> = { aram: "칼바람", normal: "일반 협곡", flex: "자유랙크", solo: "솔랭" };
 const MODE_SHORT: Record<string, string> = { aram: "칼바람", normal: "협곡", flex: "자유", solo: "솔랭" };
 const MODE_ICON: Record<string, string> = { aram: "🌊", normal: "⚔️", flex: "🏆", solo: "👤" };
 const LINE_KEYS = ["TOP", "JG", "MID", "ADC", "SUP"] as const;
@@ -45,7 +45,9 @@ const FEATURES = [
   { href: "/party", icon: "🛡️", title: "파티 생성", desc: "협곡 · 칼바람 파티원 모집", color: "c-orange" },
   { href: "/scrim", icon: "⚔️", title: "내전 매칭", desc: "균형 잡힌 팀 자동 구성 · 경기 기록", color: "c-purple" },
   { href: "/search", icon: "🔍", title: "전적 검색", desc: "소환사명으로 랭크 · 매치 기록 조회", color: "c-blue" },
-  { href: "/userInfo", icon: "👥", title: "클랜원 조회", desc: "클랜원 명단 · 티어 · 라인 보기", color: "c-green" },
+  { href: "/userInfo", icon: "👥", title: "클랜원 관리", desc: "클랜원 명단 · 티어 · 라인 보기", color: "c-green" },
+  { href: "/points", icon: "🏅", title: "포인트 관리", desc: "활동 포인트 현황 · 상점", color: "c-yellow" },
+  { href: "/friends", icon: "🤝", title: "지인 관리", desc: "클랜원 지인 관계 조회", color: "c-pink" },
 ] as const;
 
 // ------------------------------ 메인 ------------------------------
@@ -74,9 +76,9 @@ export default function Home() {
     <div className="home">
       {/* ── 히어로 ── */}
       <section className="hero">
-        <p className="hero-eyebrow">함께 즐기는 게임 클랜</p>
+        <p className="hero-eyebrow">함께하는 롤 또간집</p>
         <h1 className="hero-title">클랜 매니저</h1>
-        <p className="hero-sub">전적 조회부터 내전 매칭, 클랜원 관리까지 한 곳에서.</p>
+        <p className="hero-sub">또 간다, 또 이긴다. 우리 클랜의 모든 것을 한 곳에서.</p>
         <div className="hero-stats">
           <div className="hero-stat">
             <span className="hero-stat-num">{loading ? "-" : memberCount}</span>
@@ -91,7 +93,9 @@ export default function Home() {
           <Link href="/party" className="hero-btn c-orange" onClick={(e) => { if (!user) { e.preventDefault(); openAuthModal("login"); } }}>🛡️ 파티 생성</Link>
           <Link href="/scrim" className="hero-btn c-purple" onClick={(e) => { if (!user) { e.preventDefault(); openAuthModal("login"); } }}>⚔️ 내전 매칭</Link>
           <Link href="/search" className="hero-btn c-blue">🔍 전적 검색</Link>
-          <Link href="/userInfo" className="hero-btn c-green" onClick={(e) => { if (!user) { e.preventDefault(); openAuthModal("login"); } }}>👥 클랜원 조회</Link>
+          <Link href="/userInfo" className="hero-btn c-green" onClick={(e) => { if (!user) { e.preventDefault(); openAuthModal("login"); } }}>👥 클랜원 관리</Link>
+          <Link href="/points" className="hero-btn c-yellow" onClick={(e) => { if (!user) { e.preventDefault(); openAuthModal("login"); } }}>🏅 포인트 관리</Link>
+          <Link href="/friends" className="hero-btn c-pink" onClick={(e) => { if (!user) { e.preventDefault(); openAuthModal("login"); } }}>🤝 지인 관리</Link>
         </div>
       </section>
 
@@ -111,8 +115,8 @@ export default function Home() {
         ))}
       </section>
 
-      {/* ── 파티 현황 + 클랜원 분포 ── */}
-      <section className="home-grid">
+      {/* ── 히어로 하단: 파티현황 + 클랜원분포 ── */}
+      <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
         <div className="home-panel">
           <div className="home-panel-head">
             <h3>파티 현황</h3>
@@ -141,7 +145,8 @@ export default function Home() {
 
         <div className="home-panel">
           <div className="home-panel-head">
-            <h3>클랜원 분포</h3>
+            <h3>라인별 분포</h3>
+            <Link href="/userInfo" className="home-panel-link" onClick={(e) => { if (!user) { e.preventDefault(); openAuthModal("login"); } }}>클랜원 보기</Link>
           </div>
           {loading ? (
             <p className="empty">불러오는 중...</p>
@@ -168,6 +173,8 @@ export default function Home() {
           )}
         </div>
       </section>
+
+
     </div>
   );
 }

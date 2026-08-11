@@ -1,51 +1,223 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../components/AuthProvider";
 import { lineIconUrl, LINE_MAP } from "@/lib/lines";
 
-const TIER_KO: Record<string,string> = {
-  IRON:"아이언", BRONZE:"브론즈", SILVER:"실버", GOLD:"골드",
-  PLATINUM:"플래티넘", EMERALD:"에메랄드", DIAMOND:"다이아",
-  MASTER:"마스터", GRANDMASTER:"그랜드마스터", CHALLENGER:"챌린저",
+const TIER_KO: Record<string, string> = {
+  IRON: "아이언", BRONZE: "브론즈", SILVER: "실버", GOLD: "골드",
+  PLATINUM: "플래티넘", EMERALD: "에메랄드", DIAMOND: "다이아",
+  MASTER: "마스터", GRANDMASTER: "그랜드마스터", CHALLENGER: "챌린저",
 };
-const NO_DIV = ["MASTER","GRANDMASTER","CHALLENGER"];
+const NO_DIV = ["MASTER", "GRANDMASTER", "CHALLENGER"];
 
-function tierLabel(tier: string|null, rank: string|null, lp: number) {
+function tierLabel(tier: string | null, rank: string | null, lp: number) {
   if (!tier) return "언랭";
   const ko = TIER_KO[tier] ?? tier;
   if (NO_DIV.includes(tier)) return tier === "MASTER" ? `${ko} ${lp}LP` : ko;
-  const d = {I:"1",II:"2",III:"3",IV:"4"}[rank ?? ""] ?? rank;
+  const d = { I: "1", II: "2", III: "3", IV: "4" }[rank ?? ""] ?? rank;
   return `${ko} ${d}`;
 }
 
-const LINES = ["TOP","JG","MID","ADC","SUP"] as const;
+const LINES = ["TOP", "JG", "MID", "ADC", "SUP"] as const;
+const LINE_LABEL: Record<string, string> = { TOP: "탑", JG: "정글", MID: "미드", ADC: "원딜", SUP: "서폿" };
 
 interface LineStat { games: number; kills: number; deaths: number; assists: number; }
-
 interface Player {
   memberId: number; nickname: string;
-  tier: string|null; rank: string|null; lp: number;
-  lineCounts: Record<string,number>;
-  lineStats: Record<string,LineStat>;
-  kills: number; deaths: number; assists: number; games: number; wins: number; kda: string|null; winRate: number|null;
+  tier: string | null; rank: string | null; lp: number;
+  lineCounts: Record<string, number>;
+  lineStats: Record<string, LineStat>;
+  kills: number; deaths: number; assists: number; games: number; wins: number; kda: string | null; winRate: number | null;
+}
+interface Member { id: number; nickname: string; }
+interface ChampionInfo { id: string; name: string; }
+
+interface SlotData {
+  memberId: number;
+  memberName: string;
+  champion: string;
+  kills: string;
+  deaths: string;
+  assists: string;
+  damage: string;
+}
+
+const emptySlot = (): SlotData => ({ memberId: 0, memberName: "", champion: "", kills: "", deaths: "", assists: "", damage: "" });
+
+// 자동완성 훅
+function useAutocomplete<T extends { id: number | string; name: string }>(items: T[]) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const filtered = query.length > 0 ? items.filter((i) => i.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8) : [];
+  return { query, setQuery, open, setOpen, filtered };
+}
+
+// 클랜원 자동완성 입력
+function MemberInput({ members, value, onChange, nextRef, inputRef, usedIds }: {
+  members: Member[];
+  value: SlotData;
+  onChange: (v: Partial<SlotData>) => void;
+  nextRef?: React.RefObject<HTMLInputElement>;
+  inputRef?: React.RefObject<HTMLInputElement>;
+  usedIds?: number[];
+}) {
+  const [query, setQuery] = useState(value.memberName);
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const available = members.filter((m) => !usedIds?.includes(m.id) || m.id === value.memberId);
+  const filtered = query.length > 0
+    ? available.filter((m) => m.nickname.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
+    : available.slice(0, 8);
+
+  useEffect(() => { setQuery(value.memberName); }, [value.memberName]);
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  function selectMember(m: Member) {
+    onChange({ memberId: m.id, memberName: m.nickname });
+    setQuery(m.nickname);
+    setOpen(false);
+    nextRef?.current?.focus();
+  }
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", flex: 1, minWidth: 0 }}>
+      <input
+        ref={inputRef}
+        value={query}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); if (!e.target.value) onChange({ memberId: 0, memberName: "" }); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (filtered.length > 0) selectMember(filtered[0]);
+            else { setOpen(false); nextRef?.current?.focus(); }
+          } else if (e.key === "Escape") setOpen(false);
+        }}
+        placeholder="클랜원 검색"
+        style={{ width: "100%", padding: "7px 10px", borderRadius: 7, border: `1px solid ${value.memberId ? "var(--accent)" : "var(--border)"}`, background: "var(--card)", color: "var(--text)", fontSize: 13 }}
+      />
+      {open && filtered.length > 0 && (
+        <div className="slot-candidates" style={{ zIndex: 50 }}>
+          {filtered.map((m, i) => (
+            <button key={m.id} className={i === 0 ? "first" : ""} onMouseDown={() => selectMember(m)}>
+              {m.nickname}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 챔피언 자동완성 입력
+function ChampionInput({ champions, value, onChange, inputRef, nextRef }: {
+  champions: ChampionInfo[];
+  value: string;
+  onChange: (v: string) => void;
+  inputRef?: React.RefObject<HTMLInputElement>;
+  nextRef?: React.RefObject<HTMLInputElement>;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const filtered = value.length > 0
+    ? champions.filter((c) => c.name.toLowerCase().includes(value.toLowerCase()) || c.id.toLowerCase().includes(value.toLowerCase())).slice(0, 8)
+    : [];
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  function selectChamp(c: ChampionInfo) {
+    onChange(c.name);
+    setOpen(false);
+    nextRef?.current?.focus();
+  }
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", width: 110 }}>
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (filtered.length > 0) selectChamp(filtered[0]);
+            else { setOpen(false); nextRef?.current?.focus(); }
+          } else if (e.key === "Escape") setOpen(false);
+        }}
+        placeholder="챔피언"
+        style={{ width: "100%", padding: "7px 8px", borderRadius: 7, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
+      />
+      {open && filtered.length > 0 && (
+        <div className="slot-candidates" style={{ zIndex: 50 }}>
+          {filtered.map((c, i) => (
+            <button key={c.id} className={i === 0 ? "first" : ""} onMouseDown={() => selectChamp(c)}>
+              {c.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function ScrimPage() {
   const { user, loading: authLoading, openAuthModal } = useAuth();
   const [players, setPlayers] = useState<Player[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [champions, setChampions] = useState<ChampionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
   const [detail, setDetail] = useState<Player | null>(null);
+
+  const [showForm, setShowForm] = useState(false);
+  const [winner, setWinner] = useState<1 | 2>(1);
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [formErr, setFormErr] = useState("");
+  const [team1, setTeam1] = useState<SlotData[]>(LINES.map(emptySlot));
+  const [team2, setTeam2] = useState<SlotData[]>(LINES.map(emptySlot));
+
+  // 각 슬롯의 입력 필드 ref: [team][lineIdx][field]
+  // field 순서: 0=champion, 1=kills, 2=deaths, 3=assists, 4=damage
+  const fieldRefs = useRef(
+    [0, 1].map(() => LINES.map(() => Array.from({ length: 5 }, () => ({ current: null as HTMLInputElement | null }))))
+  );
+  // 클랜원 입력 ref: [team][lineIdx]
+  const memberRefs = useRef(
+    [0, 1].map(() => LINES.map(() => ({ current: null as HTMLInputElement | null })))
+  );
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
-      const res = await fetch("/api/scrim");
-      const json = await res.json();
-      if (!res.ok) setError(json.error || "불러오기 실패");
-      else setPlayers(json.players);
+      const [statsRes, membersRes, champsRes] = await Promise.all([
+        fetch("/api/scrim"),
+        fetch("/api/userinfo"),
+        fetch("/api/champions"),
+      ]);
+      const statsJson = await statsRes.json();
+      const membersJson = await membersRes.json();
+      const champsJson = await champsRes.json();
+      if (!statsRes.ok) setError(statsJson.error || "불러오기 실패");
+      else setPlayers(statsJson.players);
+      if (membersRes.ok) setMembers(membersJson.members.map((m: any) => ({ id: m.id, nickname: m.nickname })));
+      if (champsRes.ok && champsJson.champions)
+        setChampions(champsJson.champions.map((c: any) => ({ id: c.name_en, name: c.name_ko })));
     } catch { setError("네트워크 오류"); }
     finally { setLoading(false); }
   }, []);
@@ -55,6 +227,55 @@ export default function ScrimPage() {
     if (!user) { setLoading(false); return; }
     load();
   }, [user, authLoading, load]);
+
+  function updateSlot(team: 1 | 2, idx: number, patch: Partial<SlotData>) {
+    const setter = team === 1 ? setTeam1 : setTeam2;
+    setter((prev) => prev.map((s, i) => i === idx ? { ...s, ...patch } : s));
+  }
+
+  async function submitMatch() {
+    setFormErr("");
+    const allSlots = [...team1, ...team2];
+    const filled = allSlots.filter((s) => s.memberId > 0);
+    if (filled.length < 2) { setFormErr("최소 2명 이상 입력하세요."); return; }
+    const ids = filled.map((s) => s.memberId);
+    if (new Set(ids).size !== ids.length) { setFormErr("같은 클랜원이 중복입니다."); return; }
+
+    setSubmitting(true);
+    try {
+      const participants = [
+        ...team1.filter((s) => s.memberId > 0).map((s, i) => ({ memberId: s.memberId, team: 1, line: LINES[i] })),
+        ...team2.filter((s) => s.memberId > 0).map((s, i) => ({ memberId: s.memberId, team: 2, line: LINES[i] })),
+      ];
+      const createRes = await fetch("/api/scrim/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "rift", note: note || null, participants }),
+      });
+      const createJson = await createRes.json();
+      if (!createRes.ok) { setFormErr(createJson.error || "경기 생성 실패"); return; }
+
+      const resultParticipants = [...team1, ...team2].filter((s) => s.memberId > 0).map((s) => ({
+        memberId: s.memberId, champion: s.champion,
+        kills: Number(s.kills) || 0, deaths: Number(s.deaths) || 0,
+        assists: Number(s.assists) || 0, damage: Number(s.damage) || 0,
+      }));
+      const patchRes = await fetch("/api/scrim/match", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: createJson.id, winnerTeam: winner, participants: resultParticipants }),
+      });
+      const patchJson = await patchRes.json();
+      if (!patchRes.ok) { setFormErr(patchJson.error || "결과 등록 실패"); return; }
+
+      setShowForm(false);
+      setTeam1(LINES.map(emptySlot));
+      setTeam2(LINES.map(emptySlot));
+      setNote(""); setWinner(1);
+      load();
+    } catch { setFormErr("네트워크 오류"); }
+    finally { setSubmitting(false); }
+  }
 
   if (authLoading) return null;
   if (!user) return (
@@ -66,9 +287,151 @@ export default function ScrimPage() {
     </div>
   );
 
+  const isAdmin = user.role === "admin";
+
   return (
     <div className="scrim">
-      <h2 className="scrim-title">내전 통계</h2>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <h2 className="scrim-title" style={{ margin: 0 }}>내전 통계</h2>
+        {isAdmin && (
+          <button className={showForm ? "btn-secondary" : "btn-primary"} onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "✕ 닫기" : "내전 결과 입력"}
+          </button>
+        )}
+      </div>
+
+      {/* 내전 결과 입력 폼 */}
+      {showForm && isAdmin && (
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 24, marginBottom: 28 }}>
+          {/* 상단 옵션 */}
+          <div style={{ display: "flex", gap: 10, marginBottom: 20, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--muted)" }}>승리팀</span>
+            <button
+              onClick={() => setWinner(1)}
+              style={{
+                padding: "7px 20px", borderRadius: 8, border: "2px solid", fontSize: 13, fontWeight: 800, cursor: "pointer",
+                borderColor: winner === 1 ? "var(--win-text)" : "var(--border)",
+                background: winner === 1 ? "rgba(83,131,232,0.18)" : "transparent",
+                color: winner === 1 ? "var(--win-text)" : "var(--muted)",
+                transition: "all 0.15s",
+              }}>
+              🔵 블루팀
+            </button>
+            <button
+              onClick={() => setWinner(2)}
+              style={{
+                padding: "7px 20px", borderRadius: 8, border: "2px solid", fontSize: 13, fontWeight: 800, cursor: "pointer",
+                borderColor: winner === 2 ? "var(--loss-text)" : "var(--border)",
+                background: winner === 2 ? "rgba(232,64,87,0.18)" : "transparent",
+                color: winner === 2 ? "var(--loss-text)" : "var(--muted)",
+                transition: "all 0.15s",
+              }}>
+              🔴 레드팀
+            </button>
+            <input
+              placeholder="메모 (선택)"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card-2)", color: "var(--text)", fontSize: 13, flex: 1, minWidth: 140 }}
+            />
+          </div>
+
+          {/* 팀 입력 그리드 */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            {([1, 2] as const).map((teamNum) => {
+              const slots = teamNum === 1 ? team1 : team2;
+              const isWinner = winner === teamNum;
+              const teamColor = teamNum === 1 ? "var(--win-text)" : "var(--loss-text)";
+              const teamBg = teamNum === 1 ? "rgba(83,131,232,0.06)" : "rgba(232,64,87,0.06)";
+              const teamBorder = isWinner ? teamColor : "var(--border)";
+              return (
+                <div key={teamNum} style={{ border: `2px solid ${teamBorder}`, borderRadius: 10, padding: 16, background: isWinner ? teamBg : "transparent", transition: "all 0.2s" }}>
+                  <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 14, color: teamColor, display: "flex", alignItems: "center", gap: 6 }}>
+                    {teamNum === 1 ? "🔵 블루팀" : "🔴 레드팀"}
+                    {isWinner && <span style={{ fontSize: 12, background: teamBg, border: `1px solid ${teamColor}`, borderRadius: 6, padding: "2px 8px" }}>🏆 승리</span>}
+                  </div>
+
+                  {/* 헤더 */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 110px 108px 80px", gap: 6, marginBottom: 8, padding: "0 2px" }}>
+                    {["클랜원", "챔피언", "K / D / A", "딜량"].map((h) => (
+                      <div key={h} style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>{h}</div>
+                    ))}
+                  </div>
+
+                  {LINES.map((line, idx) => {
+                    const teamIdx = teamNum - 1;
+                    const refs = fieldRefs.current[teamIdx][idx];
+                    // 다음 포커스 대상: champ→kills→deaths→assists→damage→다음줄 champ
+                    const nextLineMember = idx < LINES.length - 1
+                      ? memberRefs.current[teamIdx][idx + 1]
+                      : (teamIdx === 0 ? memberRefs.current[1][0] : undefined);
+                    return (
+                    <div key={line} style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 5, display: "flex", alignItems: "center", gap: 4 }}>
+                        {LINE_MAP[line] && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={lineIconUrl(LINE_MAP[line].icon)} alt={line} width={13} height={13} style={{ filter: "brightness(0) invert(0.5)" }} />
+                        )}
+                        {LINE_LABEL[line]}
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 110px 108px 80px", gap: 6, alignItems: "center" }}>
+                        <MemberInput
+                          members={members}
+                          value={slots[idx]}
+                          onChange={(patch) => updateSlot(teamNum, idx, patch)}
+                          inputRef={memberRefs.current[teamIdx][idx] as React.RefObject<HTMLInputElement>}
+                          nextRef={refs[0] as React.RefObject<HTMLInputElement>}
+                          usedIds={[...team1, ...team2].map((s) => s.memberId).filter((id) => id > 0 && id !== slots[idx].memberId)}
+                        />
+                        <ChampionInput
+                          champions={champions}
+                          value={slots[idx].champion}
+                          onChange={(v) => updateSlot(teamNum, idx, { champion: v })}
+                          inputRef={refs[0] as React.RefObject<HTMLInputElement>}
+                          nextRef={refs[1] as React.RefObject<HTMLInputElement>}
+                        />
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4 }}>
+                          {(["kills", "deaths", "assists"] as const).map((f, fi) => (
+                            <input
+                              key={f}
+                              ref={refs[fi + 1] as React.RefObject<HTMLInputElement>}
+                              type="number" min={0}
+                              placeholder={f === "kills" ? "K" : f === "deaths" ? "D" : "A"}
+                              value={slots[idx][f]}
+                              onChange={(e) => updateSlot(teamNum, idx, { [f]: e.target.value })}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); refs[fi + 2]?.current?.focus(); } }}
+                              style={{ width: "100%", padding: "7px 4px", borderRadius: 7, border: "1px solid var(--border)", background: "var(--card-2)", color: "var(--text)", fontSize: 13, textAlign: "center", MozAppearance: "textfield" } as React.CSSProperties}
+                            />
+                          ))}
+                        </div>
+                        <input
+                          ref={refs[4] as React.RefObject<HTMLInputElement>}
+                          type="number" min={0}
+                          placeholder="딥량"
+                          value={slots[idx].damage}
+                          onChange={(e) => updateSlot(teamNum, idx, { damage: e.target.value })}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); nextLineMember?.current?.focus(); } }}
+                          style={{ width: "100%", padding: "7px 8px", borderRadius: 7, border: "1px solid var(--border)", background: "var(--card-2)", color: "var(--text)", fontSize: 13, MozAppearance: "textfield" } as React.CSSProperties}
+                        />
+                      </div>
+                    </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+
+          {formErr && <div className="error" style={{ marginTop: 12 }}>{formErr}</div>}
+          <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+            <button className="btn-primary" onClick={submitMatch} disabled={submitting}>
+              {submitting ? "저장 중..." : "💾 저장"}
+            </button>
+            <button className="btn-secondary" onClick={() => { setShowForm(false); setFormErr(""); }}>취소</button>
+          </div>
+        </div>
+      )}
+
       {/* 상세 모달 */}
       {detail && (
         <div className="modal-backdrop" onClick={() => setDetail(null)}>
@@ -124,6 +487,7 @@ export default function ScrimPage() {
           </div>
         </div>
       )}
+
       {error && <div className="error">{error}</div>}
       {loading ? <p>불러오는 중...</p> : (
         <div style={{ overflowX: "auto" }}>
@@ -154,11 +518,6 @@ export default function ScrimPage() {
                     <span className={`tier-badge tier-${(p.tier ?? "unranked").toLowerCase()}`}>
                       {tierLabel(p.tier, p.rank, p.lp)}
                     </span>
-                    {p.winRate !== null && (
-                      <span style={{ marginLeft: 6, fontSize: 11, color: p.winRate >= 50 ? "var(--win-text)" : "var(--loss-text)" }}>
-                        {p.winRate}%
-                      </span>
-                    )}
                   </td>
                   {LINES.map((l) => (
                     <td key={l} style={{ padding: "8px 8px", textAlign: "center", color: p.lineCounts[l] > 0 ? "var(--text)" : "var(--muted)" }}>
