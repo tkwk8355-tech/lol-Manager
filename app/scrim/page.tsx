@@ -23,11 +23,13 @@ const LINES = ["TOP", "JG", "MID", "ADC", "SUP"] as const;
 const LINE_LABEL: Record<string, string> = { TOP: "탑", JG: "정글", MID: "미드", ADC: "원딜", SUP: "서폿" };
 
 interface LineStat { games: number; kills: number; deaths: number; assists: number; }
+interface LineChamp { id: string; count: number; }
 interface Player {
   memberId: number; nickname: string;
   tier: string | null; rank: string | null; lp: number;
   lineCounts: Record<string, number>;
   lineStats: Record<string, LineStat>;
+  lineChamps: Record<string, LineChamp[]>;
   kills: number; deaths: number; assists: number; games: number; wins: number; kda: string | null; winRate: number | null;
 }
 interface Member { id: number; nickname: string; }
@@ -435,12 +437,12 @@ export default function ScrimPage() {
       {/* 상세 모달 */}
       {detail && (
         <div className="modal-backdrop" onClick={() => setDetail(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 700, width: "95vw" }}>
             <div className="modal-head">
               <span>📊 {detail.nickname} 내전 상세</span>
               <button className="modal-close" onClick={() => setDetail(null)}>×</button>
             </div>
-            <div style={{ marginBottom: 12, fontSize: 13, color: "var(--muted)" }}>
+            <div style={{ marginBottom: 14, fontSize: 13, color: "var(--muted)" }}>
               총 {detail.games}판 · {detail.wins}승 {detail.games - detail.wins}패
               {detail.winRate !== null && ` · 승률 ${detail.winRate}%`}
               {" · "}KDA {detail.kda ?? "-"} ({detail.kills}/{detail.deaths}/{detail.assists})
@@ -452,6 +454,7 @@ export default function ScrimPage() {
                   <th style={{ textAlign: "center", padding: "5px 8px" }}>판수</th>
                   <th style={{ textAlign: "center", padding: "5px 8px" }}>K/D/A</th>
                   <th style={{ textAlign: "center", padding: "5px 8px" }}>KDA</th>
+                  <th style={{ textAlign: "left", padding: "5px 8px" }}>많이 한 챔피언</th>
                 </tr>
               </thead>
               <tbody>
@@ -459,28 +462,43 @@ export default function ScrimPage() {
                   const s = detail.lineStats[l];
                   const kda = ((s.kills + s.assists) / Math.max(s.deaths, 1)).toFixed(2);
                   const info = LINE_MAP[l];
+                  const champs = detail.lineChamps?.[l] ?? [];
                   return (
                     <tr key={l} style={{ borderBottom: "1px solid var(--border)" }}>
-                      <td style={{ padding: "7px 8px", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
-                        {info && (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={lineIconUrl(info.icon)} alt={info.label} width={18} height={18} />
-                        )}
-                        {info?.label ?? l}
+                      <td style={{ padding: "8px 8px", fontWeight: 700 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {info && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={lineIconUrl(info.icon)} alt={info.label} width={18} height={18} />
+                          )}
+                          {info?.label ?? l}
+                        </div>
                       </td>
-                      <td style={{ padding: "7px 8px", textAlign: "center" }}>{s.games}판</td>
-                      <td style={{ padding: "7px 8px", textAlign: "center", color: "var(--muted)" }}>
+                      <td style={{ padding: "8px 8px", textAlign: "center" }}>{s.games}판</td>
+                      <td style={{ padding: "8px 8px", textAlign: "center", color: "var(--muted)" }}>
                         {s.kills}/{s.deaths}/{s.assists}
                       </td>
-                      <td style={{ padding: "7px 8px", textAlign: "center", fontWeight: 700,
+                      <td style={{ padding: "8px 8px", textAlign: "center", fontWeight: 700,
                         color: Number(kda) >= 3 ? "var(--win-text)" : "var(--text)" }}>
                         {kda}
+                      </td>
+                      <td style={{ padding: "8px 8px" }}>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          {champs.map((c) => (
+                            <div key={c.id} style={{ textAlign: "center" }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={`/champions/${c.id}.png`} alt={c.id} width={36} height={36}
+                                style={{ borderRadius: 6, border: "1px solid var(--border)", display: "block" }} />
+                              <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>{c.count}판</div>
+                            </div>
+                          ))}
+                        </div>
                       </td>
                     </tr>
                   );
                 })}
                 {LINES.every((l) => detail.lineStats[l].games === 0) && (
-                  <tr><td colSpan={4} style={{ padding: "12px 8px", color: "var(--muted)", textAlign: "center" }}>내전 기록이 없습니다.</td></tr>
+                  <tr><td colSpan={5} style={{ padding: "12px 8px", color: "var(--muted)", textAlign: "center" }}>내전 기록이 없습니다.</td></tr>
                 )}
               </tbody>
             </table>
