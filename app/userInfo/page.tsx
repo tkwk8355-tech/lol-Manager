@@ -1229,9 +1229,9 @@ export default function UserInfoPage() {
                       <td style={{ padding: "7px 8px", fontWeight: 700 }}>{l.nickname}</td>
                       <td style={{ padding: "7px 8px" }}>
                         <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5,
-                          background: l.type === "scrim" ? "rgba(155,89,182,0.18)" : l.type === "manual" ? "rgba(83,131,232,0.18)" : "rgba(46,204,113,0.18)",
-                          color: l.type === "scrim" ? "#c39bd3" : l.type === "manual" ? "#7aa2f7" : "#2ecc71" }}>
-                          {({ solo: "솔로랭크", flex: "자유랭크", normal: "일반", scrim: "내전", aram: "칼바람", manual: "수동" } as any)[l.type] ?? l.type}
+                          background: ({scrim:"rgba(155,89,182,0.18)",shop:"rgba(231,76,60,0.18)",manual:"rgba(83,131,232,0.18)",solo:"rgba(241,196,15,0.18)",flex:"rgba(230,126,34,0.18)",aram:"rgba(0,188,212,0.18)",birthday:"rgba(255,107,157,0.18)"}[l.type as string] ?? "rgba(46,204,113,0.18)"),
+                          color: ({scrim:"#c39bd3",shop:"#f1948a",manual:"#7aa2f7",solo:"#f1c40f",flex:"#e67e22",aram:"#00bcd4",birthday:"#ff6b9d"}[l.type as string] ?? "#2ecc71") }}>
+                          {({ solo: "솔로랭크", flex: "자유랭크", normal: "일반", scrim: "내전", aram: "칼바람", manual: "수동", shop: "상점", birthday: "생일보너스" } as any)[l.type] ?? l.type}
                         </span>
                       </td>
                           <td style={{ padding: "7px 8px", textAlign: "right", color: "var(--muted)" }}>{l.games > 0 ? `${l.games}판` : "-"}</td>
