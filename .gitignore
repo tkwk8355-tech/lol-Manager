@@ -28,6 +28,8 @@ data/*.bak
 # misc
 .DS_Store
 *.pem
+deploy.tar.gz
+*.mjs
 .vscode/*
 !.vscode/extensions.json
 
