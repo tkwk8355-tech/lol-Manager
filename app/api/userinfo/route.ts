@@ -23,6 +23,22 @@ export async function GET(req: NextRequest) {
       ORDER BY m.id ASC, a.is_main DESC, a.id ASC
     `) as [any[], any];
 
+    // 2주간 파티 참여 게임수 (party_participant_history + point_logs.games 기반)
+    // aram: games 합산, normal/flex/solo: 파티 참여 횟수(games 합산)
+    const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const [partyRows] = await pool.query(`
+      SELECT pl.member_id,
+             SUM(CASE WHEN pl.type = 'aram' THEN pl.games ELSE 0 END) AS aram_games,
+             SUM(CASE WHEN pl.type IN ('normal','flex','solo') THEN pl.games ELSE 0 END) AS normal_games
+      FROM point_logs pl
+      WHERE pl.type IN ('aram','normal','flex','solo') AND DATE(pl.created_at) >= ?
+      GROUP BY pl.member_id
+    `, [twoWeeksAgo]) as [any[], any];
+    const partyGames = new Map<number, { aram: number; normal: number }>();
+    for (const r of partyRows) {
+      partyGames.set(r.member_id, { aram: Number(r.aram_games), normal: Number(r.normal_games) });
+    }
+
     const [warnRows] = await pool.query(
       `SELECT member_id, COUNT(*) AS cnt FROM warnings GROUP BY member_id`
     ) as [any[], any];
@@ -53,6 +69,8 @@ export async function GET(req: NextRequest) {
           accounts: [],
           gamesTotal: 0,
           games2w: 0,
+          aramGames2w: 0,
+          normalGames2w: 0,
           tier: null as TierInfo | null,
         });
       }
@@ -92,6 +110,11 @@ export async function GET(req: NextRequest) {
     for (const [id, m] of map) {
       m.tier = mainTier.get(id) ?? bestTier.get(id) ?? null;
       m.warningCount = warnCount.get(id) ?? 0;
+      const pg = partyGames.get(id);
+      m.aramGames2w = pg?.aram ?? 0;
+      m.normalGames2w = pg?.normal ?? 0;
+      // 판수미달: 칼바람 4판 미만 AND 협곡(일반+자유+솔로) 3판 미만
+      m.games2w = (pg?.aram ?? 0) + (pg?.normal ?? 0);
       // 본계정이 없으면 첫 번째 계정 이름 사용, 계정도 없으면 id로 표시
       if (!m.nickname) {
         m.nickname = m.accounts[0]?.gameName ?? `클랜원#${id}`;

@@ -322,7 +322,7 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
   const baseTime = party.start_at
     ? new Date(party.start_at.replace(" ", "T") + "+09:00").getTime()
     : new Date(party.created_at.replace(" ", "T")).getTime();
-  const startTime = Math.floor((baseTime - 30 * 60 * 1000) / 1000);
+  const startTime = Math.floor((baseTime - 14 * 24 * 60 * 60 * 1000) / 1000);
   const endTime = Math.floor((baseTime + 24 * 60 * 60 * 1000) / 1000);
   const minGames = 3;
   const pointsToGive = party.mode === "solo" ? 5 : 10;

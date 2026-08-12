@@ -35,6 +35,8 @@ interface Member {
   accounts: Account[];
   gamesTotal: number;
   games2w: number;
+  aramGames2w: number;
+  normalGames2w: number;
   tier: TierInfo | null;
   totalPoints: number;
   warningCount: number;
@@ -81,7 +83,7 @@ function activityTier(points: number) {
   return ACTIVITY_TIERS.find((t) => points >= t.min) ?? null;
 }
 
-// ����ȭ �ð��� "MM.DD HH:MM"����(��¥ ����). ������ "�̵���ȭ".
+// 활동 시간 "MM.DD HH:MM"(날짜 포함). 오늘이면 "방금 활동".
 function syncedTime(iso: string | null) {
   if (!iso) return "미동기화";
   const d = new Date(iso);
@@ -173,7 +175,7 @@ export default function UserInfoPage() {
   const [specialFilter, setSpecialFilter] = useState<"" | "rookie" | "leave">("")
   const [sortBy, setSortBy] = useState<"birth" | "activityTier">("birth");
 
-  // ����¡
+  // 초기화
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(0); // 0-����
 
@@ -193,7 +195,7 @@ export default function UserInfoPage() {
 
   // ���� �߰� ���
   const [accModal, setAccModal] = useState<{ memberId: number; nickname: string } | null>(null);
-  const [accInput, setAccInput] = useState(""); // "�̸�#�±�" ����
+  const [accInput, setAccInput] = useState(""); // "닉네임#태그" 형식
   const [accIsMain, setAccIsMain] = useState(false);
   const [accModalErr, setAccModalErr] = useState("");
   const [accModalBusy, setAccModalBusy] = useState(false);
@@ -268,7 +270,7 @@ export default function UserInfoPage() {
   // �˻� ���͸� ���� ����
   const filteredMembers = members.filter((m) => {
     // �Ҵ緮 �̴� ���� (�ֱ� 2�� ���� 0��)
-    if (showInactive && m.games2w > 0) return false;
+    if (showInactive && (m.aramGames2w >= 4 || m.normalGames2w >= 3)) return false;
     // ����/���� ����
     if (specialFilter === "rookie" && m.position !== "수습") return false;
     if (specialFilter === "leave" && m.status !== "leave") return false;
@@ -369,7 +371,7 @@ export default function UserInfoPage() {
     }
   }
 
-  // Ŭ���� ������ Ŭ�� ���� ������ �α����ؾ� �� �� �ִ�. �α��� ������ ��ȸ���� �ʴ´�.
+  // 클랜원 추가 시 클랜원 이름으로 계정을 찾아야 연동이 가능하다. 계정이 없으면 조회 안 된다.
   useEffect(() => {
     if (authLoading) return;
     if (!user) { setLoading(false); setMembers([]); return; }
@@ -384,7 +386,7 @@ export default function UserInfoPage() {
     const raw = memberInput.trim();
     const hashIdx = raw.lastIndexOf("#");
     if (hashIdx < 1 || hashIdx === raw.length - 1) {
-      setMemberModalErr("��ȯ���#�±� �������� �Է��ϼ���. (��: ��ȯ���#KR1)");
+      setMemberModalErr("닉네임#태그 형식으로 입력하세요. (예: 소환사#KR1)");
       return;
     }
     const gameName = raw.slice(0, hashIdx).trim();
@@ -413,13 +415,13 @@ export default function UserInfoPage() {
     const raw = accInput.trim();
     const hashIdx = raw.lastIndexOf("#");
     if (hashIdx < 1 || hashIdx === raw.length - 1) {
-      setAccModalErr("�̸�#�±� �������� �Է��ϼ���. (��: ��ȯ���#KR1)");
+      setAccModalErr("닉네임#태그 형식으로 입력하세요. (예: 소환사#KR1)");
       return;
     }
     const gameName = raw.slice(0, hashIdx).trim();
     const tagLine = raw.slice(hashIdx + 1).trim();
     if (!gameName || !tagLine) {
-      setAccModalErr("�̸��� �±׸� ��� �Է��ϼ���.");
+      setAccModalErr("닉네임 또는 태그라인을 입력하세요.");
       return;
     }
     setAccModalBusy(true);
@@ -445,7 +447,7 @@ export default function UserInfoPage() {
     const raw = accInput.trim();
     const hashIdx = raw.lastIndexOf("#");
     if (hashIdx < 1 || hashIdx === raw.length - 1) {
-      setAccModalErr("�̸�#�±� �������� �Է��ϼ���. (��: ��ȯ���#KR1)");
+      setAccModalErr("닉네임#태그 형식으로 입력하세요. (예: 소환사#KR1)");
       return;
     }
     const gameName = raw.slice(0, hashIdx).trim();
@@ -665,7 +667,7 @@ export default function UserInfoPage() {
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-      // ù ���� ����� ��ŵ, ������ �Ľ�
+      // 첫 번째 계정을 메인으로 설정, 나머지 서브
       const members: Array<{
         nickname: string;
         birthYear?: number;
