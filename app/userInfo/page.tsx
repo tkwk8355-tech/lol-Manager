@@ -1121,9 +1121,6 @@ export default function UserInfoPage() {
               📤 엑셀 업로드
             </label>
             <input type="file" id="excel-file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={handleFileUpload} />
-            <button className={`excel-btn-small ${sortBy === "activityTier" ? "on" : ""}`} onClick={() => setSortBy(sortBy === "activityTier" ? "birth" : "activityTier")}>
-              활동티어
-            </button>
           </div>
         )}
       </div>
