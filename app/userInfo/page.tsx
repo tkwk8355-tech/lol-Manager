@@ -830,7 +830,7 @@ export default function UserInfoPage() {
                 <label style={{ fontSize: 11, color: "var(--muted)" }}>직책</label>
                 <select value={editForm.position} onChange={(e) => setEditForm((p) => ({ ...p, position: e.target.value }))}
                   style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}>
-                  <option value="일반">일반</option>
+                  <option value="클랜원">클랜원</option>
                   <option value="수습">수습</option>
                   <option value="부운영진">부운영진</option>
                   <option value="운영진">운영진</option>
@@ -1448,6 +1448,7 @@ export default function UserInfoPage() {
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>활동티어</th>
                 <th style={{ textAlign: "right", padding: "6px 10px" }}>포인트</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>솔로랭크</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>직책</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>활동상태</th>
                 <th style={{ textAlign: "right", padding: "6px 10px" }}>관리</th>
             </tr>
@@ -1482,20 +1483,24 @@ export default function UserInfoPage() {
                     : <span style={{ color: "var(--muted)" }}>-</span>}
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                    {m.position !== "일반" && (
+                    {m.position !== "일반" ? (
                       <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 6px", borderRadius: 5,
-                      background: m.position === "수습" ? "rgba(230,126,34,0.18)" : m.position === "부운영진" ? "rgba(155,89,182,0.18)" : m.position === "운영진" ? "rgba(255,105,180,0.18)" : "rgba(83,131,232,0.18)",
-                      color: m.position === "수습" ? "#e67e22" : m.position === "부운영진" ? "#c39bd3" : m.position === "운영진" ? "#ff69b4" : "#7aa2f7" }}>
+                        background: m.position === "수습" ? "rgba(230,126,34,0.18)" : m.position === "부운영진" ? "rgba(155,89,182,0.18)" : m.position === "운영진" ? "rgba(255,105,180,0.18)" : "rgba(83,131,232,0.18)",
+                        color: m.position === "수습" ? "#e67e22" : m.position === "부운영진" ? "#c39bd3" : m.position === "운영진" ? "#ff69b4" : "#7aa2f7" }}>
                         {m.position}
                       </span>
-                    )}
-                    {m.status === "leave" && (
-                      <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 6px", borderRadius: 5, marginLeft: 4,
+                    ) : <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 6px", borderRadius: 5, background: "rgba(83,131,232,0.18)", color: "#7aa2f7" }}>클랜원</span>}
+                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                    {m.status === "leave" ? (
+                      <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 6px", borderRadius: 5,
                         background: "rgba(46,204,113,0.18)", color: "#2ecc71" }}>
                         {m.statusNote ? `외출 ${m.statusNote}` : "외출"}
                       </span>
+                    ) : (
+                      <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 6px", borderRadius: 5,
+                        background: "rgba(83,131,232,0.18)", color: "#7aa2f7" }}>활동</span>
                     )}
-                    {m.status !== "leave" && <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 6px", borderRadius: 5, marginLeft: m.position !== "일반" ? 4 : 0, background: m.position === "운영진" ? "rgba(255,105,180,0.18)" : m.position === "부운영진" ? "rgba(155,89,182,0.18)" : "rgba(83,131,232,0.18)", color: m.position === "운영진" ? "#ff69b4" : m.position === "부운영진" ? "#c39bd3" : "#7aa2f7" }}>활동</span>}
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "right", whiteSpace: "nowrap" }}>
                     <button style={{ background: "transparent", border: "1px solid rgba(231,76,60,0.5)", color: "#f1948a", borderRadius: 6, padding: "4px 8px", fontSize: 11, cursor: "pointer", fontWeight: 700 }}

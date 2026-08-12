@@ -280,18 +280,19 @@ async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRo
     : new Date().toISOString().slice(0, 10);
   for (const h of histRows) {
     const [mRows] = await pool.query(
-      `SELECT m.id AS member_id FROM members m
+      `SELECT m.id AS member_id, m.position FROM members m
        JOIN accounts a ON a.member_id = m.id AND a.is_main = 1 AND a.game_name = ?`,
       [h.nickname]
     ) as [any[], any];
     if (!mRows.length) continue;
     const memberId = mRows[0].member_id;
+    const isRookie = mRows[0].position === '수습';
     const [already] = await pool.query(
-      `SELECT id FROM point_logs WHERE member_id = ? AND type = 'aram' AND DATE(created_at) = ?`,
-      [memberId, aramDate]
+      `SELECT id FROM point_logs WHERE member_id = ? AND type = 'aram' AND ref_id = ?`,
+      [memberId, partyId]
     ) as [any[], any];
     if (already.length > 0) continue;
-    await givePoints(pool, memberId, points, "aram", games, `칼바람 ${games}판`, null, partyId, aramDate);
+    await givePoints(pool, memberId, isRookie ? 0 : points, "aram", games, isRookie ? `칼바람 ${games}판 (수습)` : `칼바람 ${games}판`, null, partyId);
   }
 }
 async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyRow) {
@@ -302,10 +303,10 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
   console.log(`[award] partyId=${partyId} mode=${party.mode} hist=${histRows.map((r:any)=>r.nickname).join(",")}`);
   if (histRows.length < 2) { console.log(`[award] skip: hist < 2`); return; }
 
-  const memberData: { memberId: number; puuids: string[] }[] = [];
+  const memberData: { memberId: number; puuids: string[]; isRookie: boolean }[] = [];
   for (const h of histRows) {
     const [mRows] = await pool.query(
-      `SELECT m.id AS member_id, a.puuid
+      `SELECT m.id AS member_id, m.position, a.puuid
        FROM members m
        JOIN accounts main_a ON main_a.member_id = m.id AND main_a.is_main = 1 AND main_a.game_name = ?
        LEFT JOIN accounts a ON a.member_id = m.id AND a.puuid IS NOT NULL`,
@@ -313,9 +314,10 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
     ) as [any[], any];
     if (!mRows.length) { console.log(`[award] no member for nickname=${h.nickname}`); continue; }
     const memberId = mRows[0].member_id;
+    const isRookie = mRows[0].position === '수습';
     const puuids = [...new Set(mRows.map((r: any) => r.puuid).filter(Boolean))] as string[];
     console.log(`[award] ${h.nickname} memberId=${memberId} puuids=${puuids.length}`);
-    if (puuids.length) memberData.push({ memberId, puuids });
+    if (puuids.length) memberData.push({ memberId, puuids, isRookie });
   }
   if (memberData.length < 2) { console.log(`[award] skip: memberData < 2`); return; }
 
@@ -337,10 +339,10 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
     ? new Date(party.start_at.replace(" ", "T") + "+09:00").toISOString().slice(0, 10)
     : new Date().toISOString().slice(0, 10);
 
-  for (const { memberId, puuids } of memberData) {
+  for (const { memberId, puuids, isRookie } of memberData) {
     const [alreadyRows] = await pool.query(
-      `SELECT id FROM point_logs WHERE member_id = ? AND type = ? AND DATE(created_at) = ?`,
-      [memberId, pointType, partyDate]
+      `SELECT id FROM point_logs WHERE member_id = ? AND type = ? AND ref_id = ?`,
+      [memberId, pointType, partyId]
     ) as [any[], any];
     if (alreadyRows.length > 0) { console.log(`[award] skip memberId=${memberId}: already given today`); continue; }
 
@@ -373,7 +375,7 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
     console.log(`[award] memberId=${memberId} validGames=${validGames} minGames=${minGames}`);
 
     if (validGames < minGames) { console.log(`[award] skip memberId=${memberId}: validGames=${validGames} < ${minGames}`); continue; }
-    await givePoints(pool, memberId, pointsToGive, pointType, validGames, `파티 ${validGames}판 달성`, null, partyId, partyDate);
-    console.log(`[award] gave ${pointsToGive}pts to memberId=${memberId}`);
+    await givePoints(pool, memberId, isRookie ? 0 : pointsToGive, pointType, validGames, isRookie ? `수습 포인트 적립 X` : `파티 ${validGames}판 달성`, null, partyId);
+    console.log(`[award] gave ${isRookie ? 0 : pointsToGive}pts to memberId=${memberId}`);
   }
 }

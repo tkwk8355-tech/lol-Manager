@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     await ensureSchema();
     const pool = getPool();
     const [rows] = await pool.query(`
-      SELECT m.id AS member_id, m.memo, m.birth_date, m.birth_year, m.gender,
+      SELECT m.id AS member_id, m.nickname AS member_nickname, m.memo, m.birth_date, m.birth_year, m.gender,
              m.main_line, m.sub_line, m.position, m.status, m.status_note,
              m.total_points,
              a.id AS account_id, a.game_name, a.tag_line, a.is_main,
@@ -55,13 +55,14 @@ export async function GET(req: NextRequest) {
           id: r.member_id,
           nickname: "",       // 본계정 game_name으로 채움
           displayName: "",    // 본계정 game_name#tagLine
+          _memberNickname: r.member_nickname ?? null,  // 계정 없을 때 fallback
           memo: r.memo,
           birthDate: r.birth_date ?? null,
           birthYear: r.birth_year ?? null,
           gender: r.gender ?? null,
           mainLine: r.main_line,
           subLine: r.sub_line,
-          position: r.position ?? "일반",
+          position: r.position ?? "클랜원",
           status: r.status ?? "active",
           statusNote: r.status_note ?? null,
           totalPoints: r.total_points ?? 0,
@@ -113,15 +114,16 @@ export async function GET(req: NextRequest) {
       const pg = partyGames.get(id);
       m.aramGames2w = pg?.aram ?? 0;
       m.normalGames2w = pg?.normal ?? 0;
-      // 판수미달: 칼바람 4판 미만 AND 협곡(일반+자유+솔로) 3판 미만
+      // 판수미달: 칼바람 4판 미만 AND 협곡(클랜원+자유+솔로) 3판 미만
       m.games2w = (pg?.aram ?? 0) + (pg?.normal ?? 0);
-      // 본계정이 없으면 첫 번째 계정 이름 사용, 계정도 없으면 id로 표시
+      // 본계정이 없으면 첫 번째 계정 이름 사용, 계정도 없으면 members.nickname 사용
       if (!m.nickname) {
-        m.nickname = m.accounts[0]?.gameName ?? `클랜원#${id}`;
+        m.nickname = m.accounts[0]?.gameName ?? m._memberNickname ?? `클랜원#${id}`;
         m.displayName = m.accounts[0]
           ? `${m.accounts[0].gameName}#${m.accounts[0].tagLine}`
-          : `클랜원#${id}`;
+          : m._memberNickname ?? `클랜원#${id}`;
       }
+      delete m._memberNickname;
     }
 
     // 본계정 game_name 기준 가나다/알파벳 정렬

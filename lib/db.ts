@@ -244,7 +244,7 @@ async function createSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
-  // 내전 모집(신청) 단계용 테이블. 일반 클랜원은 이 모집 공고만 보고 신청/취소할 수 있고,
+  // 내전 모집(신청) 단계용 테이블. 클랜원 클랜원은 이 모집 공고만 보고 신청/취소할 수 있고,
   // 점수표/경기 기록 같은 상세 데이터는 못 본다. 운영진이 모집을 열고(open),
   // 정원(기본 10명)이 다 차면 팀 생성기에서 이 모집 명단을 불러와 실제 경기(scrim_matches)를 시작한다.
   // 경기가 시작되면 status가 'started'로 바뀐다.
@@ -296,7 +296,7 @@ async function createSchema(): Promise<void> {
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS gender VARCHAR(1) NULL`);
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS birth_date DATE NULL`);
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS birth_year INT NULL`);
-  await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS position VARCHAR(20) NULL DEFAULT '일반'`);
+  await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS position VARCHAR(20) NULL DEFAULT '클랜원'`);
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'`);
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS status_note VARCHAR(255) NULL`);
 

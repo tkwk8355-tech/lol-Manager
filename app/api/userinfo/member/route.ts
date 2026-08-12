@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
     try {
       await conn.beginTransaction();
       const [mRes] = await conn.query(
-        `INSERT INTO members (nickname, position) VALUES (?, '일반')`, [name]
+        `INSERT INTO members (nickname, position) VALUES (?, '클랜원')`, [name]
       ) as any;
       const memberId = mRes.insertId;
       await conn.query(
@@ -92,7 +92,7 @@ export async function PUT(req: NextRequest) {
       `UPDATE members SET birth_year=?, birth_date=?, gender=?, main_line=?, sub_line=?,
        position=?, status=?, status_note=? WHERE id=?`,
       [birthYear || null, birthDate || null, gender || null, mainLine || null, subLine || null,
-       position || "일반", status || "active", statusNote || null, Number(id)]
+       position || "클랜원", status || "active", statusNote || null, Number(id)]
     );
     return NextResponse.json({ ok: true });
   } catch (err) {

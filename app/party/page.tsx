@@ -45,9 +45,6 @@ function ParticipantInput({ value, onChange, onAddNext, autoFocusOnMount }: {
   }, [autoFocusOnMount]);
 
   async function handleChange(v: string) {
-    if (v.endsWith(" ") && value.trim()) {
-      onChange(value.trim()); setSuggestions([]); onAddNext(); return;
-    }
     onChange(v);
     if (!v.trim()) { setSuggestions([]); return; }
     try {
