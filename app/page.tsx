@@ -57,6 +57,8 @@ export default function Home() {
   const [openPartyCount, setOpenPartyCount] = useState(0);
   const [recentParties, setRecentParties] = useState<RecentParty[]>([]);
   const [lineDist, setLineDist] = useState<Record<string, number>>({});
+  const [birthdays, setBirthdays] = useState<{ nickname: string; birthYear: number | null }[]>([]);
+  const [tomorrowBirthdays, setTomorrowBirthdays] = useState<{ nickname: string; birthYear: number | null }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -67,6 +69,8 @@ export default function Home() {
         setOpenPartyCount(json.openPartyCount ?? 0);
         setRecentParties(json.recentParties ?? []);
         setLineDist(json.lineDist ?? {});
+        setBirthdays(json.birthdays ?? []);
+        setTomorrowBirthdays(json.tomorrowBirthdays ?? []);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -78,7 +82,7 @@ export default function Home() {
       <section className="hero">
         <p className="hero-eyebrow">함께하는 롤 또간집</p>
         <h1 className="hero-title">클랜 매니저</h1>
-        <p className="hero-sub">또 간다, 또 이긴다. 우리 클랜의 모든 것을 한 곳에서.</p>
+
         <div className="hero-stats">
           <div className="hero-stat">
             <span className="hero-stat-num">{loading ? "-" : memberCount}</span>
@@ -88,6 +92,15 @@ export default function Home() {
             <span className="hero-stat-num">{loading ? "-" : openPartyCount}</span>
             <span className="hero-stat-label">파티 구인 현황</span>
           </div>
+          {!loading && birthdays.length > 0 && (
+            <div className="hero-stat">
+              <span className="hero-stat-num">🎂</span>
+              <span className="hero-stat-label" style={{ fontSize: 13, fontWeight: 700 }}>
+                {birthdays.map((b, i) => <span key={b.nickname}>{i > 0 && " · "}{b.nickname}</span>)}
+              </span>
+            </div>
+          )}
+
         </div>
         <div className="hero-actions">
           <Link href="/party" className="hero-btn c-orange" onClick={(e) => { if (!user) { e.preventDefault(); openAuthModal("login"); } }}>🛡️ 파티 생성</Link>
@@ -120,7 +133,9 @@ export default function Home() {
         <div className="home-panel">
           <div className="home-panel-head">
             <h3>파티 현황</h3>
-            <Link href="/party" className="home-panel-link" onClick={(e) => { if (!user) { e.preventDefault(); openAuthModal("login"); } }}>전체보기</Link>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <Link href="/party" className="home-panel-link" onClick={(e) => { if (!user) { e.preventDefault(); openAuthModal("login"); } }}>전체보기</Link>
+            </div>
           </div>
           {loading ? (
             <p className="empty">불러오는 중...</p>

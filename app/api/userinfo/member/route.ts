@@ -84,6 +84,7 @@ export async function PUT(req: NextRequest) {
   try {
     const { id, birthYear, birthDate, gender, mainLine, subLine, position, status, statusNote } = await req.json();
     if (!id) return NextResponse.json({ error: "대상이 없습니다." }, { status: 400 });
+    console.log('[member PUT]', { id, birthYear, birthDate });
 
     await ensureSchema();
     const pool = getPool();

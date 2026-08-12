@@ -1,6 +1,6 @@
 "use client"; // Ŭ���� ��� ������(���������� ����).
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { useAuth } from "../components/AuthProvider";
 
@@ -105,6 +105,7 @@ interface LinkedUser {
 
 export default function UserInfoPage() {
   const { user, isAdmin, loading: authLoading, openAuthModal } = useAuth();
+  const editModalMouseDownInside = useRef(false);
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -170,6 +171,7 @@ export default function UserInfoPage() {
 
   // ����/���� ���� ��
   const [specialFilter, setSpecialFilter] = useState<"" | "rookie" | "leave">("")
+  const [sortBy, setSortBy] = useState<"birth" | "activityTier">("birth");
 
   // ����¡
   const [pageSize, setPageSize] = useState(10);
@@ -284,9 +286,18 @@ export default function UserInfoPage() {
         a.tagLine.toLowerCase().includes(q)
     );
   });
+  const TIER_ORDER = ["CHALLENGER","GRANDMASTER","MASTER","DIAMOND","EMERALD","PLATINUM","GOLD","SILVER","BRONZE","IRON"];
+  const sortedMembers = sortBy === "activityTier"
+    ? [...filteredMembers].sort((a, b) => b.totalPoints - a.totalPoints || a.nickname.localeCompare(b.nickname, "ko"))
+    : [...filteredMembers].sort((a, b) => {
+        const ay = a.birthYear ?? 9999;
+        const by = b.birthYear ?? 9999;
+        if (ay !== by) return ay - by;
+        return a.nickname.localeCompare(b.nickname, "ko");
+      });
   const totalPages = Math.max(1, Math.ceil(filteredMembers.length / pageSize));
   const safePage = Math.min(page, totalPages - 1);
-  const pagedMembers = filteredMembers.slice(
+  const pagedMembers = sortedMembers.slice(
     safePage * pageSize,
     safePage * pageSize + pageSize
   );
@@ -346,13 +357,7 @@ export default function UserInfoPage() {
       if (!res.ok) setError(json.error || "�ҷ����� ����");
       else {
         // �г��� �����ټ� ����
-        const sorted = json.members.sort((a: Member, b: Member) => {
-          const ay = a.birthYear ?? 9999;
-          const by = b.birthYear ?? 9999;
-          if (ay !== by) return ay - by;
-          return a.nickname.localeCompare(b.nickname, 'ko');
-        });
-        setMembers(sorted);
+        setMembers(json.members);
       }
     } catch {
       setError("��Ʈ��ũ ����");
@@ -472,10 +477,16 @@ export default function UserInfoPage() {
         body: JSON.stringify(memberId ? { memberId } : {}),
       });
       const json = await res.json();
-      if (!res.ok) { setSyncMsg(json.error || "����ȭ ����"); return; }
-      setSyncMsg(`Ƽ�� ���� �Ϸ� (${json.processed}��)${json.errors?.length ? ` �� ����: ${json.errors.join(", ")}` : ""}`);
-      loadMembers();
-    } catch { setSyncMsg("��Ʈ��ũ ����"); }
+      if (!res.ok) { setSyncMsg(json.error || "동기화 실패"); return; }
+      await loadMembers();
+      if (memberId) {
+        setMembers((prev) => {
+          const fresh = prev.find((m) => m.id === memberId);
+          if (fresh) setEditModal(fresh);
+          return prev;
+        });
+      }
+    } catch { setSyncMsg("네트워크 오류"); }
     finally { setSyncingId(null); }
   }
 
@@ -607,6 +618,8 @@ export default function UserInfoPage() {
   function downloadExcel() {
     const rows = members.map((m) => ({
       "닉네임": m.nickname,
+      "출생연도": m.birthYear || "",
+      "생일(MM-DD)": m.birthDate ? m.birthDate.slice(5) : "",
       "직책": m.position,
       "주라인": m.mainLine || "",
       "부라인": m.subLine || "",
@@ -624,15 +637,15 @@ export default function UserInfoPage() {
 
   function downloadTemplate() {
     const template = [
-      ["�̸�", "�������", "����(MM-DD)", "�ֶ���", "�ζ���", "����1_�̸�", "����1_�±�", "����1_������", "����2_�̸�", "����2_�±�", "����2_������"],
-      ["ȫ�浿", "1995", "03-15", "TOP", "JG", "HongGD", "KR1", "O", "HongSub", "KR2", ""],
-      ["��ö��", "1998", "", "SUP", "ADC", "KimCS", "1234", "O", "", "", ""],
-      ["�ڿ���", "2000", "11-02", "MID", "", "ParkYH", "ABCD", "O", "ParkAlt", "5678", ""],
+      ["닉네임", "출생연도", "생일(MM-DD)", "주라인", "부라인", "계정1_이름", "계정1_태그", "계정1_본계정", "계정2_이름", "계정2_태그", "계정2_본계정"],
+      ["홍길동", "1995", "03-15", "TOP", "JG", "HongGD", "KR1", "O", "HongSub", "KR2", ""],
+      ["김철수", "1998", "", "SUP", "ADC", "KimCS", "1234", "O", "", "", ""],
+      ["박영희", "2000", "11-02", "MID", "", "ParkYH", "ABCD", "O", "ParkAlt", "5678", ""],
     ];
     const ws = XLSX.utils.aoa_to_sheet(template);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Ŭ����");
-    XLSX.writeFile(wb, "Ŭ����_���ε�_���.xlsx");
+    XLSX.utils.book_append_sheet(wb, ws, "클랜원");
+    XLSX.writeFile(wb, "클랜원_업로드_양식.xlsx");
   }
 
   // ���� ���� ���ε� �ڵ鷯
@@ -685,7 +698,7 @@ export default function UserInfoPage() {
             accounts.push({
               gameName,
               tagLine,
-              isMain: isMainStr === "O" || isMainStr === "������" || isMainStr === "TRUE",
+              isMain: isMainStr === "O" || isMainStr === "TRUE",
             });
           }
         }
@@ -717,10 +730,9 @@ export default function UserInfoPage() {
         loadMembers();
       }
     } catch (err: any) {
-      setUploadMsg(`����: ${err.message}`);
+      setUploadMsg(`: ${err.message}`);
     } finally {
       setUploading(false);
-      // input �ʱ�ȭ (���� ���� �缱�� �����ϰ�)
       e.target.value = "";
     }
   }
@@ -773,13 +785,14 @@ export default function UserInfoPage() {
       {/* 클랜원 수정 모달 */}
       {/* 클랜원 수정 모달 */}
       {editModal && (
-        <div className="modal-backdrop" onClick={() => setEditModal(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560, width: "100%" }}>
+        <div className="modal-backdrop"
+          onMouseDown={(e) => { editModalMouseDownInside.current = e.target !== e.currentTarget; }}
+          onClick={() => { if (!editModalMouseDownInside.current) setEditModal(null); }}>
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560, width: "100%" }}>
             <div className="modal-head">
               <span>✏️ {editModal.nickname} 수정</span>
               <button className="modal-close" onClick={() => setEditModal(null)}>×</button>
             </div>
-            {/* 기본 정보 */}
             {/* 기본 정보 */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -789,9 +802,14 @@ export default function UserInfoPage() {
                   style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }} />
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <label style={{ fontSize: 11, color: "var(--muted)" }}>생일 (MM-DD, 선택)</label>
+                <label style={{ fontSize: 11, color: "var(--muted)" }}>생일 (MM-DD)</label>
                 <input type="text" placeholder="03-15" value={editForm.birthMD}
-                  onChange={(e) => setEditForm((p) => ({ ...p, birthMD: e.target.value }))}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    const digits = raw.replace(/[^0-9]/g, "");
+                    let v = digits.length >= 4 ? digits.slice(0, 2) + "-" + digits.slice(2, 4) : raw;
+                    setEditForm((p) => ({ ...p, birthMD: v }));
+                  }}
                   style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }} />
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -843,7 +861,7 @@ export default function UserInfoPage() {
               </div>
               {editForm.status === "leave" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / -1" }}>
-                <label style={{ fontSize: 11, color: "var(--muted)" }}>외출 사유</label>
+                  <label style={{ fontSize: 11, color: "var(--muted)" }}>외출 사유</label>
                   <input value={editForm.statusNote} onChange={(e) => setEditForm((p) => ({ ...p, statusNote: e.target.value }))}
                     placeholder="외출 사유"
                     style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }} />
@@ -917,6 +935,10 @@ export default function UserInfoPage() {
             {/* 저장 / 취소 */}
             <div style={{ display: "flex", gap: 8 }}>
               <button className="sync-btn" style={{ flex: 1 }} onClick={saveEdit}>저장</button>
+              <button className="sync-btn" style={{ flex: 1 }} disabled={syncingId === editModal.id}
+                onClick={() => syncTier(editModal.id)}>
+                {syncingId === editModal.id ? "동기화 중..." : "🔄 솔랭 동기화"}
+              </button>
               <button className="cancel-btn" style={{ flex: 1 }} onClick={() => setEditModal(null)}>취소</button>
             </div>
           </div>
@@ -1087,9 +1109,6 @@ export default function UserInfoPage() {
         </button>
         {isAdmin && (
           <div className="search-actions">
-            <button className="excel-btn-small" onClick={downloadExcel}>
-              📊 전체 다운로드
-            </button>
             <button className="excel-btn-small" onClick={downloadTemplate}>
               📥 양식 다운로드
             </button>
@@ -1097,6 +1116,9 @@ export default function UserInfoPage() {
               📤 엑셀 업로드
             </label>
             <input type="file" id="excel-file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={handleFileUpload} />
+            <button className={`excel-btn-small ${sortBy === "activityTier" ? "on" : ""}`} onClick={() => setSortBy(sortBy === "activityTier" ? "birth" : "activityTier")}>
+              활동티어
+            </button>
           </div>
         )}
       </div>
@@ -1152,9 +1174,9 @@ export default function UserInfoPage() {
       {/* 포인트 탭 */}
       {isAdmin && tab === "points" && (
         <div>
-            {/* 수동 지급 폼 */}
-            {/* 수동 지급 폼 */}
           <div className="home-panel" style={{ marginBottom: 16 }}>
+            {/* 수동 지급 폼 */}
+            {/* 수동 지급 폼 */}
             <div className="home-panel-head"><h3>포인트 수동 지급</h3></div>
             <form onSubmit={givePoint} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
               <select
@@ -1293,6 +1315,12 @@ export default function UserInfoPage() {
               {lk} <em>{members.filter((m) => m.mainLine === lk).length}</em>
             </button>
           ))}
+          <button
+            style={{ marginLeft: "auto", padding: "4px 14px", borderRadius: 8, border: "1px solid #27ae60", background: sortBy === "activityTier" ? "#27ae60" : "transparent", color: sortBy === "activityTier" ? "#fff" : "#2ecc71", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+            onClick={() => { setSortBy(sortBy === "activityTier" ? "birth" : "activityTier"); setPage(0); }}
+          >
+            활동티어
+          </button>
         </div>
       )}
       {/* 클랜원 추가 + 전체 티어 동기화 버튼 */}
@@ -1301,9 +1329,6 @@ export default function UserInfoPage() {
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
           <button className="sync-btn" onClick={() => { setMemberModal(true); setMemberInput(""); setMemberModalErr(""); }}>
             + 클랜원 추가
-          </button>
-          <button className="sync-btn" disabled={syncingId === 0} onClick={() => syncTier(null)}>
-            {syncingId === 0 ? "동기화 중..." : "🔄 전체 티어 동기화"}
           </button>
         </div>
       )}
@@ -1430,6 +1455,7 @@ export default function UserInfoPage() {
                   <td style={{ padding: "8px 10px", fontWeight: 700 }}>
                     <span style={{ cursor: "pointer", color: "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="#7aa2f7")} onMouseLeave={e => (e.currentTarget.style.color="var(--text)")} onClick={() => openEditModal(m)}>
                       {m.nickname}
+                      {m.birthYear && <span style={{ fontSize: 11, color: "var(--muted)", marginLeft: 5, fontWeight: 400 }}>{String(m.birthYear).slice(2)}년생</span>}
                       {m.warningCount > 0 && <span style={{ fontSize: 11, fontWeight: 800, marginLeft: 6, color: "#f1948a" }}>⚠️{m.warningCount}</span>}
                     </span>
                   </td>

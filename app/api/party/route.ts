@@ -275,7 +275,9 @@ async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRo
   ) as [any[], any];
   if (histRows.length < 2) return;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const aramDate = party.start_at
+    ? new Date(party.start_at.replace(" ", "T") + "+09:00").toISOString().slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
   for (const h of histRows) {
     const [mRows] = await pool.query(
       `SELECT m.id AS member_id FROM members m
@@ -286,10 +288,10 @@ async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRo
     const memberId = mRows[0].member_id;
     const [already] = await pool.query(
       `SELECT id FROM point_logs WHERE member_id = ? AND type = 'flex' AND DATE(created_at) = ?`,
-      [memberId, today]
+      [memberId, aramDate]
     ) as [any[], any];
     if (already.length > 0) continue;
-    await givePoints(pool, memberId, points, "flex", games, `칼바람 ${games}판`, null, partyId);
+    await givePoints(pool, memberId, points, "flex", games, `칼바람 ${games}판`, null, partyId, aramDate);
   }
 }
 async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyRow) {
@@ -317,23 +319,28 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
   }
   if (memberData.length < 2) { console.log(`[award] skip: memberData < 2`); return; }
 
-  const createdMs = new Date(party.created_at.replace(" ", "T")).getTime();
-  const startTime = Math.floor((createdMs - 24 * 60 * 60 * 1000) / 1000);
-  const endTime = Math.floor(Date.now() / 1000);
+  const baseTime = party.start_at
+    ? new Date(party.start_at.replace(" ", "T") + "+09:00").getTime()
+    : new Date(party.created_at.replace(" ", "T")).getTime();
+  const startTime = Math.floor((baseTime - 30 * 60 * 1000) / 1000);
+  const endTime = Math.floor((baseTime + 24 * 60 * 60 * 1000) / 1000);
   const minGames = 3;
   const pointsToGive = party.mode === "solo" ? 5 : 10;
   const queueIds = party.mode === "solo" ? [420] : party.mode === "flex" ? [440] : [400, 430];
   const pointType = party.mode === "solo" ? "solo" : party.mode === "flex" ? "flex" : "normal";
-  const queueType = party.mode === "solo" ? "ranked" : "normal";
+  const queueType = party.mode === "solo" || party.mode === "flex" ? "ranked" : "normal";
   console.log(`[award] startTime=${new Date(startTime*1000).toISOString()} endTime=${new Date(endTime*1000).toISOString()} queueIds=${queueIds} queueType=${queueType}`);
 
   const allPartyPuuids = new Set(memberData.flatMap((m) => m.puuids));
-  const today = new Date().toISOString().slice(0, 10);
+  // 중복 체크는 파티 start_at 날짜(KST) 기준
+  const partyDate = party.start_at
+    ? new Date(party.start_at.replace(" ", "T") + "+09:00").toISOString().slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
 
   for (const { memberId, puuids } of memberData) {
     const [alreadyRows] = await pool.query(
       `SELECT id FROM point_logs WHERE member_id = ? AND type = ? AND DATE(created_at) = ?`,
-      [memberId, pointType, today]
+      [memberId, pointType, partyDate]
     ) as [any[], any];
     if (alreadyRows.length > 0) { console.log(`[award] skip memberId=${memberId}: already given today`); continue; }
 
@@ -366,7 +373,7 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
     console.log(`[award] memberId=${memberId} validGames=${validGames} minGames=${minGames}`);
 
     if (validGames < minGames) { console.log(`[award] skip memberId=${memberId}: validGames=${validGames} < ${minGames}`); continue; }
-    await givePoints(pool, memberId, pointsToGive, pointType, validGames, `파티 ${validGames}판 달성`, null, partyId);
+    await givePoints(pool, memberId, pointsToGive, pointType, validGames, `파티 ${validGames}판 달성`, null, partyId, partyDate);
     console.log(`[award] gave ${pointsToGive}pts to memberId=${memberId}`);
   }
 }

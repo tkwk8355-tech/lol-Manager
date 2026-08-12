@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../components/AuthProvider";
 
 interface MemberPoint {
@@ -58,6 +58,11 @@ export default function PointsPage() {
   const [pointLogs, setPointLogs] = useState<any[]>([]);
   const [pointLoading, setPointLoading] = useState(false);
   const [pointForm, setPointForm] = useState({ memberId: "", points: "", comment: "" });
+  const [pointMemberQuery, setPointMemberQuery] = useState("");
+  const [pointMemberOpen, setPointMemberOpen] = useState(false);
+  const pointMemberWrapRef = useRef<HTMLDivElement>(null);
+  const pointInputRef = useRef<HTMLInputElement>(null);
+  const pointCommentRef = useRef<HTMLInputElement>(null);
   const [pointMsg, setPointMsg] = useState("");
 
   // 상점 아이템
@@ -108,6 +113,26 @@ export default function PointsPage() {
     if (isAdmin && subTab === "shop") loadShopItems();
   }, [isAdmin, subTab]);
 
+  const filteredPointMembers = pointMemberQuery.length > 0
+    ? members.filter((m) => m.nickname.toLowerCase().includes(pointMemberQuery.toLowerCase())).slice(0, 8)
+    : members.slice(0, 8);
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (pointMemberWrapRef.current && !pointMemberWrapRef.current.contains(e.target as Node))
+        setPointMemberOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  function selectPointMember(m: MemberPoint) {
+    setPointForm((p) => ({ ...p, memberId: String(m.id) }));
+    setPointMemberQuery(`${m.nickname} (${m.totalPoints}P)`);
+    setPointMemberOpen(false);
+    pointInputRef.current?.focus();
+  }
+
   async function givePoint(e: React.FormEvent) {
     e.preventDefault();
     setPointMsg("");
@@ -122,6 +147,7 @@ export default function PointsPage() {
     const json = await res.json();
     if (!res.ok) { setPointMsg(json.error || "실패"); return; }
     setPointForm({ memberId: "", points: "", comment: "" });
+    setPointMemberQuery("");
     setPointMsg("지급 완료!");
     loadPointLogs();
     loadMembers();
@@ -277,15 +303,35 @@ export default function PointsPage() {
           <div className="home-panel" style={{ marginBottom: 16 }}>
             <div className="home-panel-head"><h3>포인트 수동 지급</h3></div>
             <form onSubmit={givePoint} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <select value={pointForm.memberId} onChange={(e) => setPointForm((p) => ({ ...p, memberId: e.target.value }))}
-                style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14 }}>
-                <option value="">클랜원 선택</option>
-                {members.map((m) => <option key={m.id} value={m.id}>{m.nickname} ({m.totalPoints}P)</option>)}
-              </select>
-              <input type="number" placeholder="포인트 (음수 가능)" value={pointForm.points}
+              <div ref={pointMemberWrapRef} style={{ position: "relative" }}>
+                <input
+                  value={pointMemberQuery}
+                  onChange={(e) => { setPointMemberQuery(e.target.value); setPointMemberOpen(true); if (!e.target.value) setPointForm((p) => ({ ...p, memberId: "" })); }}
+                  onFocus={() => setPointMemberOpen(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (filteredPointMembers.length > 0) selectPointMember(filteredPointMembers[0]);
+                    } else if (e.key === "Escape") setPointMemberOpen(false);
+                  }}
+                  placeholder="클랜원 검색"
+                  style={{ width: 200, padding: "9px 12px", borderRadius: 8, border: `1px solid ${pointForm.memberId ? "var(--accent)" : "var(--border)"}`, background: "var(--card)", color: "var(--text)", fontSize: 14 }}
+                />
+                {pointMemberOpen && filteredPointMembers.length > 0 && (
+                  <div className="slot-candidates" style={{ zIndex: 50, minWidth: 200 }}>
+                    {filteredPointMembers.map((m, i) => (
+                      <button key={m.id} className={i === 0 ? "first" : ""} onMouseDown={() => selectPointMember(m)}>
+                        {m.nickname} ({m.totalPoints}P)
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <input ref={pointInputRef} type="number" placeholder="포인트 (음수 가능)" value={pointForm.points}
                 onChange={(e) => setPointForm((p) => ({ ...p, points: e.target.value }))}
-                style={{ width: 120, padding: "9px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14 }} />
-              <input placeholder="사유 (필수)" value={pointForm.comment}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); pointCommentRef.current?.focus(); } }}
+                style={{ width: 160, padding: "9px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14 }} />
+              <input ref={pointCommentRef} placeholder="사유 (필수)" value={pointForm.comment}
                 onChange={(e) => setPointForm((p) => ({ ...p, comment: e.target.value }))}
                 style={{ flex: 1, minWidth: 200, padding: "9px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14 }} />
               <button type="submit" className="sync-btn">지급</button>

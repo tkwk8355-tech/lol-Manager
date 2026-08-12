@@ -168,17 +168,22 @@ export async function PATCH(req: NextRequest) {
       await conn.commit();
 
       // 내전 결과 등록 시 참가자 전원 30점 지급 (하루 한도)
-      const today = new Date().toISOString().slice(0, 10);
+      const [matchRows] = await pool.query(
+        "SELECT played_at FROM scrim_matches WHERE id = ?", [id]
+      ) as [any[], any];
+      const scrimDate = matchRows[0]?.played_at
+        ? new Date(matchRows[0].played_at).toISOString().slice(0, 10)
+        : new Date().toISOString().slice(0, 10);
       const [partRows] = await pool.query(
         "SELECT member_id FROM scrim_participants WHERE match_id = ?", [id]
       ) as [any[], any];
       for (const p of partRows) {
         const [alreadyRows] = await pool.query(
           `SELECT id FROM point_logs WHERE member_id = ? AND type = 'scrim' AND DATE(created_at) = ?`,
-          [p.member_id, today]
+          [p.member_id, scrimDate]
         ) as [any[], any];
         if (alreadyRows.length > 0) continue;
-        await givePoints(pool, p.member_id, 30, "scrim", 1, "내전 참여", null, id);
+        await givePoints(pool, p.member_id, 30, "scrim", 1, "내전 참여", null, id, scrimDate);
       }
 
       return NextResponse.json({ ok: true });
