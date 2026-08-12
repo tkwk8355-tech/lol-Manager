@@ -287,11 +287,11 @@ async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRo
     if (!mRows.length) continue;
     const memberId = mRows[0].member_id;
     const [already] = await pool.query(
-      `SELECT id FROM point_logs WHERE member_id = ? AND type = 'flex' AND DATE(created_at) = ?`,
+      `SELECT id FROM point_logs WHERE member_id = ? AND type = 'aram' AND DATE(created_at) = ?`,
       [memberId, aramDate]
     ) as [any[], any];
     if (already.length > 0) continue;
-    await givePoints(pool, memberId, points, "flex", games, `칼바람 ${games}판`, null, partyId, aramDate);
+    await givePoints(pool, memberId, points, "aram", games, `칼바람 ${games}판`, null, partyId, aramDate);
   }
 }
 async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyRow) {

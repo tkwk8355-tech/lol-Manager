@@ -15,8 +15,14 @@ export default function FriendsPage() {
 
   // 지인 추가 모달
   const [modal, setModal] = useState<MemberRow | null>(null);
+  const [memberSearch, setMemberSearch] = useState("");
   const [friendSearch, setFriendSearch] = useState("");
   const [busy, setBusy] = useState(false);
+
+  function openAddModal() {
+    setModal({ id: -1, nickname: "", friends: [] }); // -1 = 클랜원 선택 단계
+    setMemberSearch(""); setFriendSearch("");
+  }
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -46,8 +52,8 @@ export default function FriendsPage() {
       const json = await res.json();
       if (!res.ok) { setError(json.error || "추가 실패"); return; }
       await load();
-      // 모달 내 데이터 갱신
-      setModal((prev) => prev ? members.find((m) => m.id === prev.id) ?? prev : null);
+      // 모달 내 데이터 갱신 (load 후 members가 업데이트되므로 id로 다시 찾음)
+      setModal((prev) => prev && prev.id !== -1 ? members.find((m) => m.id === prev.id) ?? prev : prev);
     } catch { setError("네트워크 오류"); }
     finally { setBusy(false); }
   }
@@ -69,19 +75,12 @@ export default function FriendsPage() {
     (!search.trim() || m.nickname.toLowerCase().includes(search.toLowerCase()))
   );
 
-  // 이미 지인 관계에 연루된 id 집합 (member_id로 등록한 사람 + friend_id로 등록된 사람)
-  const registeredFriendIds = new Set([
-    ...members.filter((m) => m.friends.length > 0).map((m) => m.id),
-    ...members.flatMap((m) => m.friends.map((f) => f.friendId)),
-  ]);
-
-  // 모달에서 추가 가능한 후보 (본인, 이미 지인, 이미 다른 사람의 지인으로 등록된 사람 제외)
+  // 모달에서 추가 가능한 후보 (본인, 이미 지인인 사람 제외)
   const modalMember = modal ? members.find((m) => m.id === modal.id) ?? modal : null;
   const candidates = modalMember
     ? members.filter((m) => {
         if (m.id === modalMember.id) return false;
         if (modalMember.friends.some((f) => f.friendId === m.id)) return false;
-        if (registeredFriendIds.has(m.id)) return false;
         if (!friendSearch.trim()) return true;
         return m.nickname.toLowerCase().includes(friendSearch.toLowerCase());
       })
@@ -104,71 +103,129 @@ export default function FriendsPage() {
         클랜원 1인당 지인 최대 3명. 파티 시 함께 묶이는 인원을 지정합니다.
       </p>
 
-      {/* 지인 추가 모달 */}
-      {modal && modalMember && (
-        <div className="modal-backdrop" onClick={() => { setModal(null); setFriendSearch(""); }}>
+      {/* 지인 관리 모달 */}
+      {modal && (
+        <div className="modal-backdrop" onClick={() => { setModal(null); setMemberSearch(""); setFriendSearch(""); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
             <div className="modal-head">
-              <span>👥 {modalMember.nickname} 지인 관리</span>
-              <button className="modal-close" onClick={() => { setModal(null); setFriendSearch(""); }}>×</button>
+              <span>👥 {modal.id === -1 ? "클랜원 선택" : `${modalMember?.nickname} 지인 관리`}</span>
+              <button className="modal-close" onClick={() => { setModal(null); setMemberSearch(""); setFriendSearch(""); }}>×</button>
             </div>
 
-            {/* 현재 지인 목록 */}
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, fontWeight: 700 }}>
-                현재 지인 ({modalMember.friends.length}/3)
-              </div>
-              {modalMember.friends.length === 0
-                ? <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>등록된 지인이 없습니다.</p>
-                : modalMember.friends.map((f) => (
-                  <div key={f.friendId} style={{ display: "flex", alignItems: "center", gap: 8,
-                    background: "var(--card-2)", borderRadius: 8, padding: "7px 10px", fontSize: 13, marginBottom: 4 }}>
-                    <span style={{ flex: 1, fontWeight: 700 }}>{f.friendName}</span>
-                    {isAdmin && (
-                      <button className="del-btn small" disabled={busy}
-                        onClick={() => removeFriend(modalMember.id, f.friendId)}>삭제</button>
-                    )}
+            {/* 1단계: 클랜원 선택 */}
+            {modal.id === -1 && (() => {
+              const memberCandidates = members.filter((m) =>
+                !memberSearch.trim() || m.nickname.toLowerCase().includes(memberSearch.toLowerCase())
+              );
+              return (
+                <div>
+                  <input
+                    autoFocus
+                    placeholder="클랜원 검색..."
+                    value={memberSearch}
+                    onChange={(e) => setMemberSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && memberCandidates.length > 0) {
+                        setModal(memberCandidates[0]); setMemberSearch("");
+                      }
+                    }}
+                    style={{ width: "100%", padding: "8px 12px", borderRadius: 8,
+                      border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13, marginBottom: 6 }}
+                  />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 300, overflowY: "auto" }}>
+                    {memberSearch.trim() && memberCandidates.slice(0, 30).map((m) => (
+                      <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8,
+                        background: "var(--card-2)", borderRadius: 8, padding: "7px 10px", fontSize: 13, cursor: "pointer" }}
+                        onClick={() => { setModal(m); setMemberSearch(""); }}>
+                        <span style={{ flex: 1 }}>{m.nickname}</span>
+                        <span style={{ fontSize: 11, color: "var(--muted)" }}>지인 {m.friends.length}/3</span>
+                      </div>
+                    ))}
                   </div>
-                ))
-              }
-            </div>
+                </div>
+              );
+            })()}
 
-            {/* 지인 추가 (운영진만) */}
-            {isAdmin && modalMember.friends.length < 3 && (
-              <div>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, fontWeight: 700 }}>지인 추가</div>
-                <input
-                  autoFocus
-                  placeholder="클랜원 검색..."
-                  value={friendSearch}
-                  onChange={(e) => setFriendSearch(e.target.value)}
-                  style={{ width: "100%", padding: "8px 12px", borderRadius: 8,
-                    border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13, marginBottom: 6 }}
-                />
-                <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 200, overflowY: "auto" }}>
-                  {candidates.slice(0, 20).map((c) => (
-                    <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8,
-                      background: "var(--card-2)", borderRadius: 8, padding: "7px 10px", fontSize: 13 }}>
-                      <span style={{ flex: 1 }}>{c.nickname}</span>
-                      <button className="sync-btn" style={{ padding: "4px 10px", fontSize: 12 }}
-                        disabled={busy}
-                        onClick={() => addFriend(modalMember.id, c.id)}>
-                        추가
+            {/* 2단계: 지인 관리 */}
+            {modal.id !== -1 && modalMember && (
+              <>
+                <button style={{ fontSize: 12, color: "var(--muted)", background: "none", border: "none",
+                  cursor: "pointer", padding: 0, marginBottom: 12 }}
+                  onClick={() => { setModal({ id: -1, nickname: "", friends: [] }); setFriendSearch(""); }}>
+                  ← 다른 클랜원 선택
+                </button>
+
+                {/* 현재 지인 목록 */}
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, fontWeight: 700 }}>
+                    현재 지인 ({modalMember.friends.length}/3)
+                  </div>
+                  {modalMember.friends.length === 0
+                    ? <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>등록된 지인이 없습니다.</p>
+                    : modalMember.friends.map((f) => (
+                      <div key={f.friendId} style={{ display: "flex", alignItems: "center", gap: 8,
+                        background: "var(--card-2)", borderRadius: 8, padding: "7px 10px", fontSize: 13, marginBottom: 4 }}>
+                        <span style={{ flex: 1, fontWeight: 700 }}>{f.friendName}</span>
+                        <button className="del-btn small" disabled={busy}
+                          onClick={() => removeFriend(modalMember.id, f.friendId)}>삭제</button>
+                      </div>
+                    ))
+                  }
+                </div>
+
+                {/* 지인 추가 */}
+                {modalMember.friends.length < 3 ? (
+                  <div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, fontWeight: 700 }}>지인 추가</div>
+                    <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                      <input
+                        autoFocus
+                        placeholder="클랜원 검색..."
+                        value={friendSearch}
+                        onChange={(e) => setFriendSearch(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && candidates.length > 0) {
+                            addFriend(modalMember.id, candidates[0].id);
+                            setFriendSearch("");
+                          }
+                        }}
+                        style={{ flex: 1, padding: "8px 12px", borderRadius: 8,
+                          border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
+                      />
+                      <button className="sync-btn" disabled={busy || candidates.length === 0}
+                        onClick={() => { if (candidates.length > 0) { addFriend(modalMember.id, candidates[0].id); setFriendSearch(""); } }}>
+                        등록
                       </button>
                     </div>
-                  ))}
-                  {candidates.length === 0 && <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>추가 가능한 클랜원이 없습니다.</p>}
-                </div>
-              </div>
-            )}
-            {isAdmin && modalMember.friends.length >= 3 && (
-              <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>지인이 최대(3명)입니다.</p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 200, overflowY: "auto" }}>
+                      {candidates.slice(0, 20).map((c) => (
+                        <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8,
+                          background: "var(--card-2)", borderRadius: 8, padding: "7px 10px", fontSize: 13 }}>
+                          <span style={{ flex: 1 }}>{c.nickname}</span>
+                          <button className="sync-btn" style={{ padding: "4px 10px", fontSize: 12 }}
+                            disabled={busy} onClick={() => addFriend(modalMember.id, c.id)}>추가</button>
+                        </div>
+                      ))}
+                      {candidates.length === 0 && <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>추가 가능한 클랜원이 없습니다.</p>}
+                    </div>
+                  </div>
+                ) : (
+                  <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>지인이 최대(3명)입니다.</p>
+                )}
+              </>
             )}
           </div>
         </div>
       )}
 
       {error && <div className="error">{error}</div>}
+
+      {/* 지인 추가 버튼 (운영진만) */}
+      {isAdmin && (
+        <div style={{ marginBottom: 14 }}>
+          <button className="sync-btn" onClick={openAddModal}>+ 지인 추가</button>
+        </div>
+      )}
 
       {/* 검색 */}
       <div style={{ marginBottom: 14, display: "flex", gap: 8 }}>

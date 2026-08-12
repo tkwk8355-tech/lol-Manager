@@ -13,8 +13,7 @@ tar -czf deploy.tar.gz ^
   public ^
   package.json ^
   package-lock.json ^
-  next.config.js ^
-  patch.sh
+  next.config.js
 if errorlevel 1 ( echo 패키징 실패 & pause & exit /b 1 )
 
 echo === [3/3] 완료 ===

@@ -150,7 +150,7 @@ export default function UserInfoPage() {
     loadUsers();
   }
   async function deleteUser(userId: number, username: string) {
-    if (!confirm(`"${username}" ������ �����ұ��? �� �������δ� �� �̻� �α����� �� �����ϴ�.`)) return;
+    if (!confirm(`"${username}" 계정을 삭제하시겠습니까? 연동된 클랜원 정보도 함께 삭제됩니다.`)) return;
     setLinkMsg("");
     try {
       const res = await fetch(`/api/userinfo/link?id=${userId}`, { method: "DELETE" });
@@ -254,7 +254,7 @@ export default function UserInfoPage() {
   }
 
   async function deleteWarning(id: number) {
-    if (!confirm("�� ����� �����ұ��?")) return;
+    if (!confirm("경고를 삭제하시겠습니까?")) return;
     await fetch(`/api/userinfo/warning?id=${id}`, { method: "DELETE" });
     if (warnModal) {
       const r2 = await fetch(`/api/userinfo/warning?memberId=${warnModal.memberId}`);
@@ -287,9 +287,12 @@ export default function UserInfoPage() {
     );
   });
   const TIER_ORDER = ["CHALLENGER","GRANDMASTER","MASTER","DIAMOND","EMERALD","PLATINUM","GOLD","SILVER","BRONZE","IRON"];
+  const positionOrder = (p: string) => p === "운영진" ? 0 : p === "부운영진" ? 1 : 2;
   const sortedMembers = sortBy === "activityTier"
     ? [...filteredMembers].sort((a, b) => b.totalPoints - a.totalPoints || a.nickname.localeCompare(b.nickname, "ko"))
     : [...filteredMembers].sort((a, b) => {
+        const po = positionOrder(a.position) - positionOrder(b.position);
+        if (po !== 0) return po;
         const ay = a.birthYear ?? 9999;
         const by = b.birthYear ?? 9999;
         if (ay !== by) return ay - by;
@@ -491,8 +494,8 @@ export default function UserInfoPage() {
   }
 
   async function remove(kind: "member" | "account", id: number) {
-    if (!confirm("�����ұ��?")) return;
-    console.log("[remove] ���� ��û ����:", { kind, id });
+    if (!confirm("삭제하시겠습니까?")) return;
+    console.log("[remove] 삭제 요청:", { kind, id });
     try {
       const res = await fetch("/api/userinfo/delete", {
         method: "POST",
@@ -603,7 +606,7 @@ export default function UserInfoPage() {
   }
 
   async function cancelPoint(id: number) {
-    if (!confirm("�� ����Ʈ ������ ����ұ��?")) return;
+    if (!confirm("포인트 내역을 삭제하시겠습니까?")) return;
     const res = await fetch(`/api/points?id=${id}`, { method: "DELETE" });
     if (res.ok) { loadPointLogs(); loadMembers(); }
   }
@@ -1479,8 +1482,8 @@ export default function UserInfoPage() {
                   <td style={{ padding: "8px 10px", textAlign: "center" }}>
                     {m.position !== "일반" && (
                       <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 6px", borderRadius: 5,
-                      background: m.position === "수습" ? "rgba(230,126,34,0.18)" : m.position === "부운영진" ? "rgba(155,89,182,0.18)" : "rgba(83,131,232,0.18)",
-                      color: m.position === "수습" ? "#e67e22" : m.position === "부운영진" ? "#c39bd3" : "#7aa2f7" }}>
+                      background: m.position === "수습" ? "rgba(230,126,34,0.18)" : m.position === "부운영진" ? "rgba(155,89,182,0.18)" : m.position === "운영진" ? "rgba(255,105,180,0.18)" : "rgba(83,131,232,0.18)",
+                      color: m.position === "수습" ? "#e67e22" : m.position === "부운영진" ? "#c39bd3" : m.position === "운영진" ? "#ff69b4" : "#7aa2f7" }}>
                         {m.position}
                       </span>
                     )}
@@ -1490,7 +1493,7 @@ export default function UserInfoPage() {
                         {m.statusNote ? `외출 ${m.statusNote}` : "외출"}
                       </span>
                     )}
-                    {m.position === "일반" && m.status !== "leave" && <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 6px", borderRadius: 5, background: "rgba(83,131,232,0.18)", color: "#7aa2f7" }}>활동</span>}
+                    {m.status !== "leave" && <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 6px", borderRadius: 5, marginLeft: m.position !== "일반" ? 4 : 0, background: m.position === "운영진" ? "rgba(255,105,180,0.18)" : m.position === "부운영진" ? "rgba(155,89,182,0.18)" : "rgba(83,131,232,0.18)", color: m.position === "운영진" ? "#ff69b4" : m.position === "부운영진" ? "#c39bd3" : "#7aa2f7" }}>활동</span>}
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "right", whiteSpace: "nowrap" }}>
                     <button style={{ background: "transparent", border: "1px solid rgba(231,76,60,0.5)", color: "#f1948a", borderRadius: 6, padding: "4px 8px", fontSize: 11, cursor: "pointer", fontWeight: 700 }}
