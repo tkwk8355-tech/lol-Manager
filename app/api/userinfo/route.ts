@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
     const [rows] = await pool.query(`
       SELECT m.id AS member_id, m.nickname AS member_nickname, m.memo, m.birth_date, m.birth_year, m.gender,
              m.main_line, m.sub_line, m.position, m.status, m.status_note,
-             m.total_points,
+             m.total_points, m.created_at AS member_created_at,
              a.id AS account_id, a.game_name, a.tag_line, a.is_main,
              a.puuid, a.games_total, a.games_2w, a.last_synced_at,
              a.solo_tier, a.solo_rank, a.solo_lp
@@ -45,6 +45,28 @@ export async function GET(req: NextRequest) {
     const warnCount = new Map<number, number>();
     for (const w of warnRows) warnCount.set(w.member_id, Number(w.cnt));
 
+    // 수습 파티 참여 카운트 + 로그 상세
+    const [rookieRows] = await pool.query(`
+      SELECT pl.member_id, pl.games, pl.comment, pl.created_at, p.start_at, p.mode
+      FROM point_logs pl
+      LEFT JOIN parties p ON p.id = pl.ref_id
+      WHERE pl.type = 'rookie_session'
+      ORDER BY pl.created_at ASC
+    `) as [any[], any];
+    const rookiePartyCount = new Map<number, number>();
+    const rookieSessionLogs = new Map<number, any[]>();
+    for (const r of rookieRows) {
+      const mid = r.member_id;
+      rookiePartyCount.set(mid, (rookiePartyCount.get(mid) ?? 0) + Number(r.games)); // 조합 수 합산
+      if (!rookieSessionLogs.has(mid)) rookieSessionLogs.set(mid, []);
+      rookieSessionLogs.get(mid)!.push({
+        games: Number(r.games),
+        comment: r.comment,
+        date: (r.start_at ?? r.created_at ?? "").slice(0, 10),
+        mode: r.mode ?? "flex",
+      });
+    }
+
     const map = new Map<number, any>();
     const mainTier = new Map<number, TierInfo | null>();
     const bestTier = new Map<number, TierInfo | null>();
@@ -66,7 +88,9 @@ export async function GET(req: NextRequest) {
           status: r.status ?? "active",
           statusNote: r.status_note ?? null,
           totalPoints: r.total_points ?? 0,
+          createdAt: r.member_created_at ?? null,
           warningCount: 0,
+          rookiePartyCount: 0,
           accounts: [],
           gamesTotal: 0,
           games2w: 0,
@@ -111,6 +135,8 @@ export async function GET(req: NextRequest) {
     for (const [id, m] of map) {
       m.tier = mainTier.get(id) ?? bestTier.get(id) ?? null;
       m.warningCount = warnCount.get(id) ?? 0;
+      m.rookiePartyCount = rookiePartyCount.get(id) ?? 0;
+      m.rookieSessionLogs = rookieSessionLogs.get(id) ?? [];
       const pg = partyGames.get(id);
       m.aramGames2w = pg?.aram ?? 0;
       m.normalGames2w = pg?.normal ?? 0;

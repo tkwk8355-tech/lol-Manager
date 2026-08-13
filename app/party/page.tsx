@@ -100,6 +100,22 @@ export default function PartyPage() {
   const [editParticipants, setEditParticipants] = useState<string[]>([""]);
   const [aramModal, setAramModal] = useState<number | null>(null); // partyId
   const [aramGames, setAramGames] = useState("");
+  const [settingsModal, setSettingsModal] = useState(false);
+  const [pointSettings, setPointSettings] = useState<{mode:string;points:number;min_games:number}[]>([]);
+  const [settingsBusy, setSettingsBusy] = useState(false);
+
+  async function openSettings() {
+    const res = await fetch("/api/party/settings");
+    const json = await res.json();
+    setPointSettings(json.settings ?? []);
+    setSettingsModal(true);
+  }
+  async function saveSettings() {
+    setSettingsBusy(true);
+    await fetch("/api/party/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pointSettings) });
+    setSettingsBusy(false);
+    setSettingsModal(false);
+  }
 
   const load = useCallback(async (t: Tab) => {
     setLoading(true); setError("");
@@ -183,6 +199,41 @@ export default function PartyPage() {
 
   return (
     <div className="party">
+      {settingsModal && (
+        <div className="modal-backdrop" onClick={() => setSettingsModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ minWidth: 320 }}>
+            <h3 style={{ marginBottom: 16 }}>⚙️ 파티 점수 설정</h3>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 16 }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                  <th style={{ padding: "6px 8px", textAlign: "left" }}>모드</th>
+                  <th style={{ padding: "6px 8px", textAlign: "center" }}>지급 포인트</th>
+                  <th style={{ padding: "6px 8px", textAlign: "center" }}>최소 판수</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pointSettings.map((s, i) => (
+                  <tr key={s.mode} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "6px 8px" }}>{{ aram: "칼바람", normal: "일반협곡", flex: "자유랜크", solo: "솔로랜크" }[s.mode] ?? s.mode}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center" }}>
+                      <input type="number" min={0} value={s.points} style={{ width: 60, textAlign: "center", padding: "4px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)" }}
+                        onChange={(e) => setPointSettings(prev => prev.map((x, j) => j === i ? { ...x, points: Number(e.target.value) } : x))} />
+                    </td>
+                    <td style={{ padding: "6px 8px", textAlign: "center" }}>
+                      <input type="number" min={1} value={s.min_games} style={{ width: 60, textAlign: "center", padding: "4px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)" }}
+                        onChange={(e) => setPointSettings(prev => prev.map((x, j) => j === i ? { ...x, min_games: Number(e.target.value) } : x))} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button className="del-btn" onClick={() => setSettingsModal(false)}>취소</button>
+              <button className="sync-btn" disabled={settingsBusy} onClick={saveSettings}>{settingsBusy ? "저장 중..." : "저장"}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {aramModal !== null && (
         <div className="modal-backdrop" onClick={() => setAramModal(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 340 }}>
@@ -283,6 +334,11 @@ export default function PartyPage() {
               </div>
               <button type="submit" disabled={creating}>{creating ? "생성 중..." : "파티 만들기"}</button>
             </form>
+          )}
+          {isAdmin(user.role) && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+              <button type="button" className="excel-btn-small" onClick={openSettings}>⚙️ 점수 설정</button>
+            </div>
           )}
 
           {loading && <p className="party-empty">불러오는 중...</p>}

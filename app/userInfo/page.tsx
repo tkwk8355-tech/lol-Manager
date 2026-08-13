@@ -40,6 +40,9 @@ interface Member {
   tier: TierInfo | null;
   totalPoints: number;
   warningCount: number;
+  rookiePartyCount: number;
+  createdAt: string | null;
+  rookieSessionLogs?: { games: number; comment: string; date: string; mode: string }[];
 }
 
 // Ƽ�� �ѱ��� ��. ������+ �� �ܰ� ����, �����ʹ� LP ǥ��.
@@ -557,6 +560,7 @@ export default function UserInfoPage() {
   const [pointModalForm, setPointModalForm] = useState({ points: "", comment: "" });
   const [pointModalErr, setPointModalErr] = useState("");
   const [pointModalBusy, setPointModalBusy] = useState(false);
+  const [rookieLogModal, setRookieLogModal] = useState<{ nickname: string; logs: { games: number; comment: string; date: string; mode: string }[] } | null>(null);
 
   async function submitPointModal() {
     if (!pointModal) return;
@@ -990,6 +994,37 @@ export default function UserInfoPage() {
       )}
       {/* 포인트 지급 모달 */}
       {/* 포인트 지급 모달 */}
+
+      {/* 수습 파티 로그 모달 */}
+      {rookieLogModal && (
+        <div className="modal-backdrop" onClick={() => setRookieLogModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <div className="modal-head">
+              <span>{rookieLogModal.nickname} 파티 로그</span>
+              <button className="modal-close" onClick={() => setRookieLogModal(null)}>✕</button>
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
+                  <th style={{ textAlign: "left", padding: "4px 8px" }}>날짜</th>
+                  <th style={{ textAlign: "center", padding: "4px 8px" }}>모드</th>
+                  <th style={{ textAlign: "center", padding: "4px 8px" }}>횟수</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rookieLogModal.logs.map((log, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "6px 8px", color: "var(--muted)" }}>{log.date}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center" }}>{({ flex: "자유랭크", scrim: "내전" } as any)[log.mode] ?? log.mode}</td>
+                    <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 700 }}>{log.games}회</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {pointModal && (
         <div className="modal-backdrop" onClick={() => setPointModal(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 360 }}>
@@ -1391,52 +1426,58 @@ export default function UserInfoPage() {
         <p>등록된 클랜원이 없습니다.</p>
       )}
 
-      {false ? (
+      {specialFilter === "rookie" ? (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
-              <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
+              <tr style={{ borderBottom: "2px solid var(--border)" }}>
                 <th style={{ textAlign: "left", padding: "6px 10px" }}>닉네임</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>활동티어</th>
-                <th style={{ textAlign: "right", padding: "6px 10px" }}>포인트</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>솔로랭크</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>활동상태</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>가입일자</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>파티참여 (자유/내전)</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>파티 로그</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>전환</th>
               </tr>
             </thead>
             <tbody>
               {pagedMembers.map((m) => {
-                const at = activityTier(m.totalPoints);
+                const cnt = m.rookiePartyCount ?? 0;
+                const circles = Array.from({ length: 3 }, (_, i) => i < cnt ? "O" : "X");
+                const canPromote = cnt >= 3;
                 return (
                   <tr key={m.id} style={{ borderBottom: "1px solid var(--border)" }}>
                     <td style={{ padding: "8px 10px", fontWeight: 700 }}>{m.nickname}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)" }}>{m.createdAt ? m.createdAt.slice(0, 10) : "-"}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "center", fontSize: 15, letterSpacing: 4 }}>
+                      {circles.map((v, i) => (
+                        <span key={i} style={{ fontWeight: 800, color: v === "O" ? "#4fc3f7" : "#f1948a" }}>{v} </span>
+                      ))}
+                    </td>
                     <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                      {at ? (
-                        <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5,
-                          background: `${at.color}22`, color: at.color, border: `1px solid ${at.color}55` }}>
-                          {at.label}
-                        </span>
+                      {(m.rookieSessionLogs ?? []).length > 0 ? (
+                        <button className="sync-btn" style={{ fontSize: 11, padding: "2px 10px" }}
+                          onClick={() => setRookieLogModal({ nickname: m.nickname, logs: m.rookieSessionLogs ?? [] })}>
+                          로그
+                        </button>
                       ) : "-"}
                     </td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 800,
-                      color: m.totalPoints > 0 ? "var(--win-text)" : "var(--muted)" }}>
-                      {m.totalPoints}P
-                    </td>
                     <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                      {m.tier
-                        ? <span className={`tier-badge tier-${m.tier.tier.toLowerCase()}`}>{tierLabel(m.tier)}</span>
-                      : <span style={{ color: "var(--muted)" }}>-</span>}
-                    </td>
-                    <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                      {m.position === "수습" && (
-                        <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5,
-                          background: "rgba(230,126,34,0.18)", color: "#e67e22" }}>수습</span>
-                      )}
-                      {m.status === "leave" && (
-                        <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5,
-                          background: "rgba(46,204,113,0.18)", color: "#2ecc71" }}>{m.statusNote ? `외출 ${m.statusNote}` : "외출"}</span>
-                      )}
-                      {m.position !== "수습" && m.status !== "leave" && (
-                        <span style={{ fontSize: 11, color: "var(--muted)" }}>활동</span>
+                      {isAdmin && (
+                        <button
+                          className="sync-btn"
+                          style={{ fontSize: 11, padding: "2px 10px", opacity: canPromote ? 1 : 0.4, cursor: canPromote ? "pointer" : "not-allowed" }}
+                          onClick={async () => {
+                            if (!canPromote) { alert("파티 참여 3판을 충족해야 클랜원으로 전환할 수 있습니다."); return; }
+                            if (!confirm(`${m.nickname}을(를) 클랜원으로 전환하시겠습니까?`)) return;
+                            const res = await fetch("/api/userinfo/member", {
+                              method: "PUT",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ id: m.id, position: "클랜원", status: m.status ?? "active", birthYear: m.birthYear, birthDate: m.birthDate, gender: m.gender, mainLine: m.mainLine, subLine: m.subLine, statusNote: m.statusNote }),
+                            });
+                            if (res.ok) loadMembers();
+                            else alert("전환 실패");
+                          }}>
+                          클랜원 전환
+                        </button>
                       )}
                     </td>
                   </tr>

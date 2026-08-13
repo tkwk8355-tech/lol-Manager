@@ -326,6 +326,22 @@ async function createSchema(): Promise<void> {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS party_point_settings (
+      mode       VARCHAR(20) NOT NULL PRIMARY KEY,
+      points     INT NOT NULL DEFAULT 0,
+      min_games  INT NOT NULL DEFAULT 3
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  // 기본값 없으면 삽입
+  await pool.query(`
+    INSERT IGNORE INTO party_point_settings (mode, points, min_games) VALUES
+      ('aram', 5, 4),
+      ('normal', 5, 3),
+      ('flex', 10, 3),
+      ('solo', 5, 3)
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS shop_items (
       id         INT AUTO_INCREMENT PRIMARY KEY,
       name       VARCHAR(100) NOT NULL,
