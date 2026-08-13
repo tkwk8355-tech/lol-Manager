@@ -48,7 +48,7 @@ const TIER_KO: Record<string, string> = {
   BRONZE: "브론즈",
   SILVER: "실버",
   GOLD: "골드",
-  PLATINUM: "플래티나",
+  PLATINUM: "플래티넘",
   EMERALD: "에메랄드",
   DIAMOND: "다이아몬드",
   MASTER: "마스터",
@@ -887,6 +887,15 @@ export default function UserInfoPage() {
 
                     )}
                     <span style={{ fontSize: 11, color: "var(--muted)" }}>{syncedTime(a.lastSyncedAt)}</span>
+                    {!a.isMain && (
+                      <button className="sync-btn" style={{ fontSize: 11, padding: "2px 8px", whiteSpace: "nowrap" }} onClick={async () => {
+                        await fetch("/api/userinfo/account", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountId: a.id, memberId: editModal!.id }) });
+                        const updated = await fetch("/api/userinfo").then((r) => r.json());
+                        const fresh = (updated.members as Member[]).find((m) => m.id === editModal!.id);
+                        if (fresh) setEditModal(fresh);
+                        loadMembers();
+                      }}>본계정 변경</button>
+                    )}
                     <button className="del-btn small" onClick={async () => {
                       if (!confirm("계정을 삭제하시겠습니까?")) return;
                       await fetch("/api/userinfo/delete", { method: "POST",

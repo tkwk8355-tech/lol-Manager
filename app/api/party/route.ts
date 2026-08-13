@@ -324,7 +324,7 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
   const baseTime = party.start_at
     ? new Date(party.start_at.replace(" ", "T") + "+09:00").getTime()
     : new Date(party.created_at.replace(" ", "T")).getTime();
-  const startTime = Math.floor((baseTime - 14 * 24 * 60 * 60 * 1000) / 1000);
+  const startTime = Math.floor(baseTime / 1000);
   const endTime = Math.floor((baseTime + 24 * 60 * 60 * 1000) / 1000);
   const minGames = 3;
   const pointsToGive = party.mode === "solo" ? 5 : 10;
@@ -354,7 +354,6 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
     console.log(`[award] memberId=${memberId} matchIds=${myMatchIds.size}`);
 
     let validGames = 0;
-    let checkedCount = 0;
     for (const mid of myMatchIds) {
       try {
         const match = await getMatch(mid);
@@ -364,10 +363,7 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
         const hasPartyMate = matchPuuids.some(
           (p: string) => !puuids.includes(p) && allPartyPuuids.has(p)
         );
-        if (checkedCount < 3) {
-          console.log(`[award] match=${mid} queueId=${match.info.queueId} hasPartyMate=${hasPartyMate} created=${new Date(created*1000).toISOString()}`);
-          checkedCount++;
-        }
+        console.log(`[award] match=${mid} queueId=${match.info.queueId} hasPartyMate=${hasPartyMate} created=${new Date(created*1000).toISOString()}`);
         if (!queueIds.includes(match.info.queueId)) continue;
         if (hasPartyMate) validGames++;
       } catch { continue; }

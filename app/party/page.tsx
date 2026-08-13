@@ -34,8 +34,8 @@ function fmtStart(startAt: string | null): string {
 
 const isAdmin = (role: string) => role === "admin" || role === "subadmin";
 
-function ParticipantInput({ value, onChange, onAddNext, autoFocusOnMount }: {
-  value: string; onChange: (v: string) => void; onAddNext: () => void; autoFocusOnMount?: boolean;
+function ParticipantInput({ value, onChange, onAddNext, autoFocusOnMount, isLast }: {
+  value: string; onChange: (v: string) => void; onAddNext: () => void; autoFocusOnMount?: boolean; isLast?: boolean;
 }) {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -66,7 +66,7 @@ function ParticipantInput({ value, onChange, onAddNext, autoFocusOnMount }: {
           if (e.key === "Enter") {
             e.preventDefault();
             const confirmed = suggestions.length > 0 ? suggestions[0] : value.trim();
-            if (confirmed) { onChange(confirmed); setSuggestions([]); onAddNext(); }
+            if (confirmed) { onChange(confirmed); setSuggestions([]); if (isLast) onAddNext(); }
           }
         }}
         onBlur={() => setTimeout(() => setSuggestions([]), 150)}
@@ -275,7 +275,7 @@ export default function PartyPage() {
                 <span className="party-participants-label">참가자</span>
                 {participants.map((nick, i) => (
                   <div key={i} className="party-participant-row">
-                    <ParticipantInput value={nick} onChange={(v) => updateParticipant(i, v)} onAddNext={addParticipant} autoFocusOnMount={i === participants.length - 1 && i > 0} />
+                    <ParticipantInput value={nick} onChange={(v) => updateParticipant(i, v)} onAddNext={addParticipant} autoFocusOnMount={i === participants.length - 1 && i > 0} isLast={i === participants.length - 1} />
                     <button type="button" className="party-participant-add-inline" onClick={addParticipant} title="인원 추가" disabled={participants.length >= createMaxSize}>+</button>
                     <button type="button" className="party-participant-remove" onClick={() => removeParticipant(i)}>✕</button>
                   </div>
