@@ -19,11 +19,11 @@ export default function SiteHeader() {
   const nav = [
     { href: "/",        icon: "🏠", label: "홈",       guard: false },
     { href: "/party",   icon: "🛡️", label: "파티모집",  guard: true  },
-    { href: "/scrim",   icon: "⚔️", label: "내전 통계", guard: true  },
-    { href: "/search",  icon: "🔍", label: "전적 검색", guard: false },
+    { href: "/scrim",   icon: "⚔️", label: "내전 관리", guard: true  },
     { href: "/points",  icon: "💰", label: "포인트",    guard: true  },
     { href: "/friends", icon: "🤝", label: "지인 관리",  guard: true  },
     { href: "/userInfo",icon: "👥", label: user?.role === "admin" || user?.role === "subadmin" ? "클랜원 관리" : "클랜원", guard: true },
+    { href: "/search",  icon: "🔍", label: "전적 검색", guard: false },
   ];
 
   return (

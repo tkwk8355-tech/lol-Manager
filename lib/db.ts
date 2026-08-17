@@ -93,14 +93,25 @@ async function createSchema(): Promise<void> {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS scrim_matches (
-      id          INT AUTO_INCREMENT PRIMARY KEY,
-      mode        VARCHAR(20) NOT NULL,
-      status      VARCHAR(20) NOT NULL DEFAULT 'pending',
-      winner_team INT NOT NULL DEFAULT 0,
-      note        VARCHAR(255),
-      played_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      id            INT AUTO_INCREMENT PRIMARY KEY,
+      mode          VARCHAR(20) NOT NULL,
+      status        VARCHAR(20) NOT NULL DEFAULT 'pending',
+      winner_team   INT NOT NULL DEFAULT 0,
+      note          VARCHAR(255),
+      played_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      riot_match_id VARCHAR(30) NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+  // Riot 전적에서 자동 동기화한 경기는 원본 매치 ID를 저장해 같은 경기가 중복으로 들어오지 않게 한다.
+  // (수동으로 입력한 경기는 riot_match_id가 NULL이라 겹치지 않는다.)
+  await pool.query(`ALTER TABLE scrim_matches ADD COLUMN IF NOT EXISTS riot_match_id VARCHAR(30) NULL`);
+  const [riotIdxRows] = await pool.query(
+    `SELECT COUNT(*) AS c FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'scrim_matches' AND INDEX_NAME = 'uniq_riot_match_id'`
+  ) as any[];
+  if (riotIdxRows[0].c === 0) {
+    await pool.query(`ALTER TABLE scrim_matches ADD UNIQUE KEY uniq_riot_match_id (riot_match_id)`);
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS scrim_participants (
@@ -114,11 +125,21 @@ async function createSchema(): Promise<void> {
       deaths    INT NOT NULL DEFAULT 0,
       assists   INT NOT NULL DEFAULT 0,
       damage    INT NOT NULL DEFAULT 0,
+      item0     INT NOT NULL DEFAULT 0,
+      item1     INT NOT NULL DEFAULT 0,
+      item2     INT NOT NULL DEFAULT 0,
+      item3     INT NOT NULL DEFAULT 0,
+      item4     INT NOT NULL DEFAULT 0,
+      item5     INT NOT NULL DEFAULT 0,
+      item6     INT NOT NULL DEFAULT 0,
       CONSTRAINT fk_participants_match FOREIGN KEY (match_id) REFERENCES scrim_matches(id) ON DELETE CASCADE,
       CONSTRAINT fk_participants_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
   await pool.query(`ALTER TABLE scrim_participants ADD COLUMN IF NOT EXISTS damage INT NOT NULL DEFAULT 0`);
+  for (const col of ["item0", "item1", "item2", "item3", "item4", "item5", "item6"]) {
+    await pool.query(`ALTER TABLE scrim_participants ADD COLUMN IF NOT EXISTS ${col} INT NOT NULL DEFAULT 0`);
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS played_with (
@@ -290,6 +311,19 @@ async function createSchema(): Promise<void> {
       ref_id      INT NULL,
       created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT fk_pl_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await pool.query(`ALTER TABLE point_logs ADD COLUMN IF NOT EXISTS party_count INT NOT NULL DEFAULT 0`);
+  // 수습 동반 10점 중복 방지: 클랜원이 특정 수습에게 한 번만 보너스 지급
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS rookie_bonus_log (
+      id              INT AUTO_INCREMENT PRIMARY KEY,
+      member_id       INT NOT NULL,
+      rookie_member_id INT NOT NULL,
+      created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_rookie_bonus (member_id, rookie_member_id),
+      CONSTRAINT fk_rbl_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+      CONSTRAINT fk_rbl_rookie FOREIGN KEY (rookie_member_id) REFERENCES members(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS total_points INT NOT NULL DEFAULT 0`);

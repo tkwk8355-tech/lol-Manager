@@ -57,6 +57,7 @@ export default function PointsPage() {
   // 포인트 로그
   const [pointLogs, setPointLogs] = useState<any[]>([]);
   const [pointLoading, setPointLoading] = useState(false);
+  const [pointLogSearch, setPointLogSearch] = useState("");
   const [pointForm, setPointForm] = useState({ memberId: "", points: "", comment: "" });
   const [pointMemberQuery, setPointMemberQuery] = useState("");
   const [pointMemberOpen, setPointMemberOpen] = useState(false);
@@ -262,7 +263,6 @@ export default function PointsPage() {
       {/* 포인트 현황 */}
       {subTab === "rank" && (
         <>
-          <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 16 }}>포인트 순으로 정렬됩니다.</p>
           {loading ? <p>불러오는 중...</p> : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
               {members.map((m, i) => {
@@ -340,6 +340,14 @@ export default function PointsPage() {
           </div>
           <div className="home-panel">
             <div className="home-panel-head"><h3>포인트 전체 로그</h3></div>
+            <div style={{ marginBottom: 10 }}>
+              <input
+                placeholder="클랜원 이름 검색..."
+                value={pointLogSearch}
+                onChange={(e) => setPointLogSearch(e.target.value)}
+                style={{ width: 200, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
+              />
+            </div>
             {pointLoading ? <p className="empty">불러오는 중...</p> : (
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
@@ -355,7 +363,7 @@ export default function PointsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pointLogs.map((l) => (
+                  {pointLogs.filter(l => !pointLogSearch.trim() || l.nickname?.toLowerCase().includes(pointLogSearch.toLowerCase())).map((l) => (
                     <tr key={l.id} style={{ borderBottom: "1px solid var(--border)" }}>
                       <td style={{ padding: "7px 8px", color: "var(--muted)", whiteSpace: "nowrap" }}>{l.created_at?.slice(0, 16)}</td>
                       <td style={{ padding: "7px 8px", fontWeight: 700 }}>{l.nickname}</td>

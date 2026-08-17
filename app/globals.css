@@ -1625,7 +1625,7 @@ a {
 
 /* ====================== ?�전 관�??�이지 (/scrim) ====================== */
 .scrim {
-  max-width: 1000px;
+  max-width: 1320px;
   margin: 0 auto;
 }
 .scrim-title {
@@ -1852,6 +1852,14 @@ a {
   border-radius: 10px;
   padding: 12px 14px;
 }
+.match-card.history-win {
+  background: var(--win-bg);
+  border-left: 4px solid var(--win-accent);
+}
+.match-card.history-loss {
+  background: var(--loss-bg);
+  border-left: 4px solid var(--loss-accent);
+}
 .mc-meta {
   display: flex;
   align-items: center;
@@ -1904,6 +1912,74 @@ a {
 }
 .mc-kda {
   color: var(--muted);
+}
+
+/* 경기 목록: 챔피언 아이콘 / 이름 / KDA / 딜량 그래프 / 아이템을 각각 정렬된 열로 표시 */
+.mc-player-row {
+  display: grid;
+  grid-template-columns: 32px 1fr 70px 130px 190px;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 2px;
+  font-size: 13px;
+}
+.mc-player-row .mc-champ-icon img {
+  border-radius: 6px;
+  display: block;
+}
+.mc-player-row .mc-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mc-kda-col {
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+.mc-kda-col em {
+  font-style: normal;
+  color: var(--loss-text);
+}
+.mc-dmg-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.mc-dmg-num {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+.mc-dmg-bar-wrap {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+  display: block;
+  width: 100%;
+}
+.mc-dmg-bar {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #7aa2f7);
+  border-radius: 3px;
+}
+.mc-items-col {
+  display: grid;
+  grid-template-columns: repeat(7, 22px);
+  gap: 3px;
+  justify-content: end;
+}
+.mc-items-col img {
+  border-radius: 4px;
+  display: block;
+  grid-column: span 1;
 }
 .mc-ratio {
   font-style: normal;
@@ -3667,7 +3743,7 @@ a {
   min-width: 4px;
 }
 .ld-count {
-  width: 28px;
+  width: 42px;
   text-align: right;
   font-weight: 700;
   color: var(--text);

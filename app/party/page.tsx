@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../components/AuthProvider";
 
-type Mode = "aram" | "normal" | "flex" | "solo" | "scrim";
+type Mode = "aram" | "normal" | "flex" | "solo";
 type Tab = Mode | "all";
 
 interface Participant { userId: number | null; nickname: string; }
@@ -14,11 +14,11 @@ interface Party {
   participants: Participant[]; waiting: Participant[];
 }
 
-const MODES: Mode[] = ["flex", "solo", "aram", "normal", "scrim"];
+const MODES: Mode[] = ["flex", "solo", "aram", "normal"];
 const TABS: Tab[] = ["all", ...MODES];
-const MODE_KO: Record<Mode, string> = { aram: "칼바람", normal: "일반협곡", flex: "자유랭크", solo: "솔로랭크", scrim: "내전" };
-const MODE_ICON: Record<Mode, string> = { aram: "🌊", normal: "⚔️", flex: "🏆", solo: "👤", scrim: "🛡️" };
-const TAB_KO: Record<Tab, string> = { all: "전체", flex: "자유랭크", solo: "솔로랭크", aram: "칼바람", normal: "일반협곡", scrim: "내전" };
+const MODE_KO: Record<Mode, string> = { aram: "칼바람", normal: "일반협곡", flex: "자유랭크", solo: "솔로랭크" };
+const MODE_ICON: Record<Mode, string> = { aram: "🌊", normal: "⚔️", flex: "🏆", solo: "👤" };
+const TAB_KO: Record<Tab, string> = { all: "전체", flex: "자유랭크", solo: "솔로랭크", aram: "칼바람", normal: "일반협곡" };
 
 function fmtStart(startAt: string | null): string {
   if (!startAt) return "미정";

@@ -90,10 +90,29 @@ export async function DELETE(req: NextRequest) {
 
   await ensureSchema();
   const pool = getPool();
-  const [rows] = await pool.query("SELECT member_id, points FROM point_logs WHERE id = ?", [id]) as [any[], any];
+  const [rows] = await pool.query("SELECT member_id, points, type, ref_id FROM point_logs WHERE id = ?", [id]) as [any[], any];
   if (!rows[0]) return NextResponse.json({ error: "존재하지 않는 로그" }, { status: 404 });
+  const log = rows[0];
 
-  await pool.query("UPDATE members SET total_points = total_points - ? WHERE id = ?", [rows[0].points, rows[0].member_id]);
+  // 수습 동반 보너스 로그인 경우 rookie_bonus_log도 삭제
+  if ((log.type === 'normal' || log.type === 'flex' || log.type === 'solo' || log.type === 'aram') && log.ref_id) {
+    // 이 파티에서 수습이 있었는지 확인
+    const [rookieRows] = await pool.query(
+      `SELECT DISTINCT a.member_id FROM party_participant_history pph
+       JOIN accounts a ON a.game_name = pph.nickname AND a.is_main = 1
+       JOIN members m ON m.id = a.member_id AND m.position = '수습'
+       WHERE pph.party_id = ?`,
+      [log.ref_id]
+    ) as [any[], any];
+    for (const r of rookieRows) {
+      await pool.query(
+        `DELETE FROM rookie_bonus_log WHERE member_id = ? AND rookie_member_id = ?`,
+        [log.member_id, r.member_id]
+      );
+    }
+  }
+
+  await pool.query("UPDATE members SET total_points = total_points - ? WHERE id = ?", [log.points, log.member_id]);
   await pool.query("DELETE FROM point_logs WHERE id = ?", [id]);
   return NextResponse.json({ ok: true });
 }

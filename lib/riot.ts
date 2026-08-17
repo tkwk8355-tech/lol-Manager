@@ -104,6 +104,7 @@ export interface MatchDto {
   metadata: { matchId: string };
   info: {
     gameMode: string;
+    gameType?: string;
     queueId: number;
     gameDuration: number;
     gameCreation: number;

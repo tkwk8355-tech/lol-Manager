@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     const pool = getPool();
 
     const [matches] = await pool.query(
-      `SELECT id, mode, status, winner_team, note, played_at
+      `SELECT id, mode, status, winner_team, note, played_at, riot_match_id
        FROM scrim_matches WHERE mode = ?
        ORDER BY played_at DESC, id DESC LIMIT 100`,
       [mode]
@@ -29,7 +29,8 @@ export async function GET(req: NextRequest) {
     const ph = ids.map(() => "?").join(",");
     const [parts] = await pool.query(
       `SELECT p.match_id, p.member_id, mem.nickname, p.team,
-              p.line, p.champion, p.kills, p.deaths, p.assists
+              p.line, p.champion, p.kills, p.deaths, p.assists, p.damage,
+              p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6
        FROM scrim_participants p
        JOIN members mem ON mem.id = p.member_id
        WHERE p.match_id IN (${ph})`,
@@ -45,13 +46,15 @@ export async function GET(req: NextRequest) {
     const toPlayer = (p: any) => ({
       memberId: p.member_id, nickname: p.nickname, line: p.line ?? null,
       champion: p.champion ?? null, kills: p.kills, deaths: p.deaths, assists: p.assists,
+      damage: p.damage,
+      items: [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6].filter((n: number) => n > 0),
     });
 
     const result = matches.map((m: any) => {
       const ps = byMatch.get(m.id) ?? [];
       return {
         id: m.id, mode: m.mode, status: m.status, winnerTeam: m.winner_team,
-        note: m.note, playedAt: m.played_at,
+        note: m.note, playedAt: m.played_at, riotMatchId: m.riot_match_id ?? null,
         team1: ps.filter((p) => p.team === 1).map(toPlayer),
         team2: ps.filter((p) => p.team === 2).map(toPlayer),
       };
@@ -183,7 +186,7 @@ export async function PATCH(req: NextRequest) {
           [p.member_id, scrimDate]
         ) as [any[], any];
         if (alreadyRows.length > 0) continue;
-        await givePoints(pool, p.member_id, 30, "scrim", 1, "내전 참여", null, id, scrimDate);
+        await givePoints(pool, p.member_id, 30, "scrim", 1, "내전 참여", null, id, 0, scrimDate);
       }
 
       return NextResponse.json({ ok: true });

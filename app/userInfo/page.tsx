@@ -42,7 +42,7 @@ interface Member {
   warningCount: number;
   rookiePartyCount: number;
   createdAt: string | null;
-  rookieSessionLogs?: { games: number; comment: string; date: string; mode: string }[];
+  rookieSessionLogs?: { games: number; partyCount: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[];
 }
 
 // Ƽ�� �ѱ��� ��. ������+ �� �ܰ� ����, �����ʹ� LP ǥ��.
@@ -98,7 +98,7 @@ function syncedTime(iso: string | null) {
 }
 
 const PAGE_SIZES = [10, 20]; // �������� Ŭ���� �� ������
-const LINE_KEYS = ["TOP", "JG", "MID", "ADC", "SUP"] as const; // ALL�� Ŭ���� ���� ���信 ���� ����
+const LINE_KEYS = ["TOP", "JG", "MID", "ADC", "SUP", "ARAM"] as const; // ALL�� Ŭ���� ���� ���信 ���� ����
 
 interface LinkedUser {
   id: number;
@@ -560,7 +560,7 @@ export default function UserInfoPage() {
   const [pointModalForm, setPointModalForm] = useState({ points: "", comment: "" });
   const [pointModalErr, setPointModalErr] = useState("");
   const [pointModalBusy, setPointModalBusy] = useState(false);
-  const [rookieLogModal, setRookieLogModal] = useState<{ nickname: string; logs: { games: number; comment: string; date: string; mode: string }[] } | null>(null);
+  const [rookieLogModal, setRookieLogModal] = useState<{ nickname: string; logs: { games: number; partyCount: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[] } | null>(null);
 
   async function submitPointModal() {
     if (!pointModal) return;
@@ -621,7 +621,7 @@ export default function UserInfoPage() {
     if (isAdmin && tab === "points") loadPointLogs();
   }, [isAdmin, tab]);
 
-  const MODE_KO: Record<string,string> = { aram:"칼바람", normal:"일반협곡", flex:"자유랙크", solo:"솔로랙크", scrim:"내전" };
+  const MODE_KO: Record<string,string> = { aram:"칼바람", normal:"일반협곡", flex:"자유랭크", solo:"솔로랭크", scrim:"내전" };
 
   // ���� ��� �ٿ�ε�
   function downloadExcel() {
@@ -856,6 +856,7 @@ export default function UserInfoPage() {
                   <option value="TOP">TOP</option><option value="JG">JG</option>
                   <option value="MID">MID</option><option value="ADC">ADC</option>
                   <option value="SUP">SUP</option>
+                  <option value="ARAM">ARAM</option>
                 </select>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1003,24 +1004,23 @@ export default function UserInfoPage() {
               <span>{rookieLogModal.nickname} 파티 로그</span>
               <button className="modal-close" onClick={() => setRookieLogModal(null)}>✕</button>
             </div>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
-                  <th style={{ textAlign: "left", padding: "4px 8px" }}>날짜</th>
-                  <th style={{ textAlign: "center", padding: "4px 8px" }}>모드</th>
-                  <th style={{ textAlign: "center", padding: "4px 8px" }}>횟수</th>
-                </tr>
-              </thead>
-              <tbody>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {(rookieLogModal.logs[rookieLogModal.logs.length - 1]?.members ?? []).length > 0
+                  ? rookieLogModal.logs[rookieLogModal.logs.length - 1].members.map((nick: string) => (
+                      <span key={nick} style={{ fontSize: 13, padding: "3px 10px", borderRadius: 12, background: "var(--card-2)", color: "var(--text)", fontWeight: 700 }}>{nick}</span>
+                    ))
+                  : <span style={{ fontSize: 12, color: "var(--muted)" }}>클랜원 정보 없음</span>}
+              </div>
+              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
                 {rookieLogModal.logs.map((log, i) => (
-                  <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
-                    <td style={{ padding: "6px 8px", color: "var(--muted)" }}>{log.date}</td>
-                    <td style={{ padding: "6px 8px", textAlign: "center" }}>{({ flex: "자유랭크", scrim: "내전" } as any)[log.mode] ?? log.mode}</td>
-                    <td style={{ padding: "6px 8px", textAlign: "center", fontWeight: 700 }}>{log.games}회</td>
-                  </tr>
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)" }}>
+                    <span>{log.startAt || log.date}</span>
+                    <span style={{ fontWeight: 700, color: "#7aa2f7" }}>{log.partyCount ?? log.games}회 참여</span>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1445,7 +1445,17 @@ export default function UserInfoPage() {
                 const canPromote = cnt >= 3;
                 return (
                   <tr key={m.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                    <td style={{ padding: "8px 10px", fontWeight: 700 }}>{m.nickname}</td>
+                    <td style={{ padding: "8px 10px", fontWeight: 700 }}>
+                      {(() => {
+                        const cnt = m.rookiePartyCount ?? 0;
+                        const canPromote = cnt >= 3;
+                        const createdAt = m.createdAt ? new Date(m.createdAt) : null;
+                        const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+                        const overdue = createdAt && createdAt < oneWeekAgo && !canPromote;
+                        const color = canPromote ? '#2ecc71' : overdue ? '#f1948a' : 'var(--text)';
+                        return <span style={{ color }}>{m.nickname}</span>;
+                      })()}
+                    </td>
                     <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)" }}>{m.createdAt ? m.createdAt.slice(0, 10) : "-"}</td>
                     <td style={{ padding: "8px 10px", textAlign: "center", fontSize: 15, letterSpacing: 4 }}>
                       {circles.map((v, i) => (

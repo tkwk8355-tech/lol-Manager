@@ -119,18 +119,23 @@ function MemberInput({ members, value, onChange, nextRef, inputRef, usedIds }: {
   );
 }
 
-// 챔피언 자동완성 입력
+// 챔피언 자동완성 입력 — value/onChange는 영문 id 기준
 function ChampionInput({ champions, value, onChange, inputRef, nextRef }: {
   champions: ChampionInfo[];
-  value: string;
-  onChange: (v: string) => void;
+  value: string; // 영문 id
+  onChange: (v: string) => void; // 영문 id 전달
   inputRef?: React.RefObject<HTMLInputElement>;
   nextRef?: React.RefObject<HTMLInputElement>;
 }) {
+  const toDisplay = (id: string) => champions.find((c) => c.id === id)?.name ?? id;
+  const [query, setQuery] = useState(() => toDisplay(value));
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const filtered = value.length > 0
-    ? champions.filter((c) => c.name.toLowerCase().includes(value.toLowerCase()) || c.id.toLowerCase().includes(value.toLowerCase())).slice(0, 8)
+
+  useEffect(() => { setQuery(toDisplay(value)); }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filtered = query.length > 0
+    ? champions.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()) || c.id.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
     : [];
 
   useEffect(() => {
@@ -142,7 +147,8 @@ function ChampionInput({ champions, value, onChange, inputRef, nextRef }: {
   }, []);
 
   function selectChamp(c: ChampionInfo) {
-    onChange(c.name);
+    onChange(c.id); // 영문 id 저장
+    setQuery(c.name); // 한글명 표시
     setOpen(false);
     nextRef?.current?.focus();
   }
@@ -151,8 +157,8 @@ function ChampionInput({ champions, value, onChange, inputRef, nextRef }: {
     <div ref={wrapRef} style={{ position: "relative", width: 110 }}>
       <input
         ref={inputRef}
-        value={value}
-        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        value={query}
+        onChange={(e) => { setQuery(e.target.value); onChange(""); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
@@ -177,6 +183,62 @@ function ChampionInput({ champions, value, onChange, inputRef, nextRef }: {
   );
 }
 
+interface MatchParticipant {
+  memberId: number; nickname: string; team: number;
+  line: string | null; champion: string | null;
+  kills: number; deaths: number; assists: number;
+  damage?: number; items?: number[];
+}
+interface MatchRecord {
+  id: number; status: string; winnerTeam: number;
+  note: string | null; playedAt: string; riotMatchId?: string | null;
+  team1: MatchParticipant[]; team2: MatchParticipant[];
+}
+
+// 전적 조회용 클랜원 검색 입력. 선택하면 onSelect(memberId)로 필터를 건다.
+function HistorySearch({ members, onSelect }: { members: Member[]; onSelect: (id: number) => void }) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const filtered = q.length > 0 ? members.filter((m) => m.nickname.toLowerCase().includes(q.toLowerCase())).slice(0, 8) : [];
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  function select(m: Member) {
+    onSelect(m.id);
+    setQ(m.nickname);
+    setOpen(false);
+  }
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", width: 220 }}>
+      <input
+        value={q}
+        onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => { if (e.key === "Enter" && filtered.length > 0) { e.preventDefault(); select(filtered[0]); } }}
+        placeholder="클랜원 검색 (전적 조회)"
+        style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
+      />
+      {open && filtered.length > 0 && (
+        <div className="slot-candidates" style={{ zIndex: 50 }}>
+          {filtered.map((m, i) => (
+            <button key={m.id} className={i === 0 ? "first" : ""} onMouseDown={() => select(m)}>{m.nickname}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
 export default function ScrimPage() {
   const { user, loading: authLoading, openAuthModal } = useAuth();
   const [players, setPlayers] = useState<Player[]>([]);
@@ -185,6 +247,26 @@ export default function ScrimPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<Player | null>(null);
+  const [ddragonVersion, setDdragonVersion] = useState<string | null>(null);
+  const [tab, setTab] = useState<"matches" | "stats">("matches");
+  const [matches, setMatches] = useState<MatchRecord[]>([]);
+  const [matchesLoading, setMatchesLoading] = useState(false);
+  const [editMatch, setEditMatch] = useState<MatchRecord | null>(null);
+  const [editWinner, setEditWinner] = useState<1 | 2>(1);
+  const [editSlots, setEditSlots] = useState<SlotData[]>([]);
+  const [editErr, setEditErr] = useState("");
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
+  // Riot 전적 자동 동기화 모달: 클랜원 + 시작 시각을 입력하면 그로부터 24시간 이내
+  // 커스텀 게임을 찾아 경기 목록에 자동으로 채워 넣는다.
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncMemberId, setSyncMemberId] = useState<number | null>(null);
+  const [syncMemberName, setSyncMemberName] = useState("");
+  const [syncStartDate, setSyncStartDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [syncStartTime, setSyncStartTime] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const [syncErr, setSyncErr] = useState("");
+  const [syncResult, setSyncResult] = useState<{ addedMatches: number; skippedDuplicate: number; skippedNoCustom: number; errors: string[] } | null>(null);
 
   const [showForm, setShowForm] = useState(false);
   const [winner, setWinner] = useState<1 | 2>(1);
@@ -204,6 +286,17 @@ export default function ScrimPage() {
     [0, 1].map(() => LINES.map(() => ({ current: null as HTMLInputElement | null })))
   );
 
+  const loadMatches = useCallback(async () => {
+    setMatchesLoading(true);
+    try {
+      const res = await fetch("/api/scrim/match?mode=rift");
+      const json = await res.json();
+      if (res.ok) setMatches(json.matches ?? []);
+    } catch {}
+    finally { setMatchesLoading(false); }
+  }, []);
+
+  
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
@@ -227,8 +320,20 @@ export default function ScrimPage() {
   useEffect(() => {
     if (authLoading) return;
     if (!user) { setLoading(false); return; }
-    load();
-  }, [user, authLoading, load]);
+    load(); loadMatches();
+  }, [user, authLoading, load, loadMatches]);
+
+  // 아이템 아이콘은 Data Dragon 버전별 경로가 필요해서 최신 버전을 한 번 가져온다.
+  useEffect(() => {
+    fetch("https://ddragon.leagueoflegends.com/api/versions.json")
+      .then((r) => r.json())
+      .then((versions: string[]) => setDdragonVersion(versions[0]))
+      .catch(() => {});
+  }, []);
+
+  function itemIconUrl(itemId: number) {
+    return ddragonVersion ? `https://ddragon.leagueoflegends.com/cdn/${ddragonVersion}/img/item/${itemId}.png` : null;
+  }
 
   function updateSlot(team: 1 | 2, idx: number, patch: Partial<SlotData>) {
     const setter = team === 1 ? setTeam1 : setTeam2;
@@ -274,7 +379,7 @@ export default function ScrimPage() {
       setTeam1(LINES.map(emptySlot));
       setTeam2(LINES.map(emptySlot));
       setNote(""); setWinner(1);
-      load();
+      load(); loadMatches();
     } catch { setFormErr("네트워크 오류"); }
     finally { setSubmitting(false); }
   }
@@ -289,17 +394,102 @@ export default function ScrimPage() {
     </div>
   );
 
+  function openEditModal(m: MatchRecord) {
+    setEditMatch(m); setEditWinner((m.winnerTeam || 1) as 1 | 2); setEditErr("");
+    const toSlot = (p: MatchParticipant): SlotData => ({
+      memberId: p.memberId, memberName: p.nickname, champion: p.champion ?? "",
+      kills: String(p.kills), deaths: String(p.deaths), assists: String(p.assists), damage: "",
+    });
+    setEditSlots([...m.team1.map(toSlot), ...m.team2.map(toSlot)]);
+  }
+
+  async function submitEdit() {
+    if (!editMatch) return;
+    setEditErr(""); setEditSubmitting(true);
+    try {
+      const res = await fetch("/api/scrim/match", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editMatch.id, winnerTeam: editWinner,
+          participants: editSlots.map((s) => ({
+            memberId: s.memberId, champion: s.champion,
+            kills: Number(s.kills)||0, deaths: Number(s.deaths)||0, assists: Number(s.assists)||0, damage: 0,
+          })),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setEditErr(json.error || "수정 실패"); return; }
+      setEditMatch(null); loadMatches(); load();
+    } catch { setEditErr("네트워크 오류"); }
+    finally { setEditSubmitting(false); }
+  }
+
+  async function deleteMatch(id: number) {
+    if (!confirm("이 경기를 삭제하시겠습니까?")) return;
+    await fetch(`/api/scrim/match?id=${id}`, { method: "DELETE" });
+    loadMatches(); load();
+  }
+
+  async function runSync() {
+    if (!syncMemberId) { setSyncErr("클랜원을 선택하세요."); return; }
+    if (!syncStartDate || !syncStartTime || syncStartTime.length < 5) { setSyncErr("시작 날짜와 시간을 입력하세요."); return; }
+    setSyncErr(""); setSyncResult(null); setSyncing(true);
+    try {
+      const res = await fetch("/api/scrim/match/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberId: syncMemberId, startAt: `${syncStartDate}T${syncStartTime}:00` }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setSyncErr(json.error || "동기화 실패"); return; }
+      loadMatches(); load();
+      setShowSyncModal(false);
+      let msg = `경기 ${json.addedMatches}건 추가됨`;
+      if (json.skippedDuplicate > 0) msg += ` · 중복 ${json.skippedDuplicate}건 건너뜀`;
+      if (json.skippedNoCustom > 0) msg += ` · 커스텀 아님 ${json.skippedNoCustom}건 건너뜀`;
+      if (json.errors.length > 0) msg += `\n오류: ${json.errors.join(", ")}`;
+      alert(msg);
+    } catch {
+      setSyncErr("네트워크 오류");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  const champName = (id: string | null) => id ? (champions.find((c) => c.id === id)?.name ?? id) : "-";
+  // 예전에 등록된 경기는 챔피언이 한글명으로 저장돼 있어 이미지 경로가 깨진다.
+  // 저장된 값이 영문 id 목록에 없으면 한글명으로 매칭해서 영문 id로 바꿔준다.
+  const champImgId = (raw: string | null) => {
+    if (!raw) return null;
+    if (champions.some((c) => c.id === raw)) return raw;
+    return champions.find((c) => c.name === raw)?.id ?? raw;
+  };
+
   const isAdmin = user.role === "admin" || user.role === "subadmin";
 
   return (
     <div className="scrim">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-        <h2 className="scrim-title" style={{ margin: 0 }}>내전 통계</h2>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <h2 className="scrim-title" style={{ margin: 0 }}>내전</h2>
         {isAdmin && (
-          <button className={showForm ? "btn-secondary" : "btn-primary"} onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "✕ 닫기" : "내전 결과 입력"}
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              className="btn-secondary"
+              onClick={() => { setShowSyncModal(true); setSyncErr(""); setSyncResult(null); setSyncMemberId(null); setSyncMemberName(""); setSyncStartDate(new Date().toISOString().slice(0, 10)); setSyncStartTime(""); }}
+            >
+              🔄 동기화
+            </button>
+            <button className={showForm ? "btn-secondary" : "btn-primary"} onClick={() => setShowForm((v) => !v)}>
+              {showForm ? "✕ 닫기" : "+ 결과 입력"}
+            </button>
+          </div>
         )}
+      </div>
+
+      <div className="scrim-tabs">
+        <button className={tab === "matches" ? "on" : ""} onClick={() => setTab("matches")}>경기 목록</button>
+        <button className={tab === "stats" ? "on" : ""} onClick={() => setTab("stats")}>통계</button>
       </div>
 
       {/* 내전 결과 입력 폼 */}
@@ -487,7 +677,7 @@ export default function ScrimPage() {
                           {champs.map((c) => (
                             <div key={c.id} style={{ textAlign: "center" }}>
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={`/champions/${c.id}.png`} alt={c.id} width={36} height={36}
+                              <img src={`/champions/${champImgId(c.id)}.png`} alt={c.id} width={36} height={36}
                                 style={{ borderRadius: 6, border: "1px solid var(--border)", display: "block" }} />
                               <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>{c.count}판</div>
                             </div>
@@ -506,57 +696,275 @@ export default function ScrimPage() {
         </div>
       )}
 
-      {error && <div className="error">{error}</div>}
-      {loading ? <p>불러오는 중...</p> : (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
-                <th style={{ textAlign: "left", padding: "6px 10px" }}>클랜원</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>솔랭 티어</th>
-                {LINES.map((l) => (
-                  <th key={l} style={{ textAlign: "center", padding: "6px 8px" }}>
-                    {LINE_MAP[l] ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={lineIconUrl(LINE_MAP[l].icon)} alt={l} width={18} height={18} style={{ verticalAlign: "middle" }} />
-                    ) : l}
-                  </th>
-                ))}
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>총판수</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>승률</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>KDA</th>
-              </tr>
-            </thead>
-            <tbody>
-              {players.map((p) => (
-                <tr key={p.memberId} style={{ borderBottom: "1px solid var(--border)" }}>
-                  <td style={{ padding: "8px 10px", fontWeight: 700, cursor: "pointer", color: "var(--accent)" }}
-                    onClick={() => setDetail(p)}>{p.nickname}</td>
-                  <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                    <span className={`tier-badge tier-${(p.tier ?? "unranked").toLowerCase()}`}>
-                      {tierLabel(p.tier, p.rank, p.lp)}
-                    </span>
-                  </td>
-                  {LINES.map((l) => (
-                    <td key={l} style={{ padding: "8px 8px", textAlign: "center", color: p.lineCounts[l] > 0 ? "var(--text)" : "var(--muted)" }}>
-                      {p.lineCounts[l] > 0 ? p.lineCounts[l] : "-"}
-                    </td>
+      {tab === "matches" && (
+        <div>
+          {matchesLoading ? <p>불러오는 중...</p> : matches.length === 0
+            ? <p style={{ color: "var(--muted)", fontSize: 14 }}>등록된 경기가 없습니다.</p>
+            : (
+            <div className="match-log">
+              {matches.map((m) => {
+                const dt = new Date(m.playedAt);
+                const dateStr = dt.toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
+                const timeStr = dt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+                const isPending = m.status !== "done";
+                return (
+                  <div key={m.id} className="match-card">
+                    <div className="mc-meta">
+                      <span>{dateStr} {timeStr}</span>
+                      {m.note && <span className="mc-note">· {m.note}</span>}
+                      {isPending && <span className="mc-pending-badge">결과 미등록</span>}
+                      {isAdmin && (
+                        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                          {/* 자동 동기화된 경기(riotMatchId 있음)는 Riot 전적 그대로라 수정하지 않고, 삭제만 허용한다. */}
+                          {!m.riotMatchId && (
+                            <button className="edit-btn" style={{ padding: "3px 10px", fontSize: 12 }} onClick={() => openEditModal(m)}>수정</button>
+                          )}
+                          <button className="del-btn small" onClick={() => deleteMatch(m.id)}>삭제</button>
+                        </div>
+                      )}
+                    </div>
+                    <div className="mc-teams">
+                      {(() => {
+                        const maxDamage = Math.max(1, ...m.team1.map((p) => p.damage ?? 0), ...m.team2.map((p) => p.damage ?? 0));
+                        return ([1, 2] as const).map((t) => {
+                        const team = t === 1 ? m.team1 : m.team2;
+                        const isWin = !isPending && m.winnerTeam === t;
+                        return (
+                          <div key={t} className={`mc-team ${isPending ? "pending" : isWin ? "win" : "loss"}`}>
+                            <div className="mc-team-head">
+                              {t === 1 ? "🔵 블루팀" : "🔴 레드팀"}
+                              {!isPending && (isWin ? " 🏆" : " ✗")}
+                            </div>
+                            {team.map((p) => {
+                              const dmgPct = Math.round(((p.damage ?? 0) / maxDamage) * 100);
+                              return (
+                              <div key={p.memberId} className="mc-player-row">
+                                <span className="mc-champ-icon">
+                                  {p.champion && (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={`/champions/${champImgId(p.champion)}.png`} alt="" width={28} height={28} />
+                                  )}
+                                </span>
+                                <span className="mc-name">
+                                  {p.line && LINE_MAP[p.line] && (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={lineIconUrl(LINE_MAP[p.line].icon)} alt={p.line} width={12} height={12} className="mc-line-icon" />
+                                  )}
+                                  {p.nickname}
+                                </span>
+                                <span className="mc-kda-col">
+                                  {p.kills}/<em>{p.deaths}</em>/{p.assists}
+                                </span>
+                                <span className="mc-dmg-col">
+                                  {!!p.damage && (
+                                    <>
+                                      <span className="mc-dmg-num">{p.damage.toLocaleString()}</span>
+                                      <span className="mc-dmg-bar-wrap"><span className="mc-dmg-bar" style={{ width: `${dmgPct}%` }} /></span>
+                                    </>
+                                  )}
+                                </span>
+                                <span className="mc-items-col">
+                                  {p.items?.map((itemId, i) => {
+                                    const src = itemIconUrl(itemId);
+                                    return src ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img key={i} src={src} alt="" width={22} height={22} />
+                                    ) : null;
+                                  })}
+                                </span>
+                              </div>
+                              );
+                            })}
+                          </div>
+                        );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "stats" && (
+        <>
+          {error && <div className="error">{error}</div>}
+          {loading ? <p>불러오는 중...</p> : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
+                    <th style={{ textAlign: "left", padding: "6px 10px" }}>클랜원</th>
+                    <th style={{ textAlign: "center", padding: "6px 10px" }}>솔랭 티어</th>
+                    {LINES.map((l) => (
+                      <th key={l} style={{ textAlign: "center", padding: "6px 8px" }}>
+                        {LINE_MAP[l] ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={lineIconUrl(LINE_MAP[l].icon)} alt={l} width={18} height={18} style={{ verticalAlign: "middle" }} />
+                        ) : l}
+                      </th>
+                    ))}
+                    <th style={{ textAlign: "center", padding: "6px 10px" }}>총판수</th>
+                    <th style={{ textAlign: "center", padding: "6px 10px" }}>승률</th>
+                    <th style={{ textAlign: "center", padding: "6px 10px" }}>KDA</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {players.map((p) => (
+                    <tr key={p.memberId} style={{ borderBottom: "1px solid var(--border)" }}>
+                      <td style={{ padding: "8px 10px", fontWeight: 700, cursor: "pointer", color: "var(--accent)" }}
+                        onClick={() => setDetail(p)}>{p.nickname}</td>
+                      <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                        <span className={`tier-badge tier-${(p.tier ?? "unranked").toLowerCase()}`}>
+                          {tierLabel(p.tier, p.rank, p.lp)}
+                        </span>
+                      </td>
+                      {LINES.map((l) => (
+                        <td key={l} style={{ padding: "8px 8px", textAlign: "center", color: p.lineCounts[l] > 0 ? "var(--text)" : "var(--muted)" }}>
+                          {p.lineCounts[l] > 0 ? p.lineCounts[l] : "-"}
+                        </td>
+                      ))}
+                      <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)" }}>
+                        {p.games > 0 ? `${p.games}판` : "-"}
+                      </td>
+                      <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 700,
+                        color: p.winRate !== null ? (p.winRate >= 50 ? "var(--win-text)" : "var(--loss-text)") : "var(--muted)" }}>
+                        {p.winRate !== null ? `${p.winRate}%` : "-"}
+                      </td>
+                      <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 700,
+                        color: p.kda ? (Number(p.kda) >= 3 ? "var(--win-text)" : "var(--text)") : "var(--muted)" }}>
+                        {p.kda ?? "-"}
+                      </td>
+                    </tr>
                   ))}
-                  <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)" }}>
-                    {p.games > 0 ? `${p.games}판` : "-"}
-                  </td>
-                  <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 700,
-                    color: p.winRate !== null ? (p.winRate >= 50 ? "var(--win-text)" : "var(--loss-text)") : "var(--muted)" }}>
-                    {p.winRate !== null ? `${p.winRate}%` : "-"}
-                  </td>
-                  <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 700,
-                    color: p.kda ? (Number(p.kda) >= 3 ? "var(--win-text)" : "var(--text)") : "var(--muted)" }}>
-                    {p.kda ?? "-"}
-                  </td>
-                </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Riot 전적 자동 동기화 모달 */}
+      {showSyncModal && (
+        <div className="modal-backdrop" onClick={() => setShowSyncModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div className="modal-head">
+              <span>🔄 내전 전적 동기화</span>
+              <button className="modal-close" onClick={() => setShowSyncModal(false)}>×</button>
+            </div>
+            <p style={{ fontSize: 13, color: "var(--muted)", margin: "0 0 14px" }}>
+              클랜원을 선택하고 시작 시각을 입력하면, 그 시각부터 24시간 이내 진행된 커스텀 게임을 찾아
+              참가한 클랜원들의 경기 기록을 자동으로 채워 넣습니다.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>클랜원</div>
+                <HistorySearch
+                  members={members}
+                  onSelect={(id) => { setSyncMemberId(id); setSyncMemberName(members.find((m) => m.id === id)?.nickname ?? ""); }}
+                />
+                {syncMemberName && (
+                  <div style={{ fontSize: 12, color: "var(--win-text)", marginTop: 4 }}>선택됨: {syncMemberName}</div>
+                )}
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>시작 날짜 / 시간</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="date"
+                    value={syncStartDate}
+                    onChange={(e) => setSyncStartDate(e.target.value)}
+                    style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
+                  />
+                  <input
+                    className="party-time-text-input"
+                    placeholder="시작 시간 (2100 → 21:00)"
+                    value={syncStartTime}
+                    onChange={(e) => {
+                      let v = e.target.value.replace(/[^0-9]/g, "").slice(0, 4);
+                      if (v.length === 4) v = v.slice(0, 2) + ":" + v.slice(2);
+                      setSyncStartTime(v);
+                    }}
+                    maxLength={5}
+                    style={{ width: 160 }}
+                  />
+                </div>
+              </div>
+            </div>
+            {syncErr && <div className="error" style={{ marginTop: 12 }}>{syncErr}</div>}
+            <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+              <button className="btn-primary" onClick={runSync} disabled={syncing}>
+                {syncing ? "동기화 중..." : "동기화 시작"}
+              </button>
+              <button className="btn-secondary" onClick={() => setShowSyncModal(false)}>닫기</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 경기 수정 모달 */}
+      {editMatch && (
+        <div className="modal-backdrop" onClick={() => setEditMatch(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640, width: "95vw" }}>
+            <div className="modal-head">
+              <span>경기 #{editMatch.id} 수정</span>
+              <button className="modal-close" onClick={() => setEditMatch(null)}>×</button>
+            </div>
+            <div style={{ display: "flex", gap: 10, marginBottom: 16, alignItems: "center" }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--muted)" }}>승리팀</span>
+              <button
+                onClick={() => setEditWinner(1)}
+                style={{
+                  padding: "7px 20px", borderRadius: 8, border: "2px solid", fontSize: 13, fontWeight: 800, cursor: "pointer",
+                  borderColor: editWinner === 1 ? "var(--win-text)" : "var(--border)",
+                  background: editWinner === 1 ? "rgba(83,131,232,0.18)" : "transparent",
+                  color: editWinner === 1 ? "var(--win-text)" : "var(--muted)",
+                }}>
+                🔵 블루팀
+              </button>
+              <button
+                onClick={() => setEditWinner(2)}
+                style={{
+                  padding: "7px 20px", borderRadius: 8, border: "2px solid", fontSize: 13, fontWeight: 800, cursor: "pointer",
+                  borderColor: editWinner === 2 ? "var(--loss-text)" : "var(--border)",
+                  background: editWinner === 2 ? "rgba(232,64,87,0.18)" : "transparent",
+                  color: editWinner === 2 ? "var(--loss-text)" : "var(--muted)",
+                }}>
+                🔴 레드팀
+              </button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: "50vh", overflowY: "auto" }}>
+              {editSlots.map((s, idx) => (
+                <div key={s.memberId} style={{ display: "grid", gridTemplateColumns: "1fr 110px 40px 40px 40px", gap: 6, alignItems: "center" }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, padding: "0 4px" }}>{s.memberName}</span>
+                  <ChampionInput
+                    champions={champions}
+                    value={s.champion}
+                    onChange={(v) => setEditSlots((prev) => prev.map((x, i) => i === idx ? { ...x, champion: v } : x))}
+                  />
+                  {(["kills", "deaths", "assists"] as const).map((f) => (
+                    <input
+                      key={f}
+                      type="number" min={0}
+                      placeholder={f === "kills" ? "K" : f === "deaths" ? "D" : "A"}
+                      value={s[f]}
+                      onChange={(e) => setEditSlots((prev) => prev.map((x, i) => i === idx ? { ...x, [f]: e.target.value } : x))}
+                      style={{ width: "100%", padding: "7px 4px", borderRadius: 7, border: "1px solid var(--border)", background: "var(--card-2)", color: "var(--text)", fontSize: 13, textAlign: "center" }}
+                    />
+                  ))}
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+            {editErr && <div className="error" style={{ marginTop: 12 }}>{editErr}</div>}
+            <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+              <button className="btn-primary" onClick={submitEdit} disabled={editSubmitting}>
+                {editSubmitting ? "저장 중..." : "💾 저장"}
+              </button>
+              <button className="btn-secondary" onClick={() => setEditMatch(null)}>취소</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

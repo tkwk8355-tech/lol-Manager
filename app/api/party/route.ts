@@ -196,6 +196,15 @@ export async function PATCH(req: NextRequest) {
     try {
       await conn.beginTransaction();
 
+      // 기존 참가자 조회
+      const [prevRows] = await conn.query(
+        "SELECT nickname FROM party_participants WHERE party_id = ? AND is_waiting = 0",
+        [partyId]
+      ) as [any[], any];
+      const prevNicks = new Set(prevRows.map((r: any) => r.nickname));
+      const newNicks = new Set(nicknames);
+      const changed = prevNicks.size !== newNicks.size || nicknames.some(n => !prevNicks.has(n));
+
       // 기존 참가자 삭제 후 새 명단으로 교체
       await conn.query("DELETE FROM party_participants WHERE party_id = ?", [partyId]);
       for (const nick of nicknames) {
@@ -203,12 +212,8 @@ export async function PATCH(req: NextRequest) {
           `INSERT INTO party_participants (party_id, user_id, nickname, line) VALUES (?, NULL, ?, NULL)`,
           [partyId, nick]
         );
-        // 이력에 없는 닉네임만 추가 (중복 방지)
-        const [histRows] = await conn.query(
-          "SELECT id FROM party_participant_history WHERE party_id = ? AND nickname = ?",
-          [partyId, nick]
-        ) as [any[], any];
-        if (!histRows.length) {
+        // 명단이 실제로 바뀐 경우에만 history 기록
+        if (changed) {
           await conn.query(
             `INSERT INTO party_participant_history (party_id, nickname) VALUES (?, ?)`,
             [partyId, nick]
@@ -299,7 +304,23 @@ async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRo
     if (!mRows.length) continue;
     const memberId = mRows[0].member_id;
     const isRookie = mRows[0].position === '수습';
-    if (isRookie) continue; // 수습은 포인트 미지급
+    if (isRookie) {
+      // 수습은 포인트 미지급이지만 칼바람 파티 참여 기록
+      const [snapRows] = await pool.query(
+        `SELECT COUNT(*) AS cnt FROM party_participant_history WHERE party_id = ? AND nickname = ?`,
+        [partyId, h.nickname]
+      ) as [any[], any];
+      if (Number(snapRows[0]?.cnt ?? 0) > 0) {
+        const [alreadyRookie] = await pool.query(
+          `SELECT id FROM point_logs WHERE member_id = ? AND type = 'rookie_session' AND ref_id = ?`,
+          [memberId, partyId]
+        ) as [any[], any];
+        if (alreadyRookie.length === 0) {
+          await givePoints(pool, memberId, 0, "rookie_session", games, `수습 칼바람 파티 1회`, null, partyId, 0);
+        }
+      }
+      continue;
+    }
     // 같은 날짜(start_at 기준) 칼바람 포인트 중복 지급 방지
     const partyDate = (party.start_at ?? party.created_at).slice(0, 10);
     const [already] = await pool.query(
@@ -312,10 +333,35 @@ async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRo
     if (already.length > 0) { console.log(`[award] skip memberId=${memberId}: already got aram on ${partyDate}`); continue; }
 
     if (points <= 0 && !hasRookie) continue; // 판수미달 + 수습없으면 스킵
-    const finalPoints = points + (hasRookie ? 10 : 0);
+
+    let rookieBonus = 0;
+    if (hasRookie) {
+      const rookieMemberIds: number[] = [];
+      for (const h2 of histRows) {
+        const [rm] = await pool.query(
+          `SELECT m.id FROM members m JOIN accounts a ON a.member_id = m.id AND a.is_main = 1 AND a.game_name = ? WHERE m.position = '수습'`,
+          [h2.nickname]
+        ) as [any[], any];
+        if (rm[0]) rookieMemberIds.push(rm[0].id);
+      }
+      for (const rookieMemberId of rookieMemberIds) {
+        const [bonusRows] = await pool.query(
+          `SELECT id FROM rookie_bonus_log WHERE member_id = ? AND rookie_member_id = ?`,
+          [memberId, rookieMemberId]
+        ) as [any[], any];
+        if (bonusRows.length === 0) { rookieBonus = 10; break; }
+      }
+      if (rookieBonus > 0) {
+        for (const rookieMemberId of rookieMemberIds) {
+          await pool.query(`INSERT IGNORE INTO rookie_bonus_log (member_id, rookie_member_id) VALUES (?, ?)`, [memberId, rookieMemberId]);
+        }
+      }
+    }
+
+    const finalPoints = points + rookieBonus;
     const comment = points <= 0
       ? `칼바람 ${games}판 (수습 동반)`
-      : hasRookie ? `칼바람 ${games}판 (수습 동반)` : `칼바람 ${games}판`;
+      : rookieBonus > 0 ? `칼바람 ${games}판 (수습 동반)` : `칼바람 ${games}판`;
     await givePoints(pool, memberId, finalPoints, "aram", games, comment, null, partyId);
   }
 }
@@ -373,16 +419,45 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
   for (const { memberId, puuids, isRookie } of memberData) {
     // 수습은 rookie_session 타입으로 중복 체크, 일반 클랜원은 pointType으로 체크
     const checkType = isRookie ? "rookie_session" : pointType;
-    // 같은 날짜(start_at 기준) 같은 타입 포인트 중복 지급 방지
     const partyDate = (party.start_at ?? party.created_at).slice(0, 10);
     const [alreadyRows] = await pool.query(
-      `SELECT pl.id FROM point_logs pl
-       JOIN parties p ON p.id = pl.ref_id
-       WHERE pl.member_id = ? AND pl.type = ?
-       AND DATE(COALESCE(p.start_at, p.created_at)) = ?`,
-      [memberId, checkType, partyDate]
+      isRookie
+        ? `SELECT pl.id FROM point_logs pl WHERE pl.member_id = ? AND pl.type = ? AND pl.ref_id = ?`
+        : `SELECT pl.id FROM point_logs pl JOIN parties p ON p.id = pl.ref_id WHERE pl.member_id = ? AND pl.type = ? AND DATE(COALESCE(p.start_at, p.created_at)) = ?`,
+      isRookie ? [memberId, checkType, partyId] : [memberId, checkType, partyDate]
     ) as [any[], any];
-    if (alreadyRows.length > 0) { console.log(`[award] skip memberId=${memberId}: already got ${checkType} on ${partyDate}`); continue; }
+    if (alreadyRows.length > 0) {
+      // 수습이 아닌 클랜원이고 이미 포인트를 받았어도, 새로운 수습이 있으면 보너스는 지급해야 함
+      if (!isRookie && rookiePuuids.size > 0) {
+        // 이미 지급된 포인트 로그의 ref_id 확인
+        const [prevLog] = await pool.query(
+          `SELECT pl.ref_id FROM point_logs pl JOIN parties p ON p.id = pl.ref_id WHERE pl.member_id = ? AND pl.type = ? AND DATE(COALESCE(p.start_at, p.created_at)) = ? LIMIT 1`,
+          [memberId, checkType, partyDate]
+        ) as [any[], any];
+        // 이전 파티와 다른 파티이고 수습 동반이면 보너스 체크
+        if (prevLog[0]?.ref_id !== partyId) {
+          // 이미 이 수습에게 보너스를 지급한 적 없으면 +10점
+          const rookieMemberIds = memberData.filter(m => m.isRookie).map(m => m.memberId);
+          let rookieBonus = 0;
+          for (const rookieMemberId of rookieMemberIds) {
+            const [bonusRows] = await pool.query(
+              `SELECT id FROM rookie_bonus_log WHERE member_id = ? AND rookie_member_id = ?`,
+              [memberId, rookieMemberId]
+            ) as [any[], any];
+            if (bonusRows.length === 0) { rookieBonus = 10; break; }
+          }
+          if (rookieBonus > 0) {
+            for (const rookieMemberId of rookieMemberIds) {
+              await pool.query(`INSERT IGNORE INTO rookie_bonus_log (member_id, rookie_member_id) VALUES (?, ?)`, [memberId, rookieMemberId]);
+            }
+            await givePoints(pool, memberId, rookieBonus, pointType, 0, `파티 (수습 동반 추가보너스)`, null, partyId);
+            console.log(`[award] +10 rookie bonus (additional party) to memberId=${memberId}`);
+          }
+        }
+      }
+      console.log(`[award] skip memberId=${memberId}: already got ${checkType} on ${partyDate}`);
+      continue;
+    }
 
     const myMatchIds = new Set<string>();
     for (const puuid of puuids) {
@@ -412,26 +487,51 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
     console.log(`[award] memberId=${memberId} validGames=${validGames} minGames=${minGames} isRookie=${isRookie} playedWithRookie=${playedWithRookie}`);
 
     if (isRookie) {
-      // 수습: party_participant_history 스냅샷 수 = 명단이 바뀌 횟수
-      // added_at이 같은 것들이 하나의 스냅샷 (운영진이 명단 수정할 때마다 새 스냅샷)
       const [snapRows] = await pool.query(
-        `SELECT COUNT(DISTINCT added_at) AS cnt FROM party_participant_history WHERE party_id = ?`,
-        [partyId]
+        `SELECT COUNT(*) AS cnt FROM party_participant_history WHERE party_id = ? AND nickname = (SELECT game_name FROM accounts WHERE member_id = ? AND is_main = 1 LIMIT 1)`,
+        [partyId, memberId]
       ) as [any[], any];
       const snapCount = Number(snapRows[0]?.cnt ?? 0);
       if (snapCount > 0) {
-        await givePoints(pool, memberId, 0, "rookie_session", snapCount, `수습 파티 ${snapCount}회`, null, partyId);
-        console.log(`[award] rookie session recorded: memberId=${memberId} snapshots=${snapCount}`);
+        const countableMode = party.mode === 'flex' || party.mode === 'scrim';
+        await givePoints(pool, memberId, 0, "rookie_session", validGames, `수습 파티 ${snapCount}회`, null, partyId, countableMode ? snapCount : 0);
+        console.log(`[award] rookie session recorded: memberId=${memberId} snapCount=${snapCount} countable=${countableMode}`);
       }
       continue;
     }
 
+    // 수습 동반 보너스: 이미 지급한 수습이 있으면 제외, 새로운 수습에게만 지급
+    let rookieBonus = 0;
+    if (playedWithRookie) {
+      // 이 파티에서 함께 게임한 수습 멤버 ID 목록
+      const rookieMemberIds = memberData.filter(m => m.isRookie).map(m => m.memberId);
+      for (const rookieMemberId of rookieMemberIds) {
+        const [bonusRows] = await pool.query(
+          `SELECT id FROM rookie_bonus_log WHERE member_id = ? AND rookie_member_id = ?`,
+          [memberId, rookieMemberId]
+        ) as [any[], any];
+        if (bonusRows.length === 0) {
+          rookieBonus = 10; // 최대 10점 캡 (수습 여러 명이어도 10점)
+          break;
+        }
+      }
+      // 보너스 지급 시 로그 기록
+      if (rookieBonus > 0) {
+        for (const rookieMemberId of rookieMemberIds) {
+          await pool.query(
+            `INSERT IGNORE INTO rookie_bonus_log (member_id, rookie_member_id) VALUES (?, ?)`,
+            [memberId, rookieMemberId]
+          );
+        }
+      }
+    }
+
     if (validGames >= minGames) {
-      const finalPoints = playedWithRookie ? pointsToGive + 10 : pointsToGive;
-      const comment = playedWithRookie ? `파티 ${validGames}판 달성 (수습 동반)` : `파티 ${validGames}판 달성`;
+      const finalPoints = pointsToGive + rookieBonus;
+      const comment = rookieBonus > 0 ? `파티 ${validGames}판 달성 (수습 동반)` : `파티 ${validGames}판 달성`;
       await givePoints(pool, memberId, finalPoints, pointType, validGames, comment, null, partyId);
       console.log(`[award] gave ${finalPoints}pts to memberId=${memberId}`);
-    } else if (playedWithRookie) {
+    } else if (rookieBonus > 0) {
       // 판수 미달이어도 수습 동반 시 +10점
       await givePoints(pool, memberId, 10, pointType, validGames, `파티 (수습 동반)`, null, partyId);
       console.log(`[award] +10 rookie bonus (under min) to memberId=${memberId}`);
