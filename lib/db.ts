@@ -314,6 +314,10 @@ async function createSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
   await pool.query(`ALTER TABLE point_logs ADD COLUMN IF NOT EXISTS party_count INT NOT NULL DEFAULT 0`);
+  // ref_id가 어느 테이블을 가리키는지 명시한다 ('party' | 'scrim_match' | NULL).
+  // parties와 scrim_matches의 auto-increment id가 우연히 같은 값이 될 수 있어서,
+  // 이 컬럼 없이 ref_id만으로 조인하면 서로 다른 레코드가 섞여 나오는 문제가 있었다.
+  await pool.query(`ALTER TABLE point_logs ADD COLUMN IF NOT EXISTS with_members VARCHAR(500) NULL`);
   // 수습 동반 10점 중복 방지: 클랜원이 특정 수습에게 한 번만 보너스 지급
   await pool.query(`
     CREATE TABLE IF NOT EXISTS rookie_bonus_log (

@@ -92,7 +92,10 @@ export default function PartyPage() {
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const [note, setNote] = useState("");
-  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(() => {
+  const now = new Date();
+  return new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+});
   const [startTime, setStartTime] = useState("");
   const [participants, setParticipants] = useState<string[]>([""]);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -151,7 +154,7 @@ export default function PartyPage() {
       });
       const json = await res.json();
       if (!res.ok) setError(json.error || "파티 생성 실패");
-      else { setNote(""); setStartDate(new Date().toISOString().slice(0, 10)); setStartTime(""); setParticipants([""]); load(tab); }
+      else { setNote(""); setStartDate(new Date(new Date().getTime() + 9*60*60*1000).toISOString().slice(0,10)); setStartTime(""); setParticipants([""]); load(tab); }
     } catch { setError("네트워크 오류"); }
     finally { setCreating(false); }
   }

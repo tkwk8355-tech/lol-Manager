@@ -228,7 +228,7 @@ export default function UserInfoPage() {
   // ��� ��� ����
   const [warnModal, setWarnModal] = useState<{ memberId: number; nickname: string } | null>(null);
   const [warnings, setWarnings] = useState<any[]>([]);
-  const [warnForm, setWarnForm] = useState({ type: "운영 방침 위반", reason: "", warnedAt: new Date().toISOString().slice(0, 10) });
+  const [warnForm, setWarnForm] = useState({ type: "운영 방침 위반", reason: "", warnedAt: new Date(Date.now() + 9*60*60*1000).toISOString().slice(0, 10) });
   const [warnLoading, setWarnLoading] = useState(false);
 
   async function openWarnModal(m: Member) {
@@ -250,7 +250,7 @@ export default function UserInfoPage() {
       body: JSON.stringify({ memberId: warnModal.memberId, ...warnForm }),
     });
     if (res.ok) {
-      setWarnForm({ type: "운영 방침 위반", reason: "", warnedAt: new Date().toISOString().slice(0, 10) });
+      setWarnForm({ type: "운영 방침 위반", reason: "", warnedAt: new Date(Date.now() + 9*60*60*1000).toISOString().slice(0, 10) });
       const r2 = await fetch(`/api/userinfo/warning?memberId=${warnModal.memberId}`);
       const j2 = await r2.json();
       if (r2.ok) setWarnings(j2.warnings);
@@ -1004,22 +1004,36 @@ export default function UserInfoPage() {
               <span>{rookieLogModal.nickname} 파티 로그</span>
               <button className="modal-close" onClick={() => setRookieLogModal(null)}>✕</button>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {(rookieLogModal.logs[rookieLogModal.logs.length - 1]?.members ?? []).length > 0
-                  ? rookieLogModal.logs[rookieLogModal.logs.length - 1].members.map((nick: string) => (
-                      <span key={nick} style={{ fontSize: 13, padding: "3px 10px", borderRadius: 12, background: "var(--card-2)", color: "var(--text)", fontWeight: 700 }}>{nick}</span>
-                    ))
-                  : <span style={{ fontSize: 12, color: "var(--muted)" }}>클랜원 정보 없음</span>}
-              </div>
-              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
-                {rookieLogModal.logs.map((log, i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)" }}>
+            {(() => {
+              const rookieNicknames = new Set(members.filter(m => m.position === "수습").map(m => m.nickname));
+              const allPlayed = new Set(
+                rookieLogModal.logs.flatMap(log => log.members ?? []).filter((nick: string) => !rookieNicknames.has(nick))
+              );
+              return (
+                <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>
+                  같이 플레이한 클랜원 <span style={{ fontWeight: 800, color: "var(--text)" }}>{allPlayed.size}명</span>
+                </div>
+              );
+            })()}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {rookieLogModal.logs.map((log, i) => (
+                <div key={i} style={{ borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>
                     <span>{log.startAt || log.date}</span>
-                    <span style={{ fontWeight: 700, color: "#7aa2f7" }}>{log.partyCount ?? log.games}회 참여</span>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 4, background: "var(--card-2)", color: "var(--muted)" }}>{MODE_KO[log.mode] ?? log.mode}</span>
+                      <span style={{ fontWeight: 700, color: "#7aa2f7" }}>{log.partyCount ?? log.games}회 참여</span>
+                    </div>
                   </div>
-                ))}
-              </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {(log.members ?? []).length > 0
+                      ? log.members.map((nick: string) => (
+                          <span key={nick} style={{ fontSize: 12, padding: "2px 8px", borderRadius: 10, background: "var(--card-2)", color: "var(--text)", fontWeight: 700 }}>{nick}</span>
+                        ))
+                      : <span style={{ fontSize: 11, color: "var(--muted)" }}>클랜원 정보 없음</span>}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -1453,7 +1467,11 @@ export default function UserInfoPage() {
                         const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
                         const overdue = createdAt && createdAt < oneWeekAgo && !canPromote;
                         const color = canPromote ? '#2ecc71' : overdue ? '#f1948a' : 'var(--text)';
-                        return <span style={{ color }}>{m.nickname}</span>;
+                        const rookieNickSet = new Set(members.filter(x => x.position === '수습').map(x => x.nickname));
+                        const playedCount = new Set(
+                          (m.rookieSessionLogs ?? []).flatMap((log: any) => log.members ?? []).filter((n: string) => !rookieNickSet.has(n))
+                        ).size;
+                        return <span style={{ color }}>{m.nickname}{playedCount >= 10 && <span title="같이 플레이한 클랜원 10명 이상"> ✅</span>}</span>;
                       })()}
                     </td>
                     <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)" }}>{m.createdAt ? m.createdAt.slice(0, 10) : "-"}</td>

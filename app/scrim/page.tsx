@@ -262,7 +262,7 @@ export default function ScrimPage() {
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [syncMemberId, setSyncMemberId] = useState<number | null>(null);
   const [syncMemberName, setSyncMemberName] = useState("");
-  const [syncStartDate, setSyncStartDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [syncStartDate, setSyncStartDate] = useState(() => new Date(Date.now() + 9*60*60*1000).toISOString().slice(0, 10));
   const [syncStartTime, setSyncStartTime] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [syncErr, setSyncErr] = useState("");
@@ -398,7 +398,7 @@ export default function ScrimPage() {
     setEditMatch(m); setEditWinner((m.winnerTeam || 1) as 1 | 2); setEditErr("");
     const toSlot = (p: MatchParticipant): SlotData => ({
       memberId: p.memberId, memberName: p.nickname, champion: p.champion ?? "",
-      kills: String(p.kills), deaths: String(p.deaths), assists: String(p.assists), damage: "",
+      kills: String(p.kills), deaths: String(p.deaths), assists: String(p.assists), damage: String(p.damage ?? ""),
     });
     setEditSlots([...m.team1.map(toSlot), ...m.team2.map(toSlot)]);
   }
@@ -414,7 +414,7 @@ export default function ScrimPage() {
           id: editMatch.id, winnerTeam: editWinner,
           participants: editSlots.map((s) => ({
             memberId: s.memberId, champion: s.champion,
-            kills: Number(s.kills)||0, deaths: Number(s.deaths)||0, assists: Number(s.assists)||0, damage: 0,
+            kills: Number(s.kills)||0, deaths: Number(s.deaths)||0, assists: Number(s.assists)||0, damage: Number(s.damage)||0,
           })),
         }),
       });
@@ -476,7 +476,7 @@ export default function ScrimPage() {
           <div style={{ display: "flex", gap: 8 }}>
             <button
               className="btn-secondary"
-              onClick={() => { setShowSyncModal(true); setSyncErr(""); setSyncResult(null); setSyncMemberId(null); setSyncMemberName(""); setSyncStartDate(new Date().toISOString().slice(0, 10)); setSyncStartTime(""); }}
+              onClick={() => { setShowSyncModal(true); setSyncErr(""); setSyncResult(null); setSyncMemberId(null); setSyncMemberName(""); setSyncStartDate(new Date(Date.now() + 9*60*60*1000).toISOString().slice(0, 10)); setSyncStartTime(""); }}
             >
               🔄 동기화
             </button>

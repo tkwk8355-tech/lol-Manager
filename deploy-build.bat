@@ -16,4 +16,5 @@ tar -czf deploy.tar.gz ^
   next.config.js
 if errorlevel 1 ( echo 패키징 실패 & pause & exit /b 1 )
 
-pause
+echo === [3/3] 완료 ===
+echo deploy.tar.gz 생성 완료!

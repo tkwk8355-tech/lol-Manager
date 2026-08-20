@@ -36,7 +36,7 @@ export async function GET() {
     ]);
 
     // 오늘 생일자 포인트 자동 지급 (하루 한 번, birthday 타입)
-    const todayKST = new Date().toISOString().slice(0, 10);
+    const todayKST = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
     for (const b of birthdays) {
       const [already] = await pool.query(
         `SELECT id FROM point_logs WHERE member_id = ? AND type = 'birthday' AND DATE(created_at) = ?`,

@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
 
     // 2주간 파티 참여 게임수 (party_participant_history + point_logs.games 기반)
     // aram: games 합산, normal/flex/solo: 파티 참여 횟수(games 합산)
-    const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const [partyRows] = await pool.query(`
       SELECT pl.member_id,
              SUM(CASE WHEN pl.type = 'aram' THEN pl.games ELSE 0 END) AS aram_games,
@@ -45,75 +45,46 @@ export async function GET(req: NextRequest) {
     const warnCount = new Map<number, number>();
     for (const w of warnRows) warnCount.set(w.member_id, Number(w.cnt));
 
+    // 수습 닉네임 Set (with_members 필터링용)
+    const [rookieMemberRows] = await pool.query(
+      `SELECT nickname FROM members WHERE position = '수습'`
+    ) as [any[], any];
+    const rookieNicknames = new Set<string>(rookieMemberRows.map((r: any) => r.nickname));
+
     // 수습 파티 참여 카운트 + 로그 상세
+    // ref_table로 ref_id가 parties인지 scrim_matches인지 구분한다.
+    // (두 테이블의 auto-increment id가 우연히 같을 수 있어 이 구분 없이는 조인이 섞인다.)
     const [rookieRows] = await pool.query(`
-      SELECT pl.member_id, pl.games, pl.party_count, pl.comment, pl.created_at, pl.ref_id, p.start_at, p.mode
+      SELECT pl.member_id, pl.games, pl.party_count, pl.comment, pl.created_at, pl.ref_id, pl.ref_table, pl.with_members, p.start_at, p.mode
       FROM point_logs pl
-      LEFT JOIN parties p ON p.id = pl.ref_id
+      LEFT JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
       WHERE pl.type = 'rookie_session'
       ORDER BY pl.created_at ASC
     `) as [any[], any];
 
-    // 수습별 파티에서 같이 있었던 클랜원 목록
-    // 수습 본인이 히스토리에 찍힌 스냅샷 시각과 동일한 시각의 클랜원만 포함
-    // (수습이 파티에서 빠진 이후 스냅샷은 제외)
-    const partyIds = [...new Set(rookieRows.map((r: any) => r.ref_id).filter(Boolean))];
-    // key: "partyId_rookieMemberId" -> Set<nickname>
-    const partyRookieMembersMap = new Map<string, Set<string>>();
-    if (partyIds.length > 0) {
-      const ph = partyIds.map(() => "?").join(",");
-      // 수습별 파티 내 모든 스냅샷 시각 조회
-      const [rookieSnapRows] = await pool.query(
-        `SELECT pph.party_id, m.id AS rookie_member_id, pph.added_at
-         FROM party_participant_history pph
-         JOIN accounts a ON a.game_name = pph.nickname AND a.is_main = 1
-         JOIN members m ON m.id = a.member_id AND m.position = '수습'
-         WHERE pph.party_id IN (${ph})`,
-        partyIds
-      ) as [any[], any];
-      // 수습별 스냅샷 시각 목록
-      const snapTimesMap = new Map<string, string[]>();
-      for (const sr of rookieSnapRows) {
-        const key = `${sr.party_id}_${sr.rookie_member_id}`;
-        if (!snapTimesMap.has(key)) snapTimesMap.set(key, []);
-        snapTimesMap.get(key)!.push(sr.added_at);
-      }
-      // 각 스냅샷 시각에 함께 있던 클랜원 수집
-      for (const [key, snapTimes] of snapTimesMap) {
-        const partyId = Number(key.split('_')[0]);
-        const memberSet = new Set<string>();
-        for (const snapAt of snapTimes) {
-          const [clanRows] = await pool.query(
-            `SELECT DISTINCT pph.nickname
-             FROM party_participant_history pph
-             JOIN accounts a ON a.game_name = pph.nickname AND a.is_main = 1
-             JOIN members m ON m.id = a.member_id AND m.position IN ('클랜원', '운영진', '부운영진')
-             WHERE pph.party_id = ? AND pph.added_at = ?`,
-            [partyId, snapAt]
-          ) as [any[], any];
-          clanRows.forEach((cr: any) => memberSet.add(cr.nickname));
-        }
-        partyRookieMembersMap.set(key, memberSet);
-      }
-    }
-
     const rookiePartyCount = new Map<number, number>();
     const rookieSessionLogs = new Map<number, any[]>();
-    const rookieAllMembers = new Map<number, Set<string>>();
     for (const r of rookieRows) {
       const mid = r.member_id;
       rookiePartyCount.set(mid, (rookiePartyCount.get(mid) ?? 0) + Number(r.party_count));
       if (!rookieSessionLogs.has(mid)) rookieSessionLogs.set(mid, []);
-      if (!rookieAllMembers.has(mid)) rookieAllMembers.set(mid, new Set());
+      const isScrimSync = r.ref_table === "scrim_match";
+      const logMode = isScrimSync ? "scrim" : (r.mode ?? "flex");
+      if (logMode === "aram") continue; // 칼바람은 수습 카운트 미적용, 기존 데이터 필터링
+      const rawMembers: string[] = r.with_members
+        ? r.with_members.split(",").map((s: string) => s.trim()).filter(Boolean)
+        : [];
+      const filteredMembers = [...new Set(rawMembers.filter((n) => !rookieNicknames.has(n)))];
       rookieSessionLogs.get(mid)!.push({
         games: Number(r.games),
         partyCount: Number(r.party_count),
         comment: r.comment,
-        date: (r.start_at ?? r.created_at ?? "").slice(0, 10),
-        startAt: (r.start_at ?? r.created_at ?? "").slice(0, 16).replace("T", " "),
-        mode: r.mode ?? "flex",
-        refId: r.ref_id,
-        rookieMemberId: mid,
+        date: (r.created_at ?? "").slice(0, 10),
+        startAt: isScrimSync
+          ? `${(r.created_at ?? "").slice(0, 10)} - 내전참여`
+          : (r.start_at ?? r.created_at ?? "").slice(0, 16).replace("T", " "),
+        mode: logMode,
+        members: filteredMembers,
       });
     }
 
@@ -186,16 +157,7 @@ export async function GET(req: NextRequest) {
       m.tier = mainTier.get(id) ?? bestTier.get(id) ?? null;
       m.warningCount = warnCount.get(id) ?? 0;
       m.rookiePartyCount = rookiePartyCount.get(id) ?? 0;
-      const allMembers = new Set<string>();
-      const logs = rookieSessionLogs.get(id) ?? [];
-      for (const log of logs) {
-        const key = `${log.refId}_${log.rookieMemberId}`;
-        (partyRookieMembersMap.get(key) ?? new Set()).forEach((n: string) => allMembers.add(n));
-        log.members = [...allMembers];
-        delete log.refId;
-        delete log.rookieMemberId;
-      }
-      m.rookieSessionLogs = logs;
+      m.rookieSessionLogs = rookieSessionLogs.get(id) ?? [];
       const pg = partyGames.get(id);
       m.aramGames2w = pg?.aram ?? 0;
       m.normalGames2w = pg?.normal ?? 0;

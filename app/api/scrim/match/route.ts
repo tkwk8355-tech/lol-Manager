@@ -170,23 +170,32 @@ export async function PATCH(req: NextRequest) {
       }
       await conn.commit();
 
-      // 내전 결과 등록 시 참가자 전원 30점 지급 (하루 한도)
+      // 내전 결과 등록 시 참가자 전원 30점 지급 (하루 한도).
+      // created_at은 넘기지 않아 실제 지급 시각(지금)이 자동으로 찍히도록 하고,
+      // 하루 1회 판단은 scrim_matches.played_at(경기 날짜)을 조인해서 확인한다.
+      // comment에는 경기 시각 + 메모를 남겨서 어떤 경기 때문인지 알 수 있게 한다.
       const [matchRows] = await pool.query(
-        "SELECT played_at FROM scrim_matches WHERE id = ?", [id]
+        "SELECT played_at, note FROM scrim_matches WHERE id = ?", [id]
       ) as [any[], any];
-      const scrimDate = matchRows[0]?.played_at
-        ? new Date(matchRows[0].played_at).toISOString().slice(0, 10)
-        : new Date().toISOString().slice(0, 10);
+      const playedAt: string = matchRows[0]?.played_at
+        ? String(matchRows[0].played_at)
+        : new Date().toISOString().slice(0, 19).replace("T", " ");
+      const matchTimeLabel = playedAt.slice(5, 16);
+      const matchNote = matchRows[0]?.note ? ` ${matchRows[0].note}` : "";
       const [partRows] = await pool.query(
         "SELECT member_id FROM scrim_participants WHERE match_id = ?", [id]
       ) as [any[], any];
       for (const p of partRows) {
+        const playedDate = playedAt.slice(0, 10);
         const [alreadyRows] = await pool.query(
-          `SELECT id FROM point_logs WHERE member_id = ? AND type = 'scrim' AND DATE(created_at) = ?`,
-          [p.member_id, scrimDate]
+          `SELECT pl.id FROM point_logs pl
+           JOIN scrim_matches sm ON sm.id = pl.ref_id AND pl.ref_table = 'scrim_match'
+           WHERE pl.member_id = ? AND pl.type = 'scrim'
+           AND DATE(sm.played_at) = ?`,
+          [p.member_id, playedDate]
         ) as [any[], any];
         if (alreadyRows.length > 0) continue;
-        await givePoints(pool, p.member_id, 30, "scrim", 1, "내전 참여", null, id, 0, scrimDate);
+        await givePoints(pool, p.member_id, 30, "scrim", 1, `내전 참여 (${matchTimeLabel})${matchNote}`, auth.session.userId, id, 0, null, "scrim_match");
       }
 
       return NextResponse.json({ ok: true });
