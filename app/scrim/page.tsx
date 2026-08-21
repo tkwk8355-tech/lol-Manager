@@ -283,7 +283,7 @@ function HistorySearch({ members, onSelect }: { members: Member[]; onSelect: (id
 
 
 // 팀 생성 모달
-function BalanceModal({ members, onClose }: { members: Member[]; onClose: () => void }) {
+function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClose: () => void; isAdmin: boolean }) {
   const SLOT_COUNT = 10;
   interface Slot { memberId: number; memberName: string; }
   const emptySlots = (): Slot[] => Array.from({ length: SLOT_COUNT }, () => ({ memberId: 0, memberName: "" }));
@@ -375,7 +375,7 @@ function BalanceModal({ members, onClose }: { members: Member[]; onClose: () => 
                   <div key={t} style={{ border: `2px solid ${color}`, borderRadius: 10, padding: 14 }}>
                     <div style={{ fontWeight: 800, fontSize: 14, color, marginBottom: 10 }}>
                       {t === 1 ? "블루팀" : "레드팀"}
-                      <span style={{ fontSize: 12, fontWeight: 400, color: "var(--muted)", marginLeft: 8 }}>점수합 {sum}</span>
+                      {isAdmin && <span style={{ fontSize: 12, fontWeight: 400, color: "var(--muted)", marginLeft: 8 }}>점수합 {sum}</span>}
                     </div>
                     {["TOP","JG","MID","ADC","SUP"].map((line) => {
                       const p = team.find((x) => x.line === line);
@@ -384,9 +384,11 @@ function BalanceModal({ members, onClose }: { members: Member[]; onClose: () => 
                         <div key={line} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, fontSize: 13 }}>
                           <span style={{ width: 32, color: "var(--muted)", fontSize: 12 }}>{LINE_LBL[line]}</span>
                           <span style={{ fontWeight: 700 }}>{p.name}</span>
-                          <span style={{ marginLeft: "auto", color: "var(--muted)", fontSize: 12 }}>
-                            {p.score}{p.lineAdjust !== 0 && <span style={{ color: "var(--loss-text)" }}>{p.lineAdjust}</span>}
-                          </span>
+                          {isAdmin && (
+                            <span style={{ marginLeft: "auto", color: "var(--muted)", fontSize: 12 }}>
+                              {p.score}{p.lineAdjust !== 0 && <span style={{ color: "var(--loss-text)" }}>{p.lineAdjust}</span>}
+                            </span>
+                          )}
                         </div>
                       );
                     })}
@@ -394,9 +396,11 @@ function BalanceModal({ members, onClose }: { members: Member[]; onClose: () => 
                 );
               })}
             </div>
-            <div style={{ textAlign: "center", fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>
-              점수 차이: <strong style={{ color: result.diff <= 5 ? "var(--win-text)" : "var(--loss-text)" }}>{result.diff}</strong>
-            </div>
+            {isAdmin && (
+              <div style={{ textAlign: "center", fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>
+                점수 차이: <strong style={{ color: result.diff <= 5 ? "var(--win-text)" : "var(--loss-text)" }}>{result.diff}</strong>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn-primary" onClick={() => setResult(null)}>다시 선택</button>
               <button className="btn-secondary" disabled={loading} onClick={() => generate(filledIds)}>다시 생성</button>
@@ -1046,7 +1050,7 @@ export default function ScrimPage() {
                   <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
                     <th style={{ textAlign: "left", padding: "6px 10px" }}>클랜원</th>
                     <th style={{ textAlign: "center", padding: "6px 10px" }}>솔랭 티어</th>
-                    <th style={{ textAlign: "center", padding: "6px 10px" }}>점수</th>
+                    {isAdmin && <th style={{ textAlign: "center", padding: "6px 10px" }}>점수</th>}
                     {LINES.map((l) => (
                       <th key={l} style={{ textAlign: "center", padding: "6px 8px" }}>
                         {LINE_MAP[l] ? (
@@ -1070,9 +1074,11 @@ export default function ScrimPage() {
                           {tierLabel(p.tier, p.rank, p.lp)}
                         </span>
                       </td>
-                      <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800, color: "var(--accent)" }}>
-                        {p.scrimScore}
-                      </td>
+                      {isAdmin && (
+                        <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800, color: "var(--accent)" }}>
+                          {p.scrimScore}
+                        </td>
+                      )}
                       {LINES.map((l) => (
                         <td key={l} style={{ padding: "8px 8px", textAlign: "center", color: p.lineCounts[l] > 0 ? "var(--text)" : "var(--muted)" }}>
                           {p.lineCounts[l] > 0 ? p.lineCounts[l] : "-"}
@@ -1103,6 +1109,7 @@ export default function ScrimPage() {
         <BalanceModal
           members={members}
           onClose={() => setShowBalanceModal(false)}
+          isAdmin={isAdmin}
         />
       )}
 

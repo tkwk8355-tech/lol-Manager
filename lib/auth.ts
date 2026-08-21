@@ -19,6 +19,7 @@ export interface SessionPayload {
   username: string;
   nickname: string;
   role: Role;
+  scrimOnly?: boolean;
   exp: number; // unix seconds
 }
 

@@ -13,6 +13,7 @@ export interface AuthUser {
   username: string;
   nickname: string;
   role: Role;
+  scrimOnly: boolean;
 }
 
 interface AuthContextValue {

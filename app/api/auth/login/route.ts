@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     await ensureSchema();
     const pool = getPool();
     const [rows] = await pool.query(
-      "SELECT id, username, password, nickname, role FROM users WHERE username = ?",
+      "SELECT id, username, password, nickname, role, scrim_only FROM users WHERE username = ?",
       [uname]
     ) as [any[], any];
     const user = rows[0];
@@ -29,12 +29,14 @@ export async function POST(req: NextRequest) {
       username: user.username,
       nickname: user.nickname,
       role: user.role,
+      scrimOnly: !!user.scrim_only,
     });
 
     const identity = await resolvePartyIdentity(user.id).catch(() => null);
     const res = NextResponse.json({
       user: {
         userId: user.id, username: user.username, nickname: user.nickname, role: user.role,
+        scrimOnly: !!user.scrim_only,
         linkedRiotId: identity?.displayName ?? null,
       },
     });

@@ -16,15 +16,16 @@ export default function SiteHeader() {
   }
 
   const pathname = usePathname();
-  const nav = [
-    { href: "/",        icon: "🏠", label: "홈",       guard: false },
-    { href: "/party",   icon: "🛡️", label: "파티모집",  guard: true  },
-    { href: "/scrim",   icon: "⚔️", label: "내전 관리", guard: true  },
-    { href: "/points",  icon: "💰", label: "포인트",    guard: true  },
-    { href: "/friends", icon: "🤝", label: "지인 관리",  guard: true  },
-    { href: "/userInfo",icon: "👥", label: user?.role === "admin" || user?.role === "subadmin" ? "클랜원 관리" : "클랜원", guard: true },
-    { href: "/search",  icon: "🔍", label: "전적 검색", guard: false },
+  const allNav = [
+    { href: "/",        icon: "🏠", label: "홈",       scrimOnly: false },
+    { href: "/party",   icon: "🛡️", label: "파티모집",  scrimOnly: false },
+    { href: "/scrim",   icon: "⚔️", label: "내전 관리", scrimOnly: true  },
+    { href: "/points",  icon: "💰", label: "포인트",    scrimOnly: false },
+    { href: "/friends", icon: "🤝", label: "지인 관리",  scrimOnly: false },
+    { href: "/userInfo",icon: "👥", label: user?.role === "admin" || user?.role === "subadmin" ? "클랜원 관리" : "클랜원", scrimOnly: false },
+    { href: "/search",  icon: "🔍", label: "전적 검색", scrimOnly: false },
   ];
+  const nav = !user ? [] : user.scrimOnly ? allNav.filter((i) => i.scrimOnly) : allNav;
 
   return (
     <header className="site-header">
@@ -34,7 +35,6 @@ export default function SiteHeader() {
             key={item.href}
             href={item.href}
             className={`site-nav-item${pathname === item.href ? " active" : ""}`}
-            onClick={(e) => { if (item.guard) guardedNav(e, item.href); }}
           >
             <span className="sni-icon">{item.icon}</span>
             <span className="sni-label">{item.label}</span>

@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
       username: session.username,
       nickname: session.nickname,
       role: session.role,
+      scrimOnly: session.scrimOnly ?? false,
     },
   });
 }

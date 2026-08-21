@@ -81,7 +81,7 @@ export default function Home() {
       {/* ── 히어로 ── */}
       <section className="hero">
         <p className="hero-eyebrow">함께하는 롤 또간집</p>
-        <h1 className="hero-title">클랜 매니저</h1>
+        <h1 className="hero-title">또간집 클랜 관리 프로그램</h1>
 
         <div className="hero-stats">
           <div className="hero-stat">

@@ -338,6 +338,8 @@ async function createSchema(): Promise<void> {
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS position VARCHAR(20) NULL DEFAULT '클랜원'`);
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'`);
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS status_note VARCHAR(255) NULL`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS scrim_only TINYINT NOT NULL DEFAULT 0`);
+  await seedScrimOnlyAccount(pool);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS warnings (
@@ -412,4 +414,14 @@ async function seedDefaultAdmin(pool: mysql.Pool): Promise<void> {
   console.log(
     `[db] 기본 운영진 계정이 생성되었습니다. (아이디: admin / 비밀번호: ${defaultPassword}) 로그인 후 비밀번호를 변경하세요.`
   );
+}
+
+async function seedScrimOnlyAccount(pool: mysql.Pool): Promise<void> {
+  const [rows] = await pool.query("SELECT COUNT(*) AS c FROM users WHERE username = '또간집'") as any[];
+  if (rows[0].c > 0) return;
+  await pool.query(
+    "INSERT INTO users (username, password, nickname, role, scrim_only) VALUES (?, ?, ?, 'member', 1)",
+    ["또간집", hashPassword("0808"), "내전관람"]
+  );
+  console.log(`[db] 내전 전용 계정 생성됨. (아이디: 또간집 / 비밀번호: 0808)`);
 }
