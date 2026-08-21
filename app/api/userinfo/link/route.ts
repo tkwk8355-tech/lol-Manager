@@ -12,12 +12,12 @@ export async function GET(req: NextRequest) {
     await ensureSchema();
     const pool = getPool();
     const [rows] = await pool.query(
-      `SELECT id, username, nickname, role, created_at FROM users ORDER BY id ASC`
+      `SELECT id, username, nickname, role, status, created_at FROM users ORDER BY id ASC`
     ) as [any[], any];
     return NextResponse.json({
       users: rows.map((r) => ({
         id: r.id, username: r.username, nickname: r.nickname,
-        role: r.role, createdAt: r.created_at,
+        role: r.role, status: r.status ?? "active", createdAt: r.created_at,
       })),
     });
   } catch (err) {
@@ -35,7 +35,14 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "최고 운영진만 역할을 변경할 수 있습니다." }, { status: 403 });
   }
   try {
-    const { userId, role } = await req.json();
+    const { userId, role, approve } = await req.json();
+    // 승인 처리
+    if (approve) {
+      await ensureSchema();
+      const pool = getPool();
+      await pool.query("UPDATE users SET status = 'active' WHERE id = ?", [Number(userId)]);
+      return NextResponse.json({ ok: true });
+    }
     if (!userId || !["admin", "subadmin", "member"].includes(role)) {
       return NextResponse.json({ error: "userId, role 필수" }, { status: 400 });
     }

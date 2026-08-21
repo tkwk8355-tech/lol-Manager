@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
     try {
       await pool.query(
-        "INSERT INTO users (username, password, nickname, role) VALUES (?, ?, ?, 'member')",
+        "INSERT INTO users (username, password, nickname, role, status) VALUES (?, ?, ?, 'member', 'pending')",
         [uname, hashPassword(pw), nick]
       );
     } catch (e: any) {

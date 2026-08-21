@@ -15,13 +15,16 @@ export async function POST(req: NextRequest) {
     await ensureSchema();
     const pool = getPool();
     const [rows] = await pool.query(
-      "SELECT id, username, password, nickname, role, scrim_only FROM users WHERE username = ?",
+      "SELECT id, username, password, nickname, role, scrim_only, status FROM users WHERE username = ?",
       [uname]
     ) as [any[], any];
     const user = rows[0];
 
     if (!user || !verifyPassword(pw, user.password)) {
       return NextResponse.json({ error: "아이디 또는 비밀번호가 올바르지 않습니다." }, { status: 401 });
+    }
+    if (user.status === "pending") {
+      return NextResponse.json({ error: "승인 대기 중인 계정입니다. 운영진에게 승인을 요청하세요." }, { status: 403 });
     }
 
     const token = createSessionToken({

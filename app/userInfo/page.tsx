@@ -105,6 +105,7 @@ interface LinkedUser {
   username: string;
   nickname: string;
   role: string;
+  status: string;
   createdAt?: string;
 }
 
@@ -144,6 +145,21 @@ export default function UserInfoPage() {
   }
 
   // memberId�� ������ �α��� ������ �ٲ۴�. userId�� null�̸� ���� ����.
+  async function approveUser(userId: number, username: string) {
+    if (!confirm(`"${username}" 계정을 승인하시겠습니까?`)) return;
+    setLinkMsg("");
+    try {
+      const res = await fetch("/api/userinfo/link", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, approve: true }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setLinkMsg(json.error || "승인 실패"); return; }
+      loadUsers();
+    } catch { setLinkMsg("네트워크 오류"); }
+  }
+
   async function changeRole(userId: number, role: string) {
     const res = await fetch("/api/userinfo/link", {
       method: "PUT",
@@ -1197,15 +1213,23 @@ export default function UserInfoPage() {
               <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>아이디</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>닉네임</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>상태</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>권한</th>
                 <th style={{ textAlign: "right", padding: "6px 8px" }}>관리</th>
               </tr>
             </thead>
             <tbody>
               {users.map((u) => (
-                <tr key={u.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                <tr key={u.id} style={{ borderBottom: "1px solid var(--border)", background: u.status === "pending" ? "rgba(231,76,60,0.06)" : undefined }}>
                   <td style={{ padding: "8px", fontWeight: 700 }}>{u.username}</td>
                   <td style={{ padding: "8px" }}>{u.nickname}</td>
+                  <td style={{ padding: "8px" }}>
+                    {u.status === "pending" ? (
+                      <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5, background: "rgba(231,76,60,0.18)", color: "#f1948a" }}>승인 대기</span>
+                    ) : (
+                      <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5, background: "rgba(46,204,113,0.18)", color: "#2ecc71" }}>승인</span>
+                    )}
+                  </td>
                   <td style={{ padding: "8px" }}>
                     {user?.role === "admin" ? (
                       <select value={u.role} onChange={(e) => changeRole(u.id, e.target.value)}
@@ -1219,6 +1243,9 @@ export default function UserInfoPage() {
                     )}
                   </td>
                   <td style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                    {u.status === "pending" && (
+                      <><button className="sync-btn" style={{ fontSize: 11, padding: "3px 10px" }} onClick={() => approveUser(u.id, u.username)}>승인</button>{" "}</>
+                    )}
                     <button className="reset-pw-btn" onClick={() => resetPassword(u.id, u.username)}>비밀번호 초기화</button>
                     {" "}
                     <button className="del-btn small" onClick={() => deleteUser(u.id, u.username)}>삭제</button>

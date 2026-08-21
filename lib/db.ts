@@ -339,6 +339,7 @@ async function createSchema(): Promise<void> {
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'`);
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS status_note VARCHAR(255) NULL`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS scrim_only TINYINT NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'`);
   await seedScrimOnlyAccount(pool);
 
   await pool.query(`
