@@ -17,7 +17,7 @@ export async function GET() {
     await ensureSchema();
     const pool = getPool();
 
-    const [members] = await pool.query("SELECT id, nickname FROM members ORDER BY nickname ASC") as [any[], any];
+    const [members] = await pool.query("SELECT id, nickname FROM members WHERE main_line != 'ARAM' OR main_line IS NULL ORDER BY nickname ASC") as [any[], any];
 
     const [accTiers] = await pool.query(
       `SELECT member_id, is_main, solo_tier, solo_rank, solo_lp FROM accounts ORDER BY is_main DESC, id ASC`

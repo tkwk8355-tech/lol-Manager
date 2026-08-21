@@ -65,12 +65,12 @@ export async function GET(req: NextRequest) {
     const rookiePartyCount = new Map<number, number>();
     const rookieSessionLogs = new Map<number, any[]>();
     for (const r of rookieRows) {
+      const isScrimSync = r.ref_table === "scrim_match";
+      const logMode = isScrimSync ? "scrim" : (r.mode ?? "flex");
+      if (!(["flex", "scrim"].includes(logMode))) continue; // 자유랭크/내전만 표시
       const mid = r.member_id;
       rookiePartyCount.set(mid, (rookiePartyCount.get(mid) ?? 0) + Number(r.party_count));
       if (!rookieSessionLogs.has(mid)) rookieSessionLogs.set(mid, []);
-      const isScrimSync = r.ref_table === "scrim_match";
-      const logMode = isScrimSync ? "scrim" : (r.mode ?? "flex");
-      if (logMode === "aram") continue; // 칼바람은 수습 카운트 미적용, 기존 데이터 필터링
       const rawMembers: string[] = r.with_members
         ? r.with_members.split(",").map((s: string) => s.trim()).filter(Boolean)
         : [];

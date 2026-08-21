@@ -293,7 +293,9 @@ export default function UserInfoPage() {
   });
   const TIER_ORDER = ["CHALLENGER","GRANDMASTER","MASTER","DIAMOND","EMERALD","PLATINUM","GOLD","SILVER","BRONZE","IRON"];
   const positionOrder = (p: string) => p === "운영진" ? 0 : p === "부운영진" ? 1 : 2;
-  const sortedMembers = sortBy === "activityTier"
+  const sortedMembers = specialFilter === "rookie"
+    ? [...filteredMembers].sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""))
+    : sortBy === "activityTier"
     ? [...filteredMembers].sort((a, b) => b.totalPoints - a.totalPoints || a.nickname.localeCompare(b.nickname, "ko"))
     : [...filteredMembers].sort((a, b) => {
         const po = positionOrder(a.position) - positionOrder(b.position);

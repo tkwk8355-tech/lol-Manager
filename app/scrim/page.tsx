@@ -553,7 +553,7 @@ export default function ScrimPage() {
       const champsJson = await champsRes.json();
       if (!statsRes.ok) setError(statsJson.error || "불러오기 실패");
       else setPlayers(statsJson.players);
-      if (membersRes.ok) setMembers(membersJson.members.map((m: any) => ({ id: m.id, nickname: m.nickname })));
+      if (membersRes.ok) setMembers(membersJson.members.filter((m: any) => m.mainLine !== 'ARAM').map((m: any) => ({ id: m.id, nickname: m.nickname })));
       if (champsRes.ok && champsJson.champions)
         setChampions(champsJson.champions.map((c: any) => ({ id: c.name_en, name: c.name_ko })));
     } catch { setError("네트워크 오류"); }

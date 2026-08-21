@@ -54,11 +54,11 @@ export function tierBaseScore(tier?: string | null, lp?: number | null): number 
   }
 }
 
-// 승률 보정: 50% 기준 5%단위 ±2점 (2판 이상일 때만)
+// 승률 보정: 50% 기준 5%단위 ±2점, 상한 ±6 (2판 이상일 때만)
 export function winRateAdjust(wins: number, games: number): number {
   if (games < 2) return 0;
   const steps = Math.floor(((wins / games) * 100 - 50) / 5);
-  return steps * 2;
+  return Math.max(-6, Math.min(6, steps * 2));
 }
 
 // 라인 보정: 주라인=0, 부라인=-5, 그외=-10
@@ -116,8 +116,8 @@ export function computeModeStats(baseScore: number, games: ScrimGameLine[]): Mod
 // MVP 계산 (경기 목록 API와 동일한 로직)
 const MVP_LINE_WEIGHTS: Record<string, [number, number, number, number]> = {
   TOP: [0.35, 0.35, 0.10, 0.20],
-  JG:  [0.35, 0.20, 0.20, 0.25],
-  MID: [0.30, 0.40, 0.15, 0.15],
+  JG:  [0.35, 0.20, 0.25, 0.20],
+  MID: [0.35, 0.35, 0.10, 0.20],
   ADC: [0.35, 0.50, 0.05, 0.10],
   SUP: [0.35, 0.00, 0.45, 0.20],
 };
