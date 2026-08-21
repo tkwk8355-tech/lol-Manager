@@ -3,6 +3,7 @@ import { getPool, ensureSchema } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 import { getAccountByRiotId, getMatchIds, getMatch, RiotApiError } from "@/lib/riot";
 import { givePoints } from "@/lib/points";
+import { pickMvpIds } from "@/lib/scrim";
 
 // POST /api/scrim/match/sync
 // 클랜원 한 명(memberId)의 등록된 계정으로 Riot 전적을 조회해서,
@@ -148,30 +149,36 @@ export async function POST(req: NextRequest) {
               await conn.query(
                 `INSERT INTO scrim_participants
                    (match_id, member_id, team, line, champion, kills, deaths, assists, damage,
-                    item0, item1, item2, item3, item4, item5, item6)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    item0, item1, item2, item3, item4, item5, item6, vision_score)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                   newMatchId, mId, team, line, p.championName,
                   p.kills, p.deaths, p.assists, p.totalDamageDealtToChampions,
                   p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6,
+                  p.visionScore,
                 ]
               );
             }
             await conn.commit();
             addedMatches++;
 
-            // 참가한 클랜원들에게 포인트/기록을 남긴다.
-            // - 일반 클랜원: 30점 지급(같은 세션 한 번만)
-            // - 수습: 포인트 없이 파티 참여 횟수만 +1 (같은 세션 한 번만)
-            // "하루" 기준은 동기화 모달에 입력한 시작 시각부터 24시간짜리 창(startMs~endMs) 하나를
-            // 한 세션으로 본다. 이 창은 자정을 넘어갈 수 있으므로, 날짜(DATE)로 비교하면 자정 전후
-            // 경기가 서로 다른 날로 갈려 중복 지급되는 문제가 있었다. 그래서 경기 시각이 이 창 안에
-            // 있는지(played_at BETWEEN)로 판단한다.
-            // created_at은 넘기지 않아 실제 지급 시각(지금)이 자동으로 찍히도록 한다. 어떤 경기 때문인지는
-            // comment에 경기 시각을 남겨서 구분한다.
+            const matchTimeLabel = kstDateTimeString(info.gameCreation).slice(5, 16);
+
+            // MVP 지급 (+1점)
+            const mvpParticipants = matched.map(({ p, memberId: mId }) => ({
+              memberId: mId, team: p.teamId === 100 ? 1 : 2,
+              line: p.teamPosition || null,
+              kills: p.kills, deaths: p.deaths, assists: p.assists,
+              damage: p.totalDamageDealtToChampions, visionScore: p.visionScore ?? 0,
+            }));
+            const { mvp1, mvp2 } = pickMvpIds(mvpParticipants, winnerTeam);
+            for (const mvpId of [mvp1, mvp2]) {
+              if (!mvpId) continue;
+              await givePoints(pool, mvpId, 1, "scrim_mvp", 0, `내전 MVP (${matchTimeLabel})`, auth.session.userId, newMatchId, 0, null, "scrim_match");
+            }
+
             const windowStart = kstDateTimeString(startMs);
             const windowEnd = kstDateTimeString(endMs);
-            const matchTimeLabel = kstDateTimeString(info.gameCreation).slice(5, 16);
             for (const { memberId: mId } of matched) {
               const isRookie = isRookieByMemberId.get(mId) === true;
               const checkType = isRookie ? "rookie_session" : "scrim";

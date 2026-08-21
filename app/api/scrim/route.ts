@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPool, ensureSchema } from "@/lib/db";
+import { tierBaseScore, winRateAdjust } from "@/lib/scrim";
 
 export const dynamic = "force-dynamic";
 
@@ -40,10 +41,16 @@ export async function GET() {
 
     const [parts] = await pool.query(
       `SELECT p.member_id, p.line, p.champion, p.kills, p.deaths, p.assists,
-              CASE WHEN m.winner_team > 0 AND p.team = m.winner_team THEN 1 ELSE 0 END AS win
+              IF(m.winner_team > 0 AND p.team = m.winner_team, 1, 0) AS win
        FROM scrim_participants p
        JOIN scrim_matches m ON m.id = p.match_id WHERE m.status = 'done'`
     ) as [any[], any];
+
+    // MVP 횟수 (scrim_mvp 타입 point_logs)
+    const [mvpRows] = await pool.query(
+      `SELECT member_id, COUNT(*) AS cnt FROM point_logs WHERE type = 'scrim_mvp' GROUP BY member_id`
+    ) as [any[], any];
+    const mvpCountByMember = new Map<number, number>(mvpRows.map((r: any) => [r.member_id, Number(r.cnt)]));
 
     const LINES = ["TOP","JG","MID","ADC","SUP"];
     const emptyLineStats = () => Object.fromEntries(LINES.map((l) => [l, {games:0,kills:0,deaths:0,assists:0}]));
@@ -88,10 +95,15 @@ export async function GET() {
       ]));
       const kda = s.games > 0 ? ((s.kills + s.assists) / Math.max(s.deaths, 1)).toFixed(2) : null;
       const winRate = s.games > 0 ? Math.round((s.wins / s.games) * 100) : null;
+      const mvpCount = mvpCountByMember.get(m.id) ?? 0;
+      const base = tierBaseScore(t?.tier, t?.lp);
+      const adjust = winRateAdjust(s.wins, s.games);
+      const scrimScore = base + adjust;
       return {
         memberId: m.id, nickname: m.nickname,
         tier: t?.tier ?? null, rank: t?.rank ?? null, lp: t?.lp ?? 0,
         lineCounts, lineStats: s.lineStats, lineChamps, kills: s.kills, deaths: s.deaths, assists: s.assists, games: s.games, wins: s.wins, kda, winRate,
+        mvpCount, scrimScore,
       };
     });
 

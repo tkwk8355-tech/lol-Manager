@@ -137,6 +137,7 @@ async function createSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
   await pool.query(`ALTER TABLE scrim_participants ADD COLUMN IF NOT EXISTS damage INT NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE scrim_participants ADD COLUMN IF NOT EXISTS vision_score INT NOT NULL DEFAULT 0`);
   for (const col of ["item0", "item1", "item2", "item3", "item4", "item5", "item6"]) {
     await pool.query(`ALTER TABLE scrim_participants ADD COLUMN IF NOT EXISTS ${col} INT NOT NULL DEFAULT 0`);
   }

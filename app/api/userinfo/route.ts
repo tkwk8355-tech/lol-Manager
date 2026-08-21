@@ -28,8 +28,8 @@ export async function GET(req: NextRequest) {
     const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const [partyRows] = await pool.query(`
       SELECT pl.member_id,
-             SUM(CASE WHEN pl.type = 'aram' THEN pl.games ELSE 0 END) AS aram_games,
-             SUM(CASE WHEN pl.type IN ('normal','flex','solo') THEN pl.games ELSE 0 END) AS normal_games
+             SUM(IF(pl.type = 'aram', pl.games, 0)) AS aram_games,
+             SUM(IF(pl.type IN ('normal','flex','solo'), pl.games, 0)) AS normal_games
       FROM point_logs pl
       WHERE pl.type IN ('aram','normal','flex','solo') AND DATE(pl.created_at) >= ?
       GROUP BY pl.member_id

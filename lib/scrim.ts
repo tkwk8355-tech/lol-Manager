@@ -38,48 +38,36 @@ export function higherTier(a: TierInfo | null, b: TierInfo | null): TierInfo | n
 }
 
 // 티어 → 기본점수
-// 챌/그마 또는 마스터 200LP+ → 25
-// 마스터 0~199LP → 20
-// 다이아 1~2 → 15, 다이아 3~4 → 10
-// 에메랄드 → 6, 플래티넘 → 4
-// 골드/실버/브론즈/아이언 → 2
-// 언랭 → 0
-export function tierBaseScore(tier?: string | null, rank?: string | null, lp?: number | null): number {
-  const t = (tier || "").toUpperCase();
-  switch (t) {
-    case "CHALLENGER":
+// 언랭/아이언/브론즈=0, 실버=10, 골드=20, 플래=30, 에메=40, 다이아=50
+// 마스터 0~299LP=60, 마스터 300LP+=70, 그마/챌=80
+export function tierBaseScore(tier?: string | null, lp?: number | null): number {
+  switch ((tier ?? "").toUpperCase()) {
+    case "SILVER":      return 10;
+    case "GOLD":        return 20;
+    case "PLATINUM":    return 30;
+    case "EMERALD":     return 40;
+    case "DIAMOND":     return 50;
+    case "MASTER":      return (lp ?? 0) >= 300 ? 70 : 60;
     case "GRANDMASTER":
-      return 25;
-    case "MASTER":
-      return (lp ?? 0) >= 200 ? 25 : 20;
-    case "DIAMOND": {
-      const r = (rank || "").toUpperCase();
-      return r === "I" || r === "II" ? 15 : 10;
-    }
-    case "EMERALD":
-      return 6;
-    case "PLATINUM":
-      return 4;
-    case "GOLD":
-    case "SILVER":
-    case "BRONZE":
-    case "IRON":
-      return 2;
-    default:
-      return 0;
+    case "CHALLENGER":  return 80;
+    default:            return 0;
   }
 }
 
-// 승패 보정 설정
-export const MIN_GAMES_FOR_ADJUST = 2; // 보정 최소 판수
-export const WIN_POINTS = 1; // 승 1판당 +1
-export const LOSS_POINTS = 1; // 패 1판당 -1
-export const ADJUST_CAP = 6; // 보정 상한
+// 승률 보정: 50% 기준 5%단위 ±2점 (2판 이상일 때만)
+export function winRateAdjust(wins: number, games: number): number {
+  if (games < 2) return 0;
+  const steps = Math.floor(((wins / games) * 100 - 50) / 5);
+  return steps * 2;
+}
 
-// 승패 보정 계산: clamp((승-패) × 1, -6, +6)
-export function winLossAdjust(wins: number, losses: number): number {
-  const raw = wins * WIN_POINTS - losses * LOSS_POINTS;
-  return Math.max(-ADJUST_CAP, Math.min(ADJUST_CAP, raw));
+// 라인 보정: 주라인=0, 부라인=-5, 그외=-10
+export function lineAdjust(assignedLine: string | null, mainLine: string | null, subLine: string | null): number {
+  if (!assignedLine || !mainLine) return 0;
+  const a = assignedLine.toUpperCase();
+  if (a === mainLine.toUpperCase()) return 0;
+  if (subLine && a === subLine.toUpperCase()) return -5;
+  return -10;
 }
 
 export interface ScrimGameLine {
@@ -103,38 +91,73 @@ export interface ModeStats {
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
-// 기본점수 + 경기 목록 → 모드 집계 (2판 이상일 때만 보정 적용)
+// 기본점수 + 경기 목록 → 모드 집계
 export function computeModeStats(baseScore: number, games: ScrimGameLine[]): ModeStats {
   let wins = 0;
-  let k = 0;
-  let d = 0;
-  let a = 0;
+  let k = 0, d = 0, a = 0;
   for (const g of games) {
     if (g.win) wins++;
-    k += g.kills;
-    d += g.deaths;
-    a += g.assists;
+    k += g.kills; d += g.deaths; a += g.assists;
   }
   const n = games.length;
-  const losses = n - wins;
   const winrate = n ? (wins / n) * 100 : 0;
   const kda = (k + a) / Math.max(d, 1);
-  const qualified = n >= MIN_GAMES_FOR_ADJUST;
-  const adjust = qualified ? winLossAdjust(wins, losses) : 0;
+  const adjust = winRateAdjust(wins, n);
   return {
-    games: n,
-    wins,
-    losses,
+    games: n, wins, losses: n - wins,
     winrate: Math.round(winrate),
     kda: round1(kda),
     baseScore: round1(baseScore),
-    adjust,
-    qualified,
+    adjust, qualified: n >= 2,
     score: round1(baseScore + adjust),
   };
 }
 
-// 팀 생성기
+// MVP 계산 (경기 목록 API와 동일한 로직)
+const MVP_LINE_WEIGHTS: Record<string, [number, number, number, number]> = {
+  TOP: [0.35, 0.35, 0.10, 0.20],
+  JG:  [0.35, 0.20, 0.20, 0.25],
+  MID: [0.30, 0.40, 0.15, 0.15],
+  ADC: [0.35, 0.50, 0.05, 0.10],
+  SUP: [0.35, 0.00, 0.45, 0.20],
+};
+const MVP_DEFAULT_WEIGHTS: [number, number, number, number] = [0.35, 0.35, 0.10, 0.20];
+
+export interface MvpParticipant {
+  memberId: number;
+  team: number;
+  line: string | null;
+  kills: number;
+  deaths: number;
+  assists: number;
+  damage: number;
+  visionScore: number;
+}
+
+function calcMvpScore(p: MvpParticipant, team: MvpParticipant[], isWin: boolean): number {
+  const [wKda, wDmg, wVis, wKp] = MVP_LINE_WEIGHTS[(p.line ?? "").toUpperCase()] ?? MVP_DEFAULT_WEIGHTS;
+  const kda = (p.kills + p.assists) / Math.max(p.deaths, 1);
+  const maxKda = Math.max(...team.map((x) => (x.kills + x.assists) / Math.max(x.deaths, 1)), 1);
+  const maxDmg = Math.max(...team.map((x) => x.damage), 1);
+  const maxVis = Math.max(...team.map((x) => x.visionScore), 1);
+  const teamKills = Math.max(team.reduce((s, x) => s + x.kills, 0), 1);
+  const kp = (p.kills + p.assists) / teamKills;
+  const score = (kda / maxKda) * wKda + (p.damage / maxDmg) * wDmg + (p.visionScore / maxVis) * wVis + kp * wKp;
+  return score * (isWin ? 1.2 : 1);
+}
+
+// 팀 참가자 목록과 승리팀 번호를 받아 각 팀의 MVP memberId를 반환
+export function pickMvpIds(participants: MvpParticipant[], winnerTeam: number): { mvp1: number | null; mvp2: number | null } {
+  const t1 = participants.filter((p) => p.team === 1);
+  const t2 = participants.filter((p) => p.team === 2);
+  const pick = (team: MvpParticipant[], isWin: boolean) => {
+    if (team.length === 0) return null;
+    return team.reduce((best, p) =>
+      calcMvpScore(p, team, isWin) >= calcMvpScore(best, team, isWin) ? p : best
+    ).memberId;
+  };
+  return { mvp1: pick(t1, winnerTeam === 1), mvp2: pick(t2, winnerTeam === 2) };
+}
 export interface BalancePlayer {
   id: number;
   name: string;

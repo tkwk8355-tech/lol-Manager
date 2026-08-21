@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
     const ph = ids.map(() => "?").join(",");
     const [parts] = await pool.query(
       `SELECT p.match_id, p.member_id, mem.nickname, p.team,
-              p.line, p.champion, p.kills, p.deaths, p.assists, p.damage,
+              p.line, p.champion, p.kills, p.deaths, p.assists, p.damage, p.vision_score,
               p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6
        FROM scrim_participants p
        JOIN members mem ON mem.id = p.member_id
@@ -43,20 +43,56 @@ export async function GET(req: NextRequest) {
       byMatch.get(p.match_id)!.push(p);
     }
 
-    const toPlayer = (p: any) => ({
+    // 라인별 가중치 (KDA, 딜기여도, 시야기여도, KP%)
+    const LINE_WEIGHTS: Record<string, [number, number, number, number]> = {
+      TOP: [0.35, 0.35, 0.10, 0.20],
+      JG:  [0.35, 0.20, 0.20, 0.25],
+      MID: [0.30, 0.40, 0.15, 0.15],
+      ADC: [0.35, 0.50, 0.05, 0.10],
+      SUP: [0.35, 0.00, 0.45, 0.20],
+    };
+    const DEFAULT_WEIGHTS: [number, number, number, number] = [0.35, 0.35, 0.10, 0.20];
+
+    function mvpScore(p: any, teamPlayers: any[]): number {
+      const [wKda, wDmg, wVis, wKp] = LINE_WEIGHTS[(p.line ?? "").toUpperCase()] ?? DEFAULT_WEIGHTS;
+      const kda = (p.kills + p.assists) / Math.max(p.deaths, 1);
+      const maxKda = Math.max(...teamPlayers.map((x) => (x.kills + x.assists) / Math.max(x.deaths, 1)), 1);
+      const maxDmg = Math.max(...teamPlayers.map((x) => x.damage ?? 0), 1);
+      const maxVis = Math.max(...teamPlayers.map((x) => x.vision_score ?? 0), 1);
+      const teamKills = Math.max(teamPlayers.reduce((s, x) => s + x.kills, 0), 1);
+      const kp = (p.kills + p.assists) / teamKills;
+      return (kda / maxKda) * wKda
+           + ((p.damage ?? 0) / maxDmg) * wDmg
+           + ((p.vision_score ?? 0) / maxVis) * wVis
+           + kp * wKp;
+    }
+
+    function pickMvp(team: any[], winnerTeam: number, teamNum: number): number | null {
+      if (team.length === 0) return null;
+      const isWin = winnerTeam === teamNum;
+      const scored = team.map((p) => ({ memberId: p.member_id, score: mvpScore(p, team) * (isWin ? 1.2 : 1) }));
+      return scored.reduce((a, b) => a.score >= b.score ? a : b).memberId;
+    }
+
+    const toPlayer = (p: any, mvpId: number | null) => ({
       memberId: p.member_id, nickname: p.nickname, line: p.line ?? null,
       champion: p.champion ?? null, kills: p.kills, deaths: p.deaths, assists: p.assists,
-      damage: p.damage,
+      damage: p.damage, isMvp: p.member_id === mvpId,
       items: [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6].filter((n: number) => n > 0),
     });
 
     const result = matches.map((m: any) => {
       const ps = byMatch.get(m.id) ?? [];
+      const t1 = ps.filter((p) => p.team === 1);
+      const t2 = ps.filter((p) => p.team === 2);
+      const isDone = m.status === "done";
+      const mvp1 = isDone ? pickMvp(t1, m.winner_team, 1) : null;
+      const mvp2 = isDone ? pickMvp(t2, m.winner_team, 2) : null;
       return {
         id: m.id, mode: m.mode, status: m.status, winnerTeam: m.winner_team,
         note: m.note, playedAt: m.played_at, riotMatchId: m.riot_match_id ?? null,
-        team1: ps.filter((p) => p.team === 1).map(toPlayer),
-        team2: ps.filter((p) => p.team === 2).map(toPlayer),
+        team1: t1.map((p) => toPlayer(p, mvp1)),
+        team2: t2.map((p) => toPlayer(p, mvp2)),
       };
     });
 

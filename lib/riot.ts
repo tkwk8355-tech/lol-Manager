@@ -98,6 +98,7 @@ export interface MatchParticipant {
   riotIdGameName?: string;
   riotIdTagline?: string;
   summonerName?: string;
+  visionScore?: number;
 }
 
 export interface MatchDto {

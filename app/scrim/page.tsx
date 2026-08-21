@@ -31,6 +31,7 @@ interface Player {
   lineStats: Record<string, LineStat>;
   lineChamps: Record<string, LineChamp[]>;
   kills: number; deaths: number; assists: number; games: number; wins: number; kda: string | null; winRate: number | null;
+  mvpCount: number; scrimScore: number;
 }
 interface Member { id: number; nickname: string; }
 interface ChampionInfo { id: string; name: string; }
@@ -46,6 +47,50 @@ interface SlotData {
 }
 
 const emptySlot = (): SlotData => ({ memberId: 0, memberName: "", champion: "", kills: "", deaths: "", assists: "", damage: "" });
+
+// 한글 초성 추출
+const CHOSUNG = ["ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ","ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
+function getChosung(str: string): string {
+  return str.split("").map((ch) => {
+    const code = ch.charCodeAt(0) - 0xAC00;
+    if (code < 0 || code > 11171) return ch;
+    return CHOSUNG[Math.floor(code / 588)];
+  }).join("");
+}
+
+// 검색어 매칭: 앞글자 일치 우선, 포함 차선, 초성 검색 지원
+function matchScore(name: string, q: string): number {
+  const n = name.toLowerCase();
+  const query = q.toLowerCase();
+  if (n === query) return 3;
+  if (n.startsWith(query)) return 2;
+  if (n.includes(query)) return 1;
+  // 초성 검색
+  const chosung = getChosung(name);
+  if (chosung.startsWith(q)) return 2;
+  if (chosung.includes(q)) return 1;
+  return 0;
+}
+
+function filterMembers(members: Member[], q: string): Member[] {
+  if (!q) return members;
+  return members
+    .map((m) => ({ m, score: matchScore(m.nickname, q) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map((x) => x.m)
+    .slice(0, 8);
+}
+
+function filterChampions(champions: ChampionInfo[], q: string): ChampionInfo[] {
+  if (!q) return [];
+  return champions
+    .map((c) => ({ c, score: Math.max(matchScore(c.name, q), matchScore(c.id, q)) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map((x) => x.c)
+    .slice(0, 8);
+}
 
 // 자동완성 훅
 function useAutocomplete<T extends { id: number | string; name: string }>(items: T[]) {
@@ -69,7 +114,7 @@ function MemberInput({ members, value, onChange, nextRef, inputRef, usedIds }: {
   const wrapRef = useRef<HTMLDivElement>(null);
   const available = members.filter((m) => !usedIds?.includes(m.id) || m.id === value.memberId);
   const filtered = query.length > 0
-    ? available.filter((m) => m.nickname.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
+    ? filterMembers(available, query)
     : available.slice(0, 8);
 
   useEffect(() => { setQuery(value.memberName); }, [value.memberName]);
@@ -134,9 +179,7 @@ function ChampionInput({ champions, value, onChange, inputRef, nextRef }: {
 
   useEffect(() => { setQuery(toDisplay(value)); }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const filtered = query.length > 0
-    ? champions.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()) || c.id.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
-    : [];
+  const filtered = query.length > 0 ? filterChampions(champions, query) : [];
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -187,7 +230,7 @@ interface MatchParticipant {
   memberId: number; nickname: string; team: number;
   line: string | null; champion: string | null;
   kills: number; deaths: number; assists: number;
-  damage?: number; items?: number[];
+  damage?: number; items?: number[]; isMvp?: boolean;
 }
 interface MatchRecord {
   id: number; status: string; winnerTeam: number;
@@ -200,7 +243,7 @@ function HistorySearch({ members, onSelect }: { members: Member[]; onSelect: (id
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const filtered = q.length > 0 ? members.filter((m) => m.nickname.toLowerCase().includes(q.toLowerCase())).slice(0, 8) : [];
+  const filtered = q.length > 0 ? filterMembers(members, q) : [];
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -239,6 +282,203 @@ function HistorySearch({ members, onSelect }: { members: Member[]; onSelect: (id
 
 
 
+// 팀 생성 모달
+function BalanceModal({ members, onClose }: { members: Member[]; onClose: () => void }) {
+  const SLOT_COUNT = 10;
+  interface Slot { memberId: number; memberName: string; }
+  const emptySlots = (): Slot[] => Array.from({ length: SLOT_COUNT }, () => ({ memberId: 0, memberName: "" }));
+  const [slots, setSlots] = useState<Slot[]>(emptySlots);
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
+  interface BPlayer { id: number; name: string; score: number; line: string; lineAdjust: number; }
+  interface BResult { team1: BPlayer[]; team2: BPlayer[]; sum1: number; sum2: number; diff: number; }
+  const [result, setResult] = useState<BResult | null>(null);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>(Array(SLOT_COUNT).fill(null));
+
+  const usedIds = slots.map((s) => s.memberId).filter((id) => id > 0);
+
+  async function generate(ids: number[]) {
+    setErr(""); setLoading(true);
+    try {
+      const res = await fetch("/api/scrim/balance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberIds: ids }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setErr(json.error || "팀 생성 실패"); return; }
+      setResult(json);
+    } catch { setErr("네트워크 오류"); }
+    finally { setLoading(false); }
+  }
+
+  const filledIds = slots.filter((s) => s.memberId > 0).map((s) => s.memberId);
+  const canGenerate = filledIds.length === SLOT_COUNT;
+
+  const LINE_LBL: Record<string, string> = { TOP: "탑", JG: "정글", MID: "미드", ADC: "원딜", SUP: "서폿" };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520, width: "95vw" }}>
+        <div className="modal-head">
+          <span>팀 생성</span>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+
+        {!result ? (
+          <>
+            <p style={{ fontSize: 13, color: "var(--muted)", margin: "0 0 12px" }}>
+              참가할 클랜원 10명을 입력하세요. ({filledIds.length}/10)
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+              {slots.map((slot, idx) => {
+                const available = members.filter((m) => !usedIds.includes(m.id) || m.id === slot.memberId);
+                return (
+                  <SlotMemberInput
+                    key={idx}
+                    index={idx}
+                    members={available}
+                    value={slot}
+                    inputRef={(el) => { inputRefs.current[idx] = el; }}
+                    onSelect={(m) => {
+                      setSlots((prev) => prev.map((s, i) => i === idx ? { memberId: m.id, memberName: m.nickname } : s));
+                      // 다음 빈 슬롯으로 포커스
+                      const nextEmpty = slots.findIndex((s, i) => i > idx && s.memberId === 0);
+                      if (nextEmpty !== -1) setTimeout(() => inputRefs.current[nextEmpty]?.focus(), 0);
+                    }}
+                    onClear={() => setSlots((prev) => prev.map((s, i) => i === idx ? { memberId: 0, memberName: "" } : s))}
+                    nextRef={() => {
+                      const nextEmpty = slots.findIndex((s, i) => i > idx && s.memberId === 0);
+                      if (nextEmpty !== -1) inputRefs.current[nextEmpty]?.focus();
+                    }}
+                  />
+                );
+              })}
+            </div>
+            {err && <div className="error" style={{ marginBottom: 10 }}>{err}</div>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn-primary" disabled={!canGenerate || loading} onClick={() => generate(filledIds)}>
+                {loading ? "생성 중..." : "팀 생성"}
+              </button>
+              <button className="btn-secondary" onClick={() => setSlots(emptySlots())}>전체 지우기</button>
+              <button className="btn-secondary" onClick={onClose}>닫기</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+              {([1, 2] as const).map((t) => {
+                const team = t === 1 ? result.team1 : result.team2;
+                const sum = t === 1 ? result.sum1 : result.sum2;
+                const color = t === 1 ? "var(--win-text)" : "var(--loss-text)";
+                return (
+                  <div key={t} style={{ border: `2px solid ${color}`, borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontWeight: 800, fontSize: 14, color, marginBottom: 10 }}>
+                      {t === 1 ? "블루팀" : "레드팀"}
+                      <span style={{ fontSize: 12, fontWeight: 400, color: "var(--muted)", marginLeft: 8 }}>점수합 {sum}</span>
+                    </div>
+                    {["TOP","JG","MID","ADC","SUP"].map((line) => {
+                      const p = team.find((x) => x.line === line);
+                      if (!p) return null;
+                      return (
+                        <div key={line} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, fontSize: 13 }}>
+                          <span style={{ width: 32, color: "var(--muted)", fontSize: 12 }}>{LINE_LBL[line]}</span>
+                          <span style={{ fontWeight: 700 }}>{p.name}</span>
+                          <span style={{ marginLeft: "auto", color: "var(--muted)", fontSize: 12 }}>
+                            {p.score}{p.lineAdjust !== 0 && <span style={{ color: "var(--loss-text)" }}>{p.lineAdjust}</span>}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ textAlign: "center", fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>
+              점수 차이: <strong style={{ color: result.diff <= 5 ? "var(--win-text)" : "var(--loss-text)" }}>{result.diff}</strong>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn-primary" onClick={() => setResult(null)}>다시 선택</button>
+              <button className="btn-secondary" disabled={loading} onClick={() => generate(filledIds)}>다시 생성</button>
+              <button className="btn-secondary" onClick={onClose}>닫기</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// 팀생성 모달용 슬롯 입력
+function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, nextRef }: {
+  index: number;
+  members: Member[];
+  value: { memberId: number; memberName: string };
+  inputRef: (el: HTMLInputElement | null) => void;
+  onSelect: (m: Member) => void;
+  onClear: () => void;
+  nextRef: () => void;
+}) {
+  const [query, setQuery] = useState(value.memberName);
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const filtered = query.length > 0 ? filterMembers(members, query) : members.slice(0, 8);
+
+  useEffect(() => { setQuery(value.memberName); }, [value.memberName]);
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  function select(m: Member) {
+    onSelect(m);
+    setQuery(m.nickname);
+    setOpen(false);
+    nextRef();
+  }
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ fontSize: 12, color: "var(--muted)", width: 20, textAlign: "right", flexShrink: 0 }}>{index + 1}</span>
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); if (!e.target.value) onClear(); }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (filtered.length > 0) select(filtered[0]);
+              else { setOpen(false); nextRef(); }
+            } else if (e.key === "Escape") setOpen(false);
+          }}
+          placeholder={`클랜원 ${index + 1}`}
+          style={{
+            flex: 1, padding: "7px 10px", borderRadius: 7, fontSize: 13,
+            border: `1px solid ${value.memberId ? "var(--accent)" : "var(--border)"}`,
+            background: "var(--card)", color: "var(--text)",
+          }}
+        />
+        {value.memberId > 0 && (
+          <button onClick={() => { onClear(); setQuery(""); }} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
+        )}
+      </div>
+      {open && filtered.length > 0 && (
+        <div className="slot-candidates" style={{ zIndex: 50, left: 26 }}>
+          {filtered.map((m, i) => (
+            <button key={m.id} className={i === 0 ? "first" : ""} onMouseDown={() => select(m)}>{m.nickname}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ScrimPage() {
   const { user, loading: authLoading, openAuthModal } = useAuth();
   const [players, setPlayers] = useState<Player[]>([]);
@@ -259,6 +499,9 @@ export default function ScrimPage() {
 
   // Riot 전적 자동 동기화 모달: 클랜원 + 시작 시각을 입력하면 그로부터 24시간 이내
   // 커스텀 게임을 찾아 경기 목록에 자동으로 채워 넣는다.
+  // 팀 생성 모달
+  const [showBalanceModal, setShowBalanceModal] = useState(false);
+
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [syncMemberId, setSyncMemberId] = useState<number | null>(null);
   const [syncMemberName, setSyncMemberName] = useState("");
@@ -472,19 +715,22 @@ export default function ScrimPage() {
     <div className="scrim">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <h2 className="scrim-title" style={{ margin: 0 }}>내전</h2>
-        {isAdmin && (
           <div style={{ display: "flex", gap: 8 }}>
             <button
               className="btn-secondary"
-              onClick={() => { setShowSyncModal(true); setSyncErr(""); setSyncResult(null); setSyncMemberId(null); setSyncMemberName(""); setSyncStartDate(new Date(Date.now() + 9*60*60*1000).toISOString().slice(0, 10)); setSyncStartTime(""); }}
+              onClick={() => { setShowBalanceModal(true); }}
             >
-              🔄 동기화
+              팀생성
             </button>
-            <button className={showForm ? "btn-secondary" : "btn-primary"} onClick={() => setShowForm((v) => !v)}>
-              {showForm ? "✕ 닫기" : "+ 결과 입력"}
-            </button>
+            {isAdmin && (
+              <button
+                className="btn-secondary"
+                onClick={() => { setShowSyncModal(true); setSyncErr(""); setSyncResult(null); setSyncMemberId(null); setSyncMemberName(""); setSyncStartDate(new Date(Date.now() + 9*60*60*1000).toISOString().slice(0, 10)); setSyncStartTime(""); }}
+              >
+                동기화
+              </button>
+            )}
           </div>
-        )}
       </div>
 
       <div className="scrim-tabs">
@@ -750,7 +996,9 @@ export default function ScrimPage() {
                                     // eslint-disable-next-line @next/next/no-img-element
                                     <img src={lineIconUrl(LINE_MAP[p.line].icon)} alt={p.line} width={12} height={12} className="mc-line-icon" />
                                   )}
-                                  {p.nickname}
+                                  <span style={p.isMvp ? { color: "#FFD700", fontWeight: 800 } : undefined}>
+                                    {p.isMvp && "👑 "}{p.nickname}
+                                  </span>
                                 </span>
                                 <span className="mc-kda-col">
                                   {p.kills}/<em>{p.deaths}</em>/{p.assists}
@@ -798,6 +1046,7 @@ export default function ScrimPage() {
                   <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
                     <th style={{ textAlign: "left", padding: "6px 10px" }}>클랜원</th>
                     <th style={{ textAlign: "center", padding: "6px 10px" }}>솔랭 티어</th>
+                    <th style={{ textAlign: "center", padding: "6px 10px" }}>점수</th>
                     {LINES.map((l) => (
                       <th key={l} style={{ textAlign: "center", padding: "6px 8px" }}>
                         {LINE_MAP[l] ? (
@@ -820,6 +1069,9 @@ export default function ScrimPage() {
                         <span className={`tier-badge tier-${(p.tier ?? "unranked").toLowerCase()}`}>
                           {tierLabel(p.tier, p.rank, p.lp)}
                         </span>
+                      </td>
+                      <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800, color: "var(--accent)" }}>
+                        {p.scrimScore}
                       </td>
                       {LINES.map((l) => (
                         <td key={l} style={{ padding: "8px 8px", textAlign: "center", color: p.lineCounts[l] > 0 ? "var(--text)" : "var(--muted)" }}>
@@ -844,6 +1096,14 @@ export default function ScrimPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* 팀 생성 모달 */}
+      {showBalanceModal && (
+        <BalanceModal
+          members={members}
+          onClose={() => setShowBalanceModal(false)}
+        />
       )}
 
       {/* Riot 전적 자동 동기화 모달 */}
