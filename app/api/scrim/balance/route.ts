@@ -13,10 +13,11 @@ function assignLines(
   team: Player[],
   infoMap: Map<number, LineInfo>
 ): Assigned[] {
-  // originalSubLine이 ALL인 사람 = 진짜 ALL (overrideAll 포함)
-  // fixed = 주/부라인이 지정된 사람
-  const fixedPlayers = team.filter((p) => infoMap.get(p.id)?.originalSubLine?.toUpperCase() !== "ALL");
-  const allPlayers   = team.filter((p) => infoMap.get(p.id)?.originalSubLine?.toUpperCase() === "ALL");
+  // originalSubLine이 ALL이거나 null인 사람 = 어느 라인이든 가능
+  // fixed = 주/부라인이 명시적으로 지정된 사람
+  const isAll = (p: Player) => { const s = infoMap.get(p.id)?.originalSubLine?.toUpperCase(); return !s || s === "ALL"; };
+  const fixedPlayers = team.filter((p) => !isAll(p));
+  const allPlayers   = team.filter((p) => isAll(p));
 
   const assignment = new Map<number, string>();
   const usedLines  = new Set<string>();
@@ -54,7 +55,11 @@ function assignLines(
   const remainingLines = LINES.filter((l) => !takenLines.has(l));
   const toFill = [...unmatched, ...allPlayers];
   for (let i = 0; i < remainingLines.length && i < toFill.length; i++) {
-    result.push({ ...toFill[i], line: remainingLines[i], lineAdjust: -50 });
+    const p = toFill[i];
+    const assignedLine = remainingLines[i];
+    const info = infoMap.get(p.id);
+    const isMainLine = info?.mainLine?.toUpperCase() === assignedLine;
+    result.push({ ...p, line: assignedLine, lineAdjust: isMainLine ? 0 : -50 });
   }
 
   return result;

@@ -896,6 +896,7 @@ export default function UserInfoPage() {
                 <select value={editForm.subLine} onChange={(e) => setEditForm((p) => ({ ...p, subLine: e.target.value }))}
                   style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}>
                   <option value="">미선택</option>
+                  <option value="ALL">ALL</option>
                   <option value="TOP">TOP</option><option value="JG">JG</option>
                   <option value="MID">MID</option><option value="ADC">ADC</option>
                   <option value="SUP">SUP</option>
