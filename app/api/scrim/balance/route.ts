@@ -48,10 +48,19 @@ function assignLines(
   const unmatched = fixedPlayers.filter((p) => !assignment.has(p.id));
   if (unmatched.length > 0) return null;
 
+  function calcLineAdjust(p: Player, assignedLine: string): number {
+    const info = infoMap.get(p.id);
+    const main = info?.mainLine?.toUpperCase();
+    const origSub = info?.originalSubLine?.toUpperCase();
+    if (main === assignedLine) return 0;
+    // 비주라인 배정: 부라인이 ALL(또는 null)이면 -150, 명시적 부라인이면 -300
+    return (!origSub || origSub === "ALL") ? -150 : -300;
+  }
+
   const result: Assigned[] = [];
   for (const p of fixedPlayers) {
     const line = assignment.get(p.id)!;
-    result.push({ ...p, line, lineAdjust: 0 });
+    result.push({ ...p, line, lineAdjust: calcLineAdjust(p, line) });
   }
 
   const takenLines = new Set(assignment.values());
@@ -59,9 +68,7 @@ function assignLines(
   for (let i = 0; i < remainingLines.length && i < allPlayers.length; i++) {
     const p = allPlayers[i];
     const assignedLine = remainingLines[i];
-    const info = infoMap.get(p.id);
-    const isMainLine = info?.mainLine?.toUpperCase() === assignedLine;
-    result.push({ ...p, line: assignedLine, lineAdjust: isMainLine ? 0 : -50 });
+    result.push({ ...p, line: assignedLine, lineAdjust: calcLineAdjust(p, assignedLine) });
   }
 
   return result;

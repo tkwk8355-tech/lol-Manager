@@ -1020,9 +1020,12 @@ export default function ScrimPage() {
                     </div>
                     <div className="mc-teams">
                       {(() => {
+                        const LINE_ORDER = ["TOP","JG","MID","ADC","SUP"];
+                        const sortTeam = (team: MatchParticipant[]) =>
+                          [...team].sort((a, b) => (LINE_ORDER.indexOf(a.line ?? "") + 1 || 99) - (LINE_ORDER.indexOf(b.line ?? "") + 1 || 99));
                         const maxDamage = Math.max(1, ...m.team1.map((p) => p.damage ?? 0), ...m.team2.map((p) => p.damage ?? 0));
                         return ([1, 2] as const).map((t) => {
-                        const team = t === 1 ? m.team1 : m.team2;
+                        const team = sortTeam(t === 1 ? m.team1 : m.team2);
                         const isWin = !isPending && m.winnerTeam === t;
                         return (
                           <div key={t} className={`mc-team ${isPending ? "pending" : isWin ? "win" : "loss"}`}>
