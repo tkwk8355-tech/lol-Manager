@@ -12,7 +12,7 @@ type LineInfo = { mainLine: string | null; subLine: string | null; originalSubLi
 function assignLines(
   team: Player[],
   infoMap: Map<number, LineInfo>
-): Assigned[] {
+): Assigned[] | null {
   // originalSubLine이 ALL이거나 null인 사람 = 어느 라인이든 가능
   // fixed = 주/부라인이 명시적으로 지정된 사람
   const isAll = (p: Player) => { const s = infoMap.get(p.id)?.originalSubLine?.toUpperCase(); return !s || s === "ALL"; };
@@ -44,18 +44,20 @@ function assignLines(
 
   backtrack(0);
 
+  // fixedPlayers 중 배정 못 받은 사람이 있으면 이 팀 조합은 불가
+  const unmatched = fixedPlayers.filter((p) => !assignment.has(p.id));
+  if (unmatched.length > 0) return null;
+
   const result: Assigned[] = [];
   for (const p of fixedPlayers) {
-    const line = assignment.get(p.id);
-    if (line) result.push({ ...p, line, lineAdjust: 0 });
+    const line = assignment.get(p.id)!;
+    result.push({ ...p, line, lineAdjust: 0 });
   }
 
-  const unmatched = fixedPlayers.filter((p) => !assignment.has(p.id));
   const takenLines = new Set(assignment.values());
   const remainingLines = LINES.filter((l) => !takenLines.has(l));
-  const toFill = [...unmatched, ...allPlayers];
-  for (let i = 0; i < remainingLines.length && i < toFill.length; i++) {
-    const p = toFill[i];
+  for (let i = 0; i < remainingLines.length && i < allPlayers.length; i++) {
+    const p = allPlayers[i];
     const assignedLine = remainingLines[i];
     const info = infoMap.get(p.id);
     const isMainLine = info?.mainLine?.toUpperCase() === assignedLine;
@@ -65,8 +67,10 @@ function assignLines(
   return result;
 }
 
-function teamEffectiveSum(team: Player[], infoMap: Map<number, LineInfo>) {
-  return assignLines(team, infoMap).reduce((s, p) => s + p.score + p.lineAdjust, 0);
+function teamEffectiveSum(team: Player[], infoMap: Map<number, LineInfo>): number | null {
+  const assigned = assignLines(team, infoMap);
+  if (!assigned) return null;
+  return assigned.reduce((s, p) => s + p.score + p.lineAdjust, 0);
 }
 
 export async function POST(req: NextRequest) {
@@ -135,6 +139,7 @@ export async function POST(req: NextRequest) {
         }
         const t1 = arr.slice(0, half), t2 = arr.slice(half);
         const s1 = teamEffectiveSum(t1, infoMap), s2 = teamEffectiveSum(t2, infoMap);
+        if (s1 === null || s2 === null) continue; // 라인 배정 불가 조합 스킵
         const diff = Math.abs(s1 - s2);
         if (!best || diff < best.diff) best = { t1, t2, diff };
         if (diff <= tolerance && acceptable.length < 300) acceptable.push({ t1, t2, diff });
@@ -160,6 +165,8 @@ export async function POST(req: NextRequest) {
     const finalInfoMap = buildInfoMap(usedOverride);
     const team1 = assignLines(chosen.t1, finalInfoMap);
     const team2 = assignLines(chosen.t2, finalInfoMap);
+    if (!team1 || !team2)
+      return NextResponse.json({ error: "팀 생성 불가능 (라인 조합을 찾을 수 없습니다)" }, { status: 400 });
     const sum1 = Math.round(team1.reduce((s, p) => s + p.score + p.lineAdjust, 0) * 10) / 10;
     const sum2 = Math.round(team2.reduce((s, p) => s + p.score + p.lineAdjust, 0) * 10) / 10;
 
