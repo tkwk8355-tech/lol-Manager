@@ -14,27 +14,27 @@ export const SCRIM_TIER_KO: Record<ScrimTier, string> = {
 
 // 점수 → 내전 티어
 export function mmrToScrimTier(mmr: number): ScrimTier {
-  if (mmr >= 650) return "MASTER";
-  if (mmr >= 550) return "DIAMOND";
-  if (mmr >= 450) return "EMERALD";
-  if (mmr >= 350) return "PLATINUM";
-  if (mmr >= 250) return "GOLD";
-  if (mmr >= 150) return "SILVER";
+  if (mmr >= 1200) return "MASTER";
+  if (mmr >= 1000) return "DIAMOND";
+  if (mmr >= 800) return "EMERALD";
+  if (mmr >= 600) return "PLATINUM";
+  if (mmr >= 400) return "GOLD";
+  if (mmr >= 200) return "SILVER";
   return "BRONZE";
 }
 
 // 솔랭 티어 → 내전 초기 MMR
 export function soloBadgeToInitialMmr(tier?: string | null): number {
   switch ((tier ?? "").toUpperCase()) {
-    case "SILVER":      return 150;
-    case "GOLD":        return 250;
-    case "PLATINUM":    return 350;
-    case "EMERALD":     return 450;
+    case "SILVER":      return 200;
+    case "GOLD":        return 350;
+    case "PLATINUM":    return 450;
+    case "EMERALD":     return 550;
     case "DIAMOND":
     case "MASTER":
     case "GRANDMASTER":
-    case "CHALLENGER":  return 550;
-    default:            return 0; // 언랭/아이언/브론즈
+    case "CHALLENGER":  return 650;
+    default:            return 100; // 언랭/아이언/브론즈
   }
 }
 

@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
     }));
 
     function runBalance(infoMap: Map<number, LineInfo>) {
-      const half = 5, iterations = 10000, tolerance = 5;
+      const half = 5, iterations = 10000, tolerance = 200;
       let best: { t1: typeof balancePlayers; t2: typeof balancePlayers; diff: number } | null = null;
       const acceptable: { t1: typeof balancePlayers; t2: typeof balancePlayers; diff: number }[] = [];
       for (let i = 0; i < iterations; i++) {

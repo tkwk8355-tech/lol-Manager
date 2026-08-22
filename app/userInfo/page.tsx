@@ -3,6 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { useAuth } from "../components/AuthProvider";
+import { mmrToScrimTier, SCRIM_TIERS, SCRIM_TIER_KO } from "../../lib/scrim";
+
+const SCRIM_TIER_INITIAL: Record<string, number> = {
+  BRONZE: 0, SILVER: 200, GOLD: 400, PLATINUM: 600, EMERALD: 800, DIAMOND: 1000, MASTER: 1200,
+};
 
 // 연동된 게임 계정 정보 (본계정 여부, 게임 수, 마지막 동기화 시각 포함)
 interface Account {
@@ -254,7 +259,7 @@ export default function UserInfoPage() {
     position: string;
     status: string;
     statusNote: string;
-    scrimMmr: string;
+    scrimTier: string;
   }>({
     birthYear: "",
     birthMD: "",
@@ -264,7 +269,7 @@ export default function UserInfoPage() {
     position: "클랜원",
     status: "active",
     statusNote: "",
-    scrimMmr: "",
+    scrimTier: "BRONZE",
   });
 
 // ── 경고 관리 모달 state ──
@@ -380,7 +385,7 @@ export default function UserInfoPage() {
       position: m.position || "클랜원",
       status: m.status || "active",
       statusNote: m.statusNote || "",
-      scrimMmr: String((m as any).scrimMmr ?? 0),
+      scrimTier: mmrToScrimTier((m as any).scrimMmr ?? 0),
     });
   }
 
@@ -401,7 +406,7 @@ export default function UserInfoPage() {
           position: editForm.position || "클랜원",
           status: editForm.status || "active",
           statusNote: editForm.statusNote || null,
-          scrimMmr: editForm.scrimMmr !== "" ? Number(editForm.scrimMmr) : null,
+          scrimMmr: SCRIM_TIER_INITIAL[editForm.scrimTier] ?? 0,
         }),
       });
       const json = await res.json();
@@ -875,10 +880,13 @@ export default function UserInfoPage() {
                 </select>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <label style={{ fontSize: 11, color: "var(--muted)" }}>내전 MMR</label>
-                <input type="number" placeholder="0" value={editForm.scrimMmr}
-                  onChange={(e) => setEditForm((p) => ({ ...p, scrimMmr: e.target.value }))}
-                  style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }} />
+                <label style={{ fontSize: 11, color: "var(--muted)" }}>내전 티어</label>
+                <select value={editForm.scrimTier} onChange={(e) => setEditForm((p) => ({ ...p, scrimTier: e.target.value }))}
+                  style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}>
+                  {SCRIM_TIERS.map((t) => (
+                    <option key={t} value={t}>{SCRIM_TIER_KO[t]} ({SCRIM_TIER_INITIAL[t]})</option>
+                  ))}
+                </select>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <label style={{ fontSize: 11, color: "var(--muted)" }}>주라인</label>
