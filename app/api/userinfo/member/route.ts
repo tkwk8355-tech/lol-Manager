@@ -58,6 +58,12 @@ export async function POST(req: NextRequest) {
          VALUES (?, ?, ?, ?, 1, ?, ?, ?, NOW())`,
         [memberId, name, tag, puuid, soloTier, soloRank, soloLp]
       );
+      const TIER_MMR: Record<string, number> = {
+        SILVER: 100, GOLD: 200, PLATINUM: 300,
+        EMERALD: 400, DIAMOND: 500, MASTER: 500, GRANDMASTER: 500, CHALLENGER: 500,
+      };
+      const initMmr = TIER_MMR[(soloTier ?? "").toUpperCase()] ?? 0;
+      await conn.query(`INSERT IGNORE INTO scrim_ratings (member_id, mmr) VALUES (?, ?)`, [memberId, initMmr]);
       await conn.commit();
       return NextResponse.json({ id: memberId });
     } catch (e: any) {
@@ -82,7 +88,7 @@ export async function PUT(req: NextRequest) {
   const auth = requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
-    const { id, birthYear, birthDate, gender, mainLine, subLine, position, status, statusNote } = await req.json();
+    const { id, birthYear, birthDate, gender, mainLine, subLine, position, status, statusNote, scrimMmr } = await req.json();
     if (!id) return NextResponse.json({ error: "대상이 없습니다." }, { status: 400 });
     console.log('[member PUT]', { id, birthYear, birthDate });
 
@@ -94,6 +100,12 @@ export async function PUT(req: NextRequest) {
       [birthYear || null, birthDate || null, gender || null, mainLine || null, subLine || null,
        position || "클랜원", status || "active", statusNote || null, Number(id)]
     );
+    if (scrimMmr !== undefined && scrimMmr !== null && scrimMmr !== "") {
+      await pool.query(
+        `INSERT INTO scrim_ratings (member_id, mmr) VALUES (?, ?) ON DUPLICATE KEY UPDATE mmr = ?`,
+        [Number(id), Number(scrimMmr), Number(scrimMmr)]
+      );
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error(err);

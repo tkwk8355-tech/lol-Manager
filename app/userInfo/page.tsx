@@ -1,29 +1,31 @@
-"use client"; // Ŭ���� ��� ������(���������� ����).
+"use client";
 
 import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { useAuth } from "../components/AuthProvider";
 
+// 연동된 게임 계정 정보 (본계정 여부, 게임 수, 마지막 동기화 시각 포함)
 interface Account {
   id: number;
   gameName: string;
   tagLine: string;
   isMain: boolean;
   hasPuuid: boolean;
-  gamesTotal: number; // ���� ���� �� ���� ���� �Ǽ�
-  games2w: number; // �ֱ� 2�� �Ǽ�
+  gamesTotal: number; 
+  games2w: number;
   lastSyncedAt: string | null;
 }
+// 솔로랭크 티어 정보 (티어명, 디비전, LP)
 interface TierInfo {
   tier: string;
   rank: string;
   lp: number;
 }
+// 클랜원 전체 정보 (계정, 티어, 활동 포인트, 경고, 수습 로그 포함)
 interface Member {
   id: number;
-  nickname: string;    // ������ game_name
-  displayName: string; // ������ game_name#tagLine
-  memo: string | null;
+  nickname: string;    
+  displayName: string; 
   birthDate: string | null;
   birthYear: number | null;
   gender: string | null;
@@ -45,7 +47,8 @@ interface Member {
   rookieSessionLogs?: { games: number; partyCount: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[];
 }
 
-// Ƽ�� �ѱ��� ��. ������+ �� �ܰ� ����, �����ʹ� LP ǥ��.
+
+// 티어 영문명 → 한국어 변환 맵
 const TIER_KO: Record<string, string> = {
   IRON: "아이언",
   BRONZE: "브론즈",
@@ -56,9 +59,10 @@ const TIER_KO: Record<string, string> = {
   DIAMOND: "다이아몬드",
   MASTER: "마스터",
   GRANDMASTER: "그랜드마스터",
-  CHALLENGER: "쳌린저",
+  CHALLENGER: "챌린저",
 };
 const NO_DIVISION = ["MASTER", "GRANDMASTER", "CHALLENGER"];
+// 티어 표시 문자열 생성 (마스터 이상은 LP 표시, 나머지는 디비전 숫자)
 function tierLabel(t: TierInfo): string {
   const ko = TIER_KO[t.tier] ?? t.tier;
   if (NO_DIVISION.includes(t.tier)) {
@@ -67,10 +71,12 @@ function tierLabel(t: TierInfo): string {
   const div = { I: "1", II: "2", III: "3", IV: "4" }[t.rank] ?? t.rank;
   return `${ko} ${div}`;
 }
-// ���� ���� �˻� ���������� ���� �Ͱ� ���� Ƽ�� ������ �̹���(public/tiers)�� �����Ѵ�.
+
+// 티어 엠블럼 이미지 경로 반환 (/public/tiers/ 폴더 기준)
 function tierEmblemUrl(tier: string) { return `/tiers/emblem-${tier.toLowerCase()}.png`; }
 
-// Ȱ�� ����Ʈ ��� Ȱ�� Ƽ��
+
+// 활동 포인트 구간별 활동 티어 정의 (C/M/D/E/P/G/S/B)
 const ACTIVITY_TIERS = [
   { min: 3300, label: "C", color: "#d9a441" },   // Challenger
   { min: 2800, label: "M", color: "#9d4dc3" },   // Master
@@ -82,6 +88,7 @@ const ACTIVITY_TIERS = [
   { min: 0,    label: "B", color: "#8c5230" },   // Bronze
 ] as const;
 
+// 포인트로 활동 티어 계산 (구간 중 첫 번째 매칭 반환)
 function activityTier(points: number) {
   return ACTIVITY_TIERS.find((t) => points >= t.min) ?? null;
 }
@@ -97,9 +104,12 @@ function syncedTime(iso: string | null) {
   return `${mo}.${da} ${hh}:${mm}`;
 }
 
-const PAGE_SIZES = [10, 20]; // �������� Ŭ���� �� ������
-const LINE_KEYS = ["TOP", "JG", "MID", "ADC", "SUP", "ARAM"] as const; // ALL�� Ŭ���� ���� ���信 ���� ����
+// 페이지당 표시 인원 선택지
+const PAGE_SIZES = [10, 20]; 
+// 라인 필터 키 목록
+const LINE_KEYS = ["TOP", "JG", "MID", "ADC", "SUP", "ARAM"] as const; 
 
+// 로그인 계정 정보 (관리자 탭에서 사용)
 interface LinkedUser {
   id: number;
   username: string;
@@ -109,26 +119,31 @@ interface LinkedUser {
   createdAt?: string;
 }
 
+// 클랜원 목록 페이지 메인 컴포넌트
 export default function UserInfoPage() {
   const { user, isAdmin, loading: authLoading, openAuthModal } = useAuth();
+// 수정 모달 외부 클릭 감지용 ref (mousedown 위치 추적)
   const editModalMouseDownInside = useRef(false);
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // �α��� ���� �� Ŭ���� ���� (����� ���)
+// ── 로그인 계정 관련 state ──
+  
   const [users, setUsers] = useState<LinkedUser[]>([]);
   const [linkMsg, setLinkMsg] = useState("");
 
+// 로그인 계정 목록 불러오기 (관리자 전용)
   async function loadUsers() {
     try {
       const res = await fetch("/api/userinfo/link");
       const json = await res.json();
       if (res.ok) setUsers(json.users);
-    } catch { /* ���� */ }
+    } catch { /* 무시 */ }
   }
 
-  // ��й�ȣ�� �ؾ���� Ŭ������ ����, ����� �ش� �α��� ���� ��й�ȣ�� 1234�� �ʱ�ȭ�Ѵ�.
+  
+// 선택한 유저의 비밀번호를 1234로 초기화
   async function resetPassword(userId: number, username: string) {
     if (!confirm(`"${username}" 의 비밀번호를 1234로 초기화할까요?`)) return;
     setLinkMsg("");
@@ -144,7 +159,8 @@ export default function UserInfoPage() {
     } catch { setLinkMsg("네트워크 오류"); }
   }
 
-  // memberId�� ������ �α��� ������ �ٲ۴�. userId�� null�̸� ���� ����.
+  
+// 대기 중인 계정 승인 처리
   async function approveUser(userId: number, username: string) {
     if (!confirm(`"${username}" 계정을 승인하시겠습니까?`)) return;
     setLinkMsg("");
@@ -160,6 +176,7 @@ export default function UserInfoPage() {
     } catch { setLinkMsg("네트워크 오류"); }
   }
 
+// 유저 권한(role) 변경
   async function changeRole(userId: number, role: string) {
     const res = await fetch("/api/userinfo/link", {
       method: "PUT",
@@ -167,59 +184,66 @@ export default function UserInfoPage() {
       body: JSON.stringify({ userId, role }),
     });
     const json = await res.json();
-    if (!res.ok) { setLinkMsg(json.error || "���� ���� ����"); return; }
+    if (!res.ok) { setLinkMsg(json.error || "역할 변경 실패"); return; }
     loadUsers();
   }
+// 로그인 계정 삭제 (연동된 클랜원 정보도 함께 삭제)
   async function deleteUser(userId: number, username: string) {
     if (!confirm(`"${username}" 계정을 삭제하시겠습니까? 연동된 클랜원 정보도 함께 삭제됩니다.`)) return;
     setLinkMsg("");
     try {
       const res = await fetch(`/api/userinfo/link?id=${userId}`, { method: "DELETE" });
       const json = await res.json();
-      if (!res.ok) { setLinkMsg(json.error || "���� ����"); return; }
+      if (!res.ok) { setLinkMsg(json.error || "삭제 실패"); return; }
       loadUsers();
-    } catch { setLinkMsg("��Ʈ��ũ ����"); }
+    } catch { setLinkMsg("네트워크 오류"); }
   }
 
-  // �˻�
+// ── 검색 / 필터 / 정렬 state ──
+  
   const [searchQuery, setSearchQuery] = useState("");
 
-  // �ֶ��� ���� (�Ϲ� Ŭ���� ��ȸ ȭ�鿡���� ���). ALL�� Ŭ�������� ���� �����̶� ����.
+  
   const [lineFilter, setLineFilter] = useState("");
 
-  // �Ҵ緮 �̴� ����
+  
   const [showInactive, setShowInactive] = useState(false);
 
-  // ����/���� ���� ��
+  
   const [specialFilter, setSpecialFilter] = useState<"" | "rookie" | "leave">("")
   const [sortBy, setSortBy] = useState<"birth" | "activityTier">("birth");
 
+// ── 페이지네이션 state ──
   // 초기화
   const [pageSize, setPageSize] = useState(10);
-  const [page, setPage] = useState(0); // 0-����
+  const [page, setPage] = useState(0); 
 
-  // �� Ŭ���� �Է�
-  // Ŭ���� �߰� ���
+// ── 클랜원 추가 모달 state ──
+  
   const [memberModal, setMemberModal] = useState(false);
   const [memberInput, setMemberInput] = useState("");
   const [memberModalErr, setMemberModalErr] = useState("");
   const [memberModalBusy, setMemberModalBusy] = useState(false);
   
-  // ���� ���ε�
+// ── 엑셀 업로드 state ──
+  
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
 
+// ── 티어 동기화 state ──
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [syncMsg, setSyncMsg] = useState("");
 
-  // ���� �߰� ���
+// ── 계정 추가 모달 state ──
+  
   const [accModal, setAccModal] = useState<{ memberId: number; nickname: string } | null>(null);
   const [accInput, setAccInput] = useState(""); // "닉네임#태그" 형식
   const [accIsMain, setAccIsMain] = useState(false);
   const [accModalErr, setAccModalErr] = useState("");
   const [accModalBusy, setAccModalBusy] = useState(false);
 
-  // Ŭ���� ���� ���
+// ── 클랜원 수정 모달 state ──
+  
   const [editModal, setEditModal] = useState<Member | null>(null);
   const [editForm, setEditForm] = useState<{
     birthYear: string;
@@ -230,23 +254,27 @@ export default function UserInfoPage() {
     position: string;
     status: string;
     statusNote: string;
+    scrimMmr: string;
   }>({
     birthYear: "",
     birthMD: "",
     gender: "",
     mainLine: "",
     subLine: "",
-    position: "�Ϲ�",
+    position: "클랜원",
     status: "active",
     statusNote: "",
+    scrimMmr: "",
   });
 
-  // ��� ��� ����
+// ── 경고 관리 모달 state ──
+  
   const [warnModal, setWarnModal] = useState<{ memberId: number; nickname: string } | null>(null);
   const [warnings, setWarnings] = useState<any[]>([]);
   const [warnForm, setWarnForm] = useState({ type: "운영 방침 위반", reason: "", warnedAt: new Date(Date.now() + 9*60*60*1000).toISOString().slice(0, 10) });
   const [warnLoading, setWarnLoading] = useState(false);
 
+// 경고 모달 열기 + 해당 클랜원의 경고 내역 불러오기
   async function openWarnModal(m: Member) {
     setWarnModal({ memberId: m.id, nickname: m.nickname });
     setWarnLoading(true);
@@ -258,6 +286,7 @@ export default function UserInfoPage() {
     finally { setWarnLoading(false); }
   }
 
+// 경고 추가 후 목록 갱신
   async function addWarning() {
     if (!warnModal) return;
     const res = await fetch("/api/userinfo/warning", {
@@ -274,6 +303,7 @@ export default function UserInfoPage() {
     }
   }
 
+// 경고 삭제 후 목록 갱신
   async function deleteWarning(id: number) {
     if (!confirm("경고를 삭제하시겠습니까?")) return;
     await fetch(`/api/userinfo/warning?id=${id}`, { method: "DELETE" });
@@ -285,20 +315,21 @@ export default function UserInfoPage() {
     }
   }
 
-  // ������ ���� ���
-  // �˻� ���͸� ���� ����
+// ── 필터링 / 정렬 로직 ──
+  
+// 검색어, 라인 필터, 특수 필터(수습/외출/판수미달) 적용
   const filteredMembers = members.filter((m) => {
-    // �Ҵ緮 �̴� ���� (�ֱ� 2�� ���� 0��)
+    
     if (showInactive && (m.aramGames2w >= 4 || m.normalGames2w >= 3)) return false;
-    // ����/���� ����
+    
     if (specialFilter === "rookie" && m.position !== "수습") return false;
     if (specialFilter === "leave" && m.status !== "leave") return false;
-    // �ֶ��� ���� (�Ϲ� Ŭ���� ��ȸ ȭ��)
+    
     if (lineFilter && m.mainLine !== lineFilter) return false;
 
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
-    // Ŭ���� �̸� �Ǵ� ���� �г��� �Ǵ� �������� �˻�
+    
     if (m.nickname.toLowerCase().includes(q)) return true;
     if (m.birthDate && m.birthDate.slice(0, 4).includes(q)) return true;
     return m.accounts.some(
@@ -307,6 +338,7 @@ export default function UserInfoPage() {
         a.tagLine.toLowerCase().includes(q)
     );
   });
+// 정렬: 수습이면 가입일순 / 활동티어면 포인트순 / 기본은 직책→출생연도→이름순
   const TIER_ORDER = ["CHALLENGER","GRANDMASTER","MASTER","DIAMOND","EMERALD","PLATINUM","GOLD","SILVER","BRONZE","IRON"];
   const positionOrder = (p: string) => p === "운영진" ? 0 : p === "부운영진" ? 1 : 2;
   const sortedMembers = specialFilter === "rookie"
@@ -321,6 +353,7 @@ export default function UserInfoPage() {
         if (ay !== by) return ay - by;
         return a.nickname.localeCompare(b.nickname, "ko");
       });
+// 페이지네이션 계산
   const totalPages = Math.max(1, Math.ceil(filteredMembers.length / pageSize));
   const safePage = Math.min(page, totalPages - 1);
   const pagedMembers = sortedMembers.slice(
@@ -328,6 +361,7 @@ export default function UserInfoPage() {
     safePage * pageSize + pageSize
   );
 
+// 수정 모달 열기: 클랜원 데이터로 폼 초기화 + 경고 내역 로드
   async function openEditModal(m: Member) {
     setEditModal(m);
     setWarnings([]);
@@ -339,16 +373,18 @@ export default function UserInfoPage() {
 
     setEditForm({
       birthYear: m.birthYear ? String(m.birthYear) : "",
-      birthMD: m.birthDate ? m.birthDate.slice(5) : "", // YYYY-MM-DD���� MM-DD ����
+      birthMD: m.birthDate ? m.birthDate.slice(5) : "", 
       gender: m.gender ?? "",
       mainLine: m.mainLine || "",
       subLine: m.subLine || "",
-      position: m.position || "�Ϲ�",
+      position: m.position || "클랜원",
       status: m.status || "active",
       statusNote: m.statusNote || "",
+      scrimMmr: String((m as any).scrimMmr ?? 0),
     });
   }
 
+// 수정 내용 저장 (PUT /api/userinfo/member)
   async function saveEdit() {
     if (!editModal) return;
     try {
@@ -362,47 +398,52 @@ export default function UserInfoPage() {
           gender: editForm.gender || null,
           mainLine: editForm.mainLine || null,
           subLine: editForm.subLine || null,
-          position: editForm.position || "�Ϲ�",
+          position: editForm.position || "클랜원",
           status: editForm.status || "active",
           statusNote: editForm.statusNote || null,
+          scrimMmr: editForm.scrimMmr !== "" ? Number(editForm.scrimMmr) : null,
         }),
       });
       const json = await res.json();
-      if (!res.ok) { alert(json.error || "���� ����"); return; }
+      if (!res.ok) { alert(json.error || "저장 실패"); return; }
       setEditModal(null);
       loadMembers();
-    } catch { alert("��Ʈ��ũ ����"); }
+    } catch { alert("네트워크 오류"); }
   }
 
+// 클랜원 목록 불러오기 (GET /api/userinfo)
   async function loadMembers() {
     setLoading(true);
     setError("");
     try {
       const res = await fetch("/api/userinfo");
       const json = await res.json();
-      if (!res.ok) setError(json.error || "�ҷ����� ����");
+      if (!res.ok) setError(json.error || "불러오기 실패");
       else {
-        // �г��� �����ټ� ����
+        
         setMembers(json.members);
       }
     } catch {
-      setError("��Ʈ��ũ ����");
+      setError("네트워크 오류");
     } finally {
       setLoading(false);
     }
   }
 
-  // 클랜원 추가 시 클랜원 이름으로 계정을 찾아야 연동이 가능하다. 계정이 없으면 조회 안 된다.
+// 로그인 상태 변경 시 클랜원 목록 재로드
+  
   useEffect(() => {
     if (authLoading) return;
     if (!user) { setLoading(false); setMembers([]); return; }
     loadMembers();
   }, [user, authLoading]);
 
+// 관리자 로그인 시 로그인 계정 목록 로드
   useEffect(() => {
     if (isAdmin) loadUsers();
   }, [isAdmin]);
 
+// 클랜원 추가 모달 제출: gameName#tagLine 파싱 후 POST
   async function submitMemberModal() {
     const raw = memberInput.trim();
     const hashIdx = raw.lastIndexOf("#");
@@ -421,16 +462,17 @@ export default function UserInfoPage() {
         body: JSON.stringify({ gameName, tagLine }),
       });
       const json = await res.json();
-      if (!res.ok) { setMemberModalErr(json.error || "��� ����"); return; }
+      if (!res.ok) { setMemberModalErr(json.error || "추가 실패"); return; }
       setMemberModal(false);
       setMemberInput("");
       loadMembers();
-    } catch { setMemberModalErr("��Ʈ��ũ ����"); }
+    } catch { setMemberModalErr("네트워크 오류"); }
     finally { setMemberModalBusy(false); }
   }
 
   async function addMember(e: React.FormEvent) { e.preventDefault(); }
 
+// 계정 추가 모달 제출 (독립 모달에서 사용)
   async function submitAccModal() {
     if (!accModal) return;
     const raw = accInput.trim();
@@ -454,15 +496,16 @@ export default function UserInfoPage() {
         body: JSON.stringify({ memberId: accModal.memberId, gameName, tagLine, isMain: accIsMain }),
       });
       const json = await res.json();
-      if (!res.ok) { setAccModalErr(json.error || "���� �߰� ����"); return; }
+      if (!res.ok) { setAccModalErr(json.error || "계정 추가 실패"); return; }
       setAccModal(null);
       setAccInput("");
       setAccIsMain(false);
       loadMembers();
-    } catch { setAccModalErr("��Ʈ��ũ ����"); }
+    } catch { setAccModalErr("네트워크 오류"); }
     finally { setAccModalBusy(false); }
   }
 
+// 수정 모달 내 계정 추가 제출 (수정 모달에서 직접 계정 추가)
   async function submitAccFromEditModal() {
     if (!editModal) return;
     const raw = accInput.trim();
@@ -482,17 +525,18 @@ export default function UserInfoPage() {
         body: JSON.stringify({ memberId: editModal.id, gameName, tagLine, isMain: accIsMain }),
       });
       const json = await res.json();
-      if (!res.ok) { setAccModalErr(json.error || "���� �߰� ����"); return; }
+      if (!res.ok) { setAccModalErr(json.error || "계정 추가 실패"); return; }
       setAccInput("");
       setAccIsMain(false);
       const updated = await fetch("/api/userinfo").then((r) => r.json());
       const fresh = (updated.members as Member[]).find((m) => m.id === editModal.id);
       if (fresh) setEditModal(fresh);
       loadMembers();
-    } catch { setAccModalErr("��Ʈ��ũ ����"); }
+    } catch { setAccModalErr("네트워크 오류"); }
     finally { setAccModalBusy(false); }
   }
 
+// 솔로랭크 티어 동기화 (단일 또는 전체)
   async function syncTier(memberId: number | null) {
     setSyncingId(memberId ?? 0);
     setSyncMsg("");
@@ -516,6 +560,7 @@ export default function UserInfoPage() {
     finally { setSyncingId(null); }
   }
 
+// 클랜원 또는 계정 삭제
   async function remove(kind: "member" | "account", id: number) {
     if (!confirm("삭제하시겠습니까?")) return;
     console.log("[remove] 삭제 요청:", { kind, id });
@@ -525,34 +570,38 @@ export default function UserInfoPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind, id }),
       });
-      console.log("[remove] ���� ����:", res.status);
+      console.log("[remove] 응답:", res.status);
       if (!res.ok) {
         const json = await res.json();
-        console.error("[remove] ���� ����:", json);
-        alert(json.error || "���� ����");
+        console.error("[remove] 오류:", json);
+        alert(json.error || "삭제 실패");
         return;
       }
-      console.log("[remove] ���� ����, ��� ���ΰ�ħ");
+      console.log("[remove] 삭제 완료, 목록 새로고침");
       loadMembers();
     } catch (err) {
-      console.error("[remove] ��Ʈ��ũ ����:", err);
-      alert("��Ʈ��ũ ����");
+      console.error("[remove] 네트워크 오류:", err);
+      alert("네트워크 오류");
     }
   }
 
 
+// ── 탭 state (클랜원 / 로그인계정 / 파티내역) ──
   const [tab, setTab] = useState<"members" | "accounts" | "party-history">("members");
 
+// 관리자는 기본 탭을 로그인계정 탭으로 설정
   useEffect(() => {
     if (user?.role === "admin") setTab("accounts");
   }, [user?.role]);
 
-  // ��Ƽ ���� (���)
+// ── 파티 내역 state ──
+  
   const [historyData, setHistoryData] = useState<{
     parties: { id:number; mode:string; note:string|null; status:string; startAt:string|null; participants:string[]; pastParticipants:string[] }[];
   } | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+// 펑한 파티 내역 불러오기
   async function loadHistory() {
     setHistoryLoading(true);
     try {
@@ -567,7 +616,7 @@ export default function UserInfoPage() {
     if (isAdmin && tab === "party-history") loadHistory();
   }, [isAdmin, tab]);
 
-  // ����Ʈ ���� ����
+ 
   const [rookieLogModal, setRookieLogModal] = useState<{ memberId: number; nickname: string; logs: { games: number; partyCount: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[] } | null>(null);
   const [rookieEventForm, setRookieEventForm] = useState("");
   const [rookieEventOpen, setRookieEventOpen] = useState(false);
@@ -600,7 +649,7 @@ export default function UserInfoPage() {
 
   const MODE_KO: Record<string,string> = { aram:"칼바람", normal:"일반협곡", flex:"자유랭크", solo:"솔로랭크", scrim:"내전", event:"이벤트" };
 
-  // ���� ��� �ٿ�ε�
+  
   function downloadExcel() {
     const rows = members.map((m) => ({
       "닉네임": m.nickname,
@@ -634,7 +683,7 @@ export default function UserInfoPage() {
     XLSX.writeFile(wb, "클랜원_업로드_양식.xlsx");
   }
 
-  // ���� ���� ���ε� �ڵ鷯
+  
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -674,7 +723,7 @@ export default function UserInfoPage() {
         const subLine = String(row[4] || "").trim().toUpperCase() || undefined;
         const accounts: Array<{ gameName: string; tagLine: string; isMain: boolean }> = [];
 
-        // F��(index 5)���� 3���� ��� ���� ������ �Ľ�
+        
         for (let j = 5; j < row.length; j += 3) {
           const gameName = String(row[j] || "").trim();
           const tagLine = String(row[j + 1] || "").trim();
@@ -693,11 +742,11 @@ export default function UserInfoPage() {
       }
 
       if (members.length === 0) {
-        setUploadMsg("���Ͽ� ��ȿ�� �����Ͱ� �����ϴ�.");
+        setUploadMsg("유효한 데이터가 없습니다.");
         return;
       }
 
-      // ������ ����
+      
       const res = await fetch("/api/userinfo/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -706,17 +755,17 @@ export default function UserInfoPage() {
 
       const json = await res.json();
       if (!res.ok) {
-        setUploadMsg(json.error || "���ε� ����");
+        setUploadMsg(json.error || "업로드 실패");
       } else {
-        let msg = `�Ϸ�: Ŭ���� ${json.addedMembers}��, ���� ${json.addedAccounts}�� �߰�`;
+        let msg = `완료: 클랜원 ${json.addedMembers}명, 계정 ${json.addedAccounts}개 추가`;
         if (json.errors && json.errors.length > 0) {
-          msg += ` �� ���� ${json.errors.length}��: ${json.errors.slice(0, 3).join(", ")}`;
+          msg += ` / 오류 ${json.errors.length}건: ${json.errors.slice(0, 3).join(", ")}`;
         }
         setUploadMsg(msg);
         loadMembers();
       }
     } catch (err: any) {
-      setUploadMsg(`: ${err.message}`);
+      setUploadMsg(`오류: ${err.message}`);
     } finally {
       setUploading(false);
       e.target.value = "";
@@ -824,6 +873,12 @@ export default function UserInfoPage() {
                   <option value="active">활동</option>
                   <option value="leave">외출/예외</option>
                 </select>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label style={{ fontSize: 11, color: "var(--muted)" }}>내전 MMR</label>
+                <input type="number" placeholder="0" value={editForm.scrimMmr}
+                  onChange={(e) => setEditForm((p) => ({ ...p, scrimMmr: e.target.value }))}
+                  style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }} />
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <label style={{ fontSize: 11, color: "var(--muted)" }}>주라인</label>

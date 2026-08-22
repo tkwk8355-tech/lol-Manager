@@ -17,9 +17,11 @@ export async function GET(req: NextRequest) {
              m.total_points, m.created_at AS member_created_at,
              a.id AS account_id, a.game_name, a.tag_line, a.is_main,
              a.puuid, a.games_total, a.games_2w, a.last_synced_at,
-             a.solo_tier, a.solo_rank, a.solo_lp
+             a.solo_tier, a.solo_rank, a.solo_lp,
+             COALESCE(sr.mmr, 0) AS scrim_mmr
       FROM members m
       LEFT JOIN accounts a ON a.member_id = m.id
+      LEFT JOIN scrim_ratings sr ON sr.member_id = m.id
       ORDER BY m.id ASC, a.is_main DESC, a.id ASC
     `) as [any[], any];
 
@@ -142,6 +144,7 @@ export async function GET(req: NextRequest) {
           statusNote: r.status_note ?? null,
           totalPoints: r.total_points ?? 0,
           createdAt: r.member_created_at ?? null,
+          scrimMmr: r.scrim_mmr ?? 0,
           warningCount: 0,
           rookiePartyCount: 0,
           accounts: [],
