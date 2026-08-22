@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool, ensureSchema } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
-import { givePoints } from "@/lib/points";
 import { pickMvpIds, MvpParticipant } from "@/lib/scrim";
 
 // POST /api/scrim/match/resync
-// 기존 동기화 경기 중 MVP 포인트(scrim_mvp)가 아직 지급되지 않은 경기에 소급 지급
+// 완료된 경기 중 is_mvp 미설정 경기에 MVP 플래그 및 MMR 소급 적용
 export async function POST(req: NextRequest) {
   const auth = requireAdmin(req);
   if (!auth.ok) return auth.response;
@@ -14,14 +13,14 @@ export async function POST(req: NextRequest) {
     await ensureSchema();
     const pool = getPool();
 
-    // MVP 포인트가 없는 완료된 경기만 대상
+    // is_mvp 미설정 경기만 대상
     const [matches] = await pool.query(
       `SELECT sm.id, sm.winner_team, sm.played_at
        FROM scrim_matches sm
        WHERE sm.status = 'done'
          AND NOT EXISTS (
-           SELECT 1 FROM point_logs pl
-           WHERE pl.ref_id = sm.id AND pl.ref_table = 'scrim_match' AND pl.type = 'scrim_mvp'
+           SELECT 1 FROM scrim_participants sp
+           WHERE sp.match_id = sm.id AND sp.is_mvp = 1
          )`
     ) as [any[], any];
 
@@ -32,7 +31,7 @@ export async function POST(req: NextRequest) {
     const matchIds = matches.map((m: any) => m.id);
     const ph = matchIds.map(() => "?").join(",");
     const [parts] = await pool.query(
-      `SELECT match_id, member_id, team, line, kills, deaths, assists, damage, vision_score
+      `SELECT match_id, member_id, team, line, kills, deaths, assists, damage, cs
        FROM scrim_participants WHERE match_id IN (${ph})`,
       matchIds
     ) as [any[], any];
@@ -51,15 +50,37 @@ export async function POST(req: NextRequest) {
       const participants: MvpParticipant[] = ps.map((p: any) => ({
         memberId: p.member_id, team: p.team, line: p.line,
         kills: p.kills, deaths: p.deaths, assists: p.assists,
-        damage: p.damage, visionScore: p.vision_score ?? 0,
+        damage: p.damage, cs: p.cs ?? 0,
       }));
 
       const { mvp1, mvp2 } = pickMvpIds(participants, m.winner_team);
-      const matchTimeLabel = String(m.played_at).slice(5, 16);
 
+      // is_mvp 플래그 업데이트
       for (const mvpId of [mvp1, mvp2]) {
         if (!mvpId) continue;
-        await givePoints(pool, mvpId, 1, "scrim_mvp", 0, `내전 MVP (${matchTimeLabel})`, auth.session.userId, m.id, 0, null, "scrim_match");
+        await pool.query(
+          `UPDATE scrim_participants SET is_mvp = 1 WHERE match_id = ? AND member_id = ?`,
+          [m.id, mvpId]
+        );
+      }
+
+      // MMR 업데이트
+      for (const p of participants) {
+        const isWin = p.team === m.winner_team;
+        const isMvp = p.memberId === mvp1 || p.memberId === mvp2;
+        const delta = isWin ? (isMvp ? 20 : 10) : (isMvp ? 0 : -10);
+        await pool.query(
+          `UPDATE scrim_ratings SET mmr = GREATEST(0, mmr + ?), updated_at = NOW() WHERE member_id = ?`,
+          [delta, p.memberId]
+        );
+        const [ratingRows] = await pool.query(
+          `SELECT mmr FROM scrim_ratings WHERE member_id = ?`, [p.memberId]
+        ) as [any[], any];
+        const mmrAfter = ratingRows[0]?.mmr ?? 0;
+        await pool.query(
+          `INSERT IGNORE INTO scrim_mmr_logs (member_id, match_id, delta, mmr_after) VALUES (?, ?, ?, ?)`,
+          [p.memberId, m.id, delta, mmrAfter]
+        );
       }
       updated++;
     }

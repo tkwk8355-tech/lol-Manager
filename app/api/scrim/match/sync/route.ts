@@ -149,44 +149,67 @@ export async function POST(req: NextRequest) {
               await conn.query(
                 `INSERT INTO scrim_participants
                    (match_id, member_id, team, line, champion, kills, deaths, assists, damage,
-                    item0, item1, item2, item3, item4, item5, item6, vision_score)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    item0, item1, item2, item3, item4, item5, item6, vision_score, cs)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                   newMatchId, mId, team, line, p.championName,
                   p.kills, p.deaths, p.assists, p.totalDamageDealtToChampions,
                   p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6,
                   p.visionScore,
+                  (p.totalMinionsKilled ?? 0) + (p.neutralMinionsKilled ?? 0),
                 ]
               );
             }
-            await conn.commit();
-            addedMatches++;
-
-            const matchTimeLabel = kstDateTimeString(info.gameCreation).slice(5, 16);
-
-            // MVP 지급 (+1점)
+            // MVP 계산
             const mvpParticipants = matched.map(({ p, memberId: mId }) => ({
               memberId: mId, team: p.teamId === 100 ? 1 : 2,
               line: p.teamPosition || null,
               kills: p.kills, deaths: p.deaths, assists: p.assists,
-              damage: p.totalDamageDealtToChampions, visionScore: p.visionScore ?? 0,
+              damage: p.totalDamageDealtToChampions,
+              cs: (p.totalMinionsKilled ?? 0) + (p.neutralMinionsKilled ?? 0),
             }));
             const { mvp1, mvp2 } = pickMvpIds(mvpParticipants, winnerTeam);
+
+            // MVP is_mvp 플래그 업데이트
             for (const mvpId of [mvp1, mvp2]) {
               if (!mvpId) continue;
-              await givePoints(pool, mvpId, 1, "scrim_mvp", 0, `내전 MVP (${matchTimeLabel})`, auth.session.userId, newMatchId, 0, null, "scrim_match");
+              await conn.query(
+                `UPDATE scrim_participants SET is_mvp = 1 WHERE match_id = ? AND member_id = ?`,
+                [newMatchId, mvpId]
+              );
             }
+
+            // MMR 업데이트: 승리팀 +10 (MVP +20), 패배팀 -10 (MVP 0)
+            for (const { p, memberId: mId } of matched) {
+              const isWin = p.win;
+              const isMvp = mId === mvp1 || mId === mvp2;
+              const delta = isWin ? (isMvp ? 20 : 10) : (isMvp ? 0 : -10);
+              await conn.query(
+                `UPDATE scrim_ratings SET mmr = GREATEST(0, mmr + ?), updated_at = NOW() WHERE member_id = ?`,
+                [delta, mId]
+              );
+              const [ratingRows] = await conn.query(
+                `SELECT mmr FROM scrim_ratings WHERE member_id = ?`, [mId]
+              ) as [any[], any];
+              const mmrAfter = ratingRows[0]?.mmr ?? 0;
+              await conn.query(
+                `INSERT INTO scrim_mmr_logs (member_id, match_id, delta, mmr_after) VALUES (?, ?, ?, ?)`,
+                [mId, newMatchId, delta, mmrAfter]
+              );
+            }
+
+            await conn.commit();
+            addedMatches++;
 
             const windowStart = kstDateTimeString(startMs);
             const windowEnd = kstDateTimeString(endMs);
+            const startLabel = kstDateTimeString(startMs).slice(5, 11); // MM-DD
             for (const { memberId: mId } of matched) {
               const isRookie = isRookieByMemberId.get(mId) === true;
               const checkType = isRookie ? "rookie_session" : "scrim";
               const [alreadyRows] = await pool.query(
-                `SELECT pl.id FROM point_logs pl
-                 JOIN scrim_matches sm ON sm.id = pl.ref_id AND pl.ref_table = 'scrim_match'
-                 WHERE pl.member_id = ? AND pl.type = ? AND sm.played_at >= ? AND sm.played_at < ?`,
-                [mId, checkType, windowStart, windowEnd]
+                `SELECT id FROM point_logs WHERE member_id = ? AND type = ? AND ref_id = ? AND ref_table = 'scrim_match'`,
+                [mId, checkType, newMatchId]
               ) as [any[], any];
               if (alreadyRows.length > 0) continue;
 
@@ -195,9 +218,30 @@ export async function POST(req: NextRequest) {
                 .map(x => nicknameByMemberId.get(x.memberId)!)
                 .filter(Boolean).join(",") || null;
               if (isRookie) {
-                await givePoints(pool, mId, 0, "rookie_session", 1, `내전참여 (${matchTimeLabel})`, auth.session.userId, newMatchId, 1, null, "scrim_match", withMembers);
+                // 내전 3판당 카운트 1개: 동기화 윈도우 내 누적 판수 기준
+                // 윈도우 내 이미 rookie_session 로그 있으면 스킵 (1회만 찍음)
+                const [scrimCountRows] = await pool.query(
+                  `SELECT COUNT(*) AS cnt FROM point_logs pl
+                   JOIN scrim_matches sm ON sm.id = pl.ref_id AND pl.ref_table = 'scrim_match'
+                   WHERE pl.member_id = ? AND pl.type = 'rookie_session'
+                   AND sm.played_at >= ? AND sm.played_at < ?`,
+                  [mId, windowStart, windowEnd]
+                ) as [any[], any];
+                const prevCount = Number(scrimCountRows[0]?.cnt ?? 0);
+                if (prevCount > 0) continue; // 윈도우 내 이미 찍혔으면 스킵
+                const partyCount = (prevCount + 1) % 3 === 0 ? 1 : 0;
+                await givePoints(pool, mId, 0, "rookie_session", 1, `내전 참여 (${startLabel})`, auth.session.userId, newMatchId, partyCount, null, "scrim_match", withMembers);
               } else {
-                await givePoints(pool, mId, 30, "scrim", 1, `내전 참여 (${matchTimeLabel})`, auth.session.userId, newMatchId, 0, null, "scrim_match", withMembers);
+                // 동기화 윈도우 내 이미 scrim 포인트 받았으면 스킵
+                const [dayDupRows] = await pool.query(
+                  `SELECT pl.id FROM point_logs pl
+                   JOIN scrim_matches sm ON sm.id = pl.ref_id AND pl.ref_table = 'scrim_match'
+                   WHERE pl.member_id = ? AND pl.type = 'scrim'
+                   AND sm.played_at >= ? AND sm.played_at < ?`,
+                  [mId, windowStart, windowEnd]
+                ) as [any[], any];
+                if (dayDupRows.length > 0) continue;
+                await givePoints(pool, mId, 30, "scrim", 1, `내전 참여 (${startLabel})`, auth.session.userId, newMatchId, 0, null, "scrim_match", withMembers);
               }
             }
           } catch (err) {

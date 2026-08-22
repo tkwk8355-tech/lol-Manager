@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     const [parts] = await pool.query(
       `SELECT p.match_id, p.member_id, mem.nickname, p.team,
               p.line, p.champion, p.kills, p.deaths, p.assists, p.damage, p.vision_score,
-              p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6
+              p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6, p.is_mvp
        FROM scrim_participants p
        JOIN members mem ON mem.id = p.member_id
        WHERE p.match_id IN (${ph})`,
@@ -43,41 +43,10 @@ export async function GET(req: NextRequest) {
       byMatch.get(p.match_id)!.push(p);
     }
 
-    // 라인별 가중치 (KDA, 딜기여도, 시야기여도, KP%)
-    const LINE_WEIGHTS: Record<string, [number, number, number, number]> = {
-      TOP: [0.35, 0.35, 0.10, 0.20],
-      JG:  [0.35, 0.20, 0.20, 0.25],
-      MID: [0.30, 0.40, 0.15, 0.15],
-      ADC: [0.35, 0.50, 0.05, 0.10],
-      SUP: [0.35, 0.00, 0.45, 0.20],
-    };
-    const DEFAULT_WEIGHTS: [number, number, number, number] = [0.35, 0.35, 0.10, 0.20];
-
-    function mvpScore(p: any, teamPlayers: any[]): number {
-      const [wKda, wDmg, wVis, wKp] = LINE_WEIGHTS[(p.line ?? "").toUpperCase()] ?? DEFAULT_WEIGHTS;
-      const kda = (p.kills + p.assists) / Math.max(p.deaths, 1);
-      const maxKda = Math.max(...teamPlayers.map((x) => (x.kills + x.assists) / Math.max(x.deaths, 1)), 1);
-      const maxDmg = Math.max(...teamPlayers.map((x) => x.damage ?? 0), 1);
-      const maxVis = Math.max(...teamPlayers.map((x) => x.vision_score ?? 0), 1);
-      const teamKills = Math.max(teamPlayers.reduce((s, x) => s + x.kills, 0), 1);
-      const kp = (p.kills + p.assists) / teamKills;
-      return (kda / maxKda) * wKda
-           + ((p.damage ?? 0) / maxDmg) * wDmg
-           + ((p.vision_score ?? 0) / maxVis) * wVis
-           + kp * wKp;
-    }
-
-    function pickMvp(team: any[], winnerTeam: number, teamNum: number): number | null {
-      if (team.length === 0) return null;
-      const isWin = winnerTeam === teamNum;
-      const scored = team.map((p) => ({ memberId: p.member_id, score: mvpScore(p, team) * (isWin ? 1.2 : 1) }));
-      return scored.reduce((a, b) => a.score >= b.score ? a : b).memberId;
-    }
-
-    const toPlayer = (p: any, mvpId: number | null) => ({
+    const toPlayer = (p: any) => ({
       memberId: p.member_id, nickname: p.nickname, line: p.line ?? null,
       champion: p.champion ?? null, kills: p.kills, deaths: p.deaths, assists: p.assists,
-      damage: p.damage, isMvp: p.member_id === mvpId,
+      damage: p.damage, isMvp: p.is_mvp === 1,
       items: [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6].filter((n: number) => n > 0),
     });
 
@@ -85,14 +54,11 @@ export async function GET(req: NextRequest) {
       const ps = byMatch.get(m.id) ?? [];
       const t1 = ps.filter((p) => p.team === 1);
       const t2 = ps.filter((p) => p.team === 2);
-      const isDone = m.status === "done";
-      const mvp1 = isDone ? pickMvp(t1, m.winner_team, 1) : null;
-      const mvp2 = isDone ? pickMvp(t2, m.winner_team, 2) : null;
       return {
         id: m.id, mode: m.mode, status: m.status, winnerTeam: m.winner_team,
         note: m.note, playedAt: m.played_at, riotMatchId: m.riot_match_id ?? null,
-        team1: t1.map((p) => toPlayer(p, mvp1)),
-        team2: t2.map((p) => toPlayer(p, mvp2)),
+        team1: t1.map((p) => toPlayer(p)),
+        team2: t2.map((p) => toPlayer(p)),
       };
     });
 
@@ -219,19 +185,44 @@ export async function PATCH(req: NextRequest) {
       const matchTimeLabel = playedAt.slice(5, 16);
       const matchNote = matchRows[0]?.note ? ` ${matchRows[0].note}` : "";
       const [partRows] = await pool.query(
-        "SELECT member_id FROM scrim_participants WHERE match_id = ?", [id]
+        "SELECT sp.member_id, m.position FROM scrim_participants sp JOIN members m ON m.id = sp.member_id WHERE sp.match_id = ?", [id]
       ) as [any[], any];
+      const [memberNickRows] = await pool.query("SELECT id, nickname FROM members") as [any[], any];
+      const nicknameById = new Map<number, string>(memberNickRows.map((m: any) => [m.id, m.nickname]));
+      const allMemberIds = partRows.map((p: any) => p.member_id);
       for (const p of partRows) {
+        const isRookie = p.position === "수습";
         const playedDate = playedAt.slice(0, 10);
+        const checkType = isRookie ? "rookie_session" : "scrim";
         const [alreadyRows] = await pool.query(
           `SELECT pl.id FROM point_logs pl
            JOIN scrim_matches sm ON sm.id = pl.ref_id AND pl.ref_table = 'scrim_match'
-           WHERE pl.member_id = ? AND pl.type = 'scrim'
+           WHERE pl.member_id = ? AND pl.type = ?
            AND DATE(sm.played_at) = ?`,
-          [p.member_id, playedDate]
+          [p.member_id, checkType, playedDate]
         ) as [any[], any];
         if (alreadyRows.length > 0) continue;
-        await givePoints(pool, p.member_id, 30, "scrim", 1, `내전 참여 (${matchTimeLabel})${matchNote}`, auth.session.userId, id, 0, null, "scrim_match");
+        const withMembers = allMemberIds
+          .filter((mid: number) => mid !== p.member_id)
+          .map((mid: number) => nicknameById.get(mid))
+          .filter(Boolean).join(",") || null;
+        if (isRookie) {
+          // 내전 3판당 카운트 1개: 같은 날짜(played_at) 내 누적 판수 기준
+          const dayStart = playedDate + " 00:00:00";
+          const dayEnd = playedDate + " 23:59:59";
+          const [scrimCountRows] = await pool.query(
+            `SELECT COUNT(*) AS cnt FROM point_logs pl
+             JOIN scrim_matches sm ON sm.id = pl.ref_id AND pl.ref_table = 'scrim_match'
+             WHERE pl.member_id = ? AND pl.type = 'rookie_session'
+             AND sm.played_at >= ? AND sm.played_at <= ?`,
+            [p.member_id, dayStart, dayEnd]
+          ) as [any[], any];
+          const prevCount = Number(scrimCountRows[0]?.cnt ?? 0);
+          const partyCount = (prevCount + 1) % 3 === 0 ? 1 : 0;
+          await givePoints(pool, p.member_id, 0, "rookie_session", 1, `내전참여 (${matchTimeLabel})${matchNote}`, auth.session.userId, id, partyCount, null, "scrim_match", withMembers);
+        } else {
+          await givePoints(pool, p.member_id, 30, "scrim", 1, `내전 참여 (${matchTimeLabel})${matchNote}`, auth.session.userId, id, 0, null, "scrim_match", withMembers);
+        }
       }
 
       return NextResponse.json({ ok: true });
@@ -255,8 +246,39 @@ export async function DELETE(req: NextRequest) {
     if (!id) return NextResponse.json({ error: "id가 필요합니다." }, { status: 400 });
     await ensureSchema();
     const pool = getPool();
-    await pool.query("DELETE FROM scrim_matches WHERE id = ?", [id]);
-    return NextResponse.json({ ok: true });
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      // MMR 로그가 있으면 delta 역산해서 복구
+      const [logs] = await conn.query(
+        `SELECT member_id, delta FROM scrim_mmr_logs WHERE match_id = ?`, [id]
+      ) as [any[], any];
+      for (const log of logs) {
+        await conn.query(
+          `UPDATE scrim_ratings SET mmr = GREATEST(0, mmr - ?), updated_at = NOW() WHERE member_id = ?`,
+          [log.delta, log.member_id]
+        );
+      }
+      // 이 경기로 지급된 포인트 로그 조회 후 total_points 차감
+      const [pointLogs] = await conn.query(
+        `SELECT member_id, points FROM point_logs WHERE ref_id = ? AND ref_table = 'scrim_match'`, [id]
+      ) as [any[], any];
+      for (const pl of pointLogs) {
+        await conn.query(
+          `UPDATE members SET total_points = total_points - ? WHERE id = ?`,
+          [pl.points, pl.member_id]
+        );
+      }
+      await conn.query(`DELETE FROM point_logs WHERE ref_id = ? AND ref_table = 'scrim_match'`, [id]);
+      await conn.query("DELETE FROM scrim_matches WHERE id = ?", [id]);
+      await conn.commit();
+      return NextResponse.json({ ok: true });
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "삭제 실패" }, { status: 500 });

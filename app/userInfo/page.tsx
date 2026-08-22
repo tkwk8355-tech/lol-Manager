@@ -541,7 +541,7 @@ export default function UserInfoPage() {
   }
 
 
-  const [tab, setTab] = useState<"members" | "accounts" | "party-history" | "points">("members");
+  const [tab, setTab] = useState<"members" | "accounts" | "party-history">("members");
 
   useEffect(() => {
     if (user?.role === "admin") setTab("accounts");
@@ -568,78 +568,37 @@ export default function UserInfoPage() {
   }, [isAdmin, tab]);
 
   // ����Ʈ ���� ����
-  const [pointLogs, setPointLogs] = useState<any[]>([]);
-  const [pointLoading, setPointLoading] = useState(false);
-  const [pointForm, setPointForm] = useState({ memberId: "", points: "", comment: "" });
-  const [pointMsg, setPointMsg] = useState("");
+  const [rookieLogModal, setRookieLogModal] = useState<{ memberId: number; nickname: string; logs: { games: number; partyCount: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[] } | null>(null);
+  const [rookieEventForm, setRookieEventForm] = useState("");
+  const [rookieEventOpen, setRookieEventOpen] = useState(false);
+  const [rookieEventBusy, setRookieEventBusy] = useState(false);
+  const [rookieEventErr, setRookieEventErr] = useState("");
 
-  // Ŭ���� ī�� ����Ʈ ���� ���
-  const [pointModal, setPointModal] = useState<{ memberId: number; nickname: string } | null>(null);
-  const [pointModalForm, setPointModalForm] = useState({ points: "", comment: "" });
-  const [pointModalErr, setPointModalErr] = useState("");
-  const [pointModalBusy, setPointModalBusy] = useState(false);
-  const [rookieLogModal, setRookieLogModal] = useState<{ nickname: string; logs: { games: number; partyCount: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[] } | null>(null);
-
-  async function submitPointModal() {
-    if (!pointModal) return;
-    const pts = Number(pointModalForm.points);
-    if (!pts || !pointModalForm.comment.trim()) { setPointModalErr("������ ������ �Է��ϼ���."); return; }
-    setPointModalBusy(true); setPointModalErr("");
+  async function submitRookieEvent() {
+    if (!rookieLogModal) return;
+    if (!rookieEventForm.trim()) { setRookieEventErr("사유를 입력하세요."); return; }
+    setRookieEventBusy(true); setRookieEventErr("");
     try {
       const res = await fetch("/api/points", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memberId: pointModal.memberId, points: pts, comment: pointModalForm.comment }),
+        body: JSON.stringify({ memberId: rookieLogModal.memberId, points: 0, type: "rookie_event", comment: rookieEventForm.trim() }),
       });
       const json = await res.json();
-      if (!res.ok) { setPointModalErr(json.error || "����"); return; }
-      setPointModal(null);
-      setPointModalForm({ points: "", comment: "" });
-      loadMembers();
-    } catch { setPointModalErr("��Ʈ��ũ ����"); }
-    finally { setPointModalBusy(false); }
+      if (!res.ok) { setRookieEventErr(json.error || "실패"); return; }
+      setRookieEventForm(""); setRookieEventOpen(false);
+      await loadMembers();
+      setMembers((prev) => {
+        const fresh = prev.find((m) => m.id === rookieLogModal.memberId);
+        if (fresh) setRookieLogModal({ memberId: fresh.id, nickname: fresh.nickname, logs: fresh.rookieSessionLogs ?? [] });
+        return prev;
+      });
+    } catch { setRookieEventErr("네트워크 오류"); }
+    finally { setRookieEventBusy(false); }
   }
 
-  async function loadPointLogs() {
-    setPointLoading(true);
-    try {
-      const res = await fetch("/api/points");
-      const json = await res.json();
-      if (res.ok) setPointLogs(json.logs);
-    } catch {}
-    finally { setPointLoading(false); }
-  }
 
-  async function givePoint(e: React.FormEvent) {
-    e.preventDefault();
-    setPointMsg("");
-    if (!pointForm.memberId || !pointForm.points || !pointForm.comment.trim()) {
-      setPointMsg("Ŭ����, ����, ������ ��� �Է��ϼ���."); return;
-    }
-    const res = await fetch("/api/points", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memberId: Number(pointForm.memberId), points: Number(pointForm.points), comment: pointForm.comment }),
-    });
-    const json = await res.json();
-    if (!res.ok) { setPointMsg(json.error || "����"); return; }
-    setPointForm({ memberId: "", points: "", comment: "" });
-    setPointMsg("���� �Ϸ�!");
-    loadPointLogs();
-    loadMembers();
-  }
-
-  async function cancelPoint(id: number) {
-    if (!confirm("포인트 내역을 삭제하시겠습니까?")) return;
-    const res = await fetch(`/api/points?id=${id}`, { method: "DELETE" });
-    if (res.ok) { loadPointLogs(); loadMembers(); }
-  }
-
-  useEffect(() => {
-    if (isAdmin && tab === "points") loadPointLogs();
-  }, [isAdmin, tab]);
-
-  const MODE_KO: Record<string,string> = { aram:"칼바람", normal:"일반협곡", flex:"자유랭크", solo:"솔로랭크", scrim:"내전" };
+  const MODE_KO: Record<string,string> = { aram:"칼바람", normal:"일반협곡", flex:"자유랭크", solo:"솔로랭크", scrim:"내전", event:"이벤트" };
 
   // ���� ��� �ٿ�ε�
   function downloadExcel() {
@@ -1016,12 +975,32 @@ export default function UserInfoPage() {
 
       {/* 수습 파티 로그 모달 */}
       {rookieLogModal && (
-        <div className="modal-backdrop" onClick={() => setRookieLogModal(null)}>
+        <div className="modal-backdrop" onClick={() => { setRookieLogModal(null); setRookieEventForm(""); setRookieEventOpen(false); setRookieEventErr(""); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
             <div className="modal-head">
               <span>{rookieLogModal.nickname} 파티 로그</span>
-              <button className="modal-close" onClick={() => setRookieLogModal(null)}>✕</button>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                {isAdmin && (
+                  <button className="sync-btn" style={{ fontSize: 11, padding: "2px 10px" }}
+                    onClick={() => { setRookieEventErr(""); setRookieEventOpen(p => !p); setRookieEventForm(""); }}>
+                    + 추가
+                  </button>
+                )}
+                <button className="modal-close" onClick={() => { setRookieLogModal(null); setRookieEventForm(""); setRookieEventOpen(false); setRookieEventErr(""); }}>✕</button>
+              </div>
             </div>
+            {rookieEventOpen && isAdmin && (
+              <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 10 }}>
+                <input autoFocus placeholder="사유 (예: 이벤트 매치 참여)" value={rookieEventForm}
+                  onChange={(e) => setRookieEventForm(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") submitRookieEvent(); }}
+                  style={{ flex: 1, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }} />
+                <button className="sync-btn" style={{ whiteSpace: "nowrap", fontSize: 12 }} disabled={rookieEventBusy} onClick={submitRookieEvent}>
+                  {rookieEventBusy ? "..." : "확인"}
+                </button>
+              </div>
+            )}
+            {rookieEventErr && <div style={{ fontSize: 12, color: "var(--loss-text)", marginBottom: 6 }}>{rookieEventErr}</div>}
             {(() => {
               const rookieNicknames = new Set(members.filter(m => m.position === "수습").map(m => m.nickname));
               const allPlayed = new Set(
@@ -1040,7 +1019,7 @@ export default function UserInfoPage() {
                     <span>{log.startAt || log.date}</span>
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 4, background: "var(--card-2)", color: "var(--muted)" }}>{MODE_KO[log.mode] ?? log.mode}</span>
-                      <span style={{ fontWeight: 700, color: "#7aa2f7" }}>{log.partyCount ?? log.games}회 참여</span>
+                      <span style={{ fontWeight: 700, color: "#7aa2f7" }}>{(log.partyCount ?? 0) > 0 ? `${log.partyCount}회 참여` : "참여"}</span>
                     </div>
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -1048,7 +1027,7 @@ export default function UserInfoPage() {
                       ? log.members.map((nick: string) => (
                           <span key={nick} style={{ fontSize: 12, padding: "2px 8px", borderRadius: 10, background: "var(--card-2)", color: "var(--text)", fontWeight: 700 }}>{nick}</span>
                         ))
-                      : <span style={{ fontSize: 11, color: "var(--muted)" }}>클랜원 정보 없음</span>}
+                      : log.mode === "event" ? null : <span style={{ fontSize: 11, color: "var(--muted)" }}>클랜원 정보 없음</span>}
                   </div>
                 </div>
               ))}
@@ -1057,41 +1036,6 @@ export default function UserInfoPage() {
         </div>
       )}
 
-      {pointModal && (
-        <div className="modal-backdrop" onClick={() => setPointModal(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 360 }}>
-            <div className="modal-head">
-              <span>🎁 {pointModal.nickname} 포인트 지급</span>
-              <button className="modal-close" onClick={() => setPointModal(null)}>×</button>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <input
-                autoFocus
-                type="number"
-                placeholder="포인트 (음수 가능)"
-                value={pointModalForm.points}
-                onChange={(e) => setPointModalForm((p) => ({ ...p, points: e.target.value }))}
-                onKeyDown={(e) => { if (e.key === "Enter") submitPointModal(); }}
-                style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14 }}
-              />
-              <input
-                placeholder="사유 (필수)"
-                value={pointModalForm.comment}
-                onChange={(e) => setPointModalForm((p) => ({ ...p, comment: e.target.value }))}
-                onKeyDown={(e) => { if (e.key === "Enter") submitPointModal(); }}
-                style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14 }}
-              />
-              {pointModalErr && <span style={{ fontSize: 12, color: "var(--loss-text)" }}>{pointModalErr}</span>}
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="sync-btn" style={{ flex: 1 }} disabled={pointModalBusy} onClick={submitPointModal}>
-                  {pointModalBusy ? "지급 중..." : "지급"}
-                </button>
-                <button className="cancel-btn" style={{ flex: 1 }} onClick={() => setPointModal(null)}>취소</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       {/* 경고 관리 모달 */}
       {/* 경고 관리 모달 */}
       {warnModal && (
@@ -1145,7 +1089,6 @@ export default function UserInfoPage() {
             {user?.role === "admin" && <button className={tab === "accounts" ? "on" : ""} onClick={() => setTab("accounts")}>로그인 계정</button>}
             <button className={tab === "members" ? "on" : ""} onClick={() => setTab("members")}>클랜원</button>
             <button className={tab === "party-history" ? "on" : ""} onClick={() => setTab("party-history")}>파티 내역</button>
-            <button className={tab === "points" ? "on" : ""} onClick={() => setTab("points")}>포인트</button>
           </div>
         </div>
       </div>
@@ -1257,91 +1200,6 @@ export default function UserInfoPage() {
               )}
             </tbody>
           </table>
-        </div>
-      )}
-      {/* 포인트 탭 */}
-      {/* 포인트 탭 */}
-      {isAdmin && tab === "points" && (
-        <div>
-          <div className="home-panel" style={{ marginBottom: 16 }}>
-            {/* 수동 지급 폼 */}
-            {/* 수동 지급 폼 */}
-            <div className="home-panel-head"><h3>포인트 수동 지급</h3></div>
-            <form onSubmit={givePoint} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <select
-                value={pointForm.memberId}
-                onChange={(e) => setPointForm((p) => ({ ...p, memberId: e.target.value }))}
-                style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14 }}
-              >
-                <option value="">클랜원 선택</option>
-                {members.map((m) => <option key={m.id} value={m.id}>{m.nickname} ({m.totalPoints ?? 0}P)</option>)}
-              </select>
-              <input
-                type="number"
-                placeholder="포인트 (음수 가능)"
-                value={pointForm.points}
-                onChange={(e) => setPointForm((p) => ({ ...p, points: e.target.value }))}
-                style={{ width: 120, padding: "9px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14 }}
-              />
-              <input
-                placeholder="사유 (필수)"
-                value={pointForm.comment}
-                onChange={(e) => setPointForm((p) => ({ ...p, comment: e.target.value }))}
-                style={{ flex: 1, minWidth: 200, padding: "9px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14 }}
-              />
-              <button type="submit" className="sync-btn">지급</button>
-            </form>
-            {pointMsg && <p style={{ marginTop: 8, fontSize: 13, color: "var(--win-text)" }}>{pointMsg}</p>}
-          </div>
-            {/* 전체 로그 */}
-            {/* 전체 로그 */}
-          <div className="home-panel">
-            <div className="home-panel-head"><h3>포인트 전체 로그</h3></div>
-            {pointLoading ? <p className="empty">불러오는 중...</p> : (
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead>
-                  <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
-                    <th style={{ textAlign: "left", padding: "6px 8px" }}>시간</th>
-                    <th style={{ textAlign: "left", padding: "6px 8px" }}>클랜원</th>
-                    <th style={{ textAlign: "left", padding: "6px 8px" }}>타입</th>
-                    <th style={{ textAlign: "right", padding: "6px 8px" }}>판수</th>
-                    <th style={{ textAlign: "right", padding: "6px 8px" }}>포인트</th>
-                    <th style={{ textAlign: "left", padding: "6px 8px" }}>사유</th>
-                    <th style={{ textAlign: "left", padding: "6px 8px" }}>지급자</th>
-                    <th style={{ padding: "6px 8px" }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pointLogs.map((l) => (
-                    <tr key={l.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                      <td style={{ padding: "7px 8px", color: "var(--muted)", whiteSpace: "nowrap" }}>{l.created_at?.slice(0, 16)}</td>
-                      <td style={{ padding: "7px 8px", fontWeight: 700 }}>{l.nickname}</td>
-                      <td style={{ padding: "7px 8px" }}>
-                        <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5,
-                          background: ({scrim:"rgba(155,89,182,0.18)",shop:"rgba(231,76,60,0.18)",manual:"rgba(83,131,232,0.18)",solo:"rgba(241,196,15,0.18)",flex:"rgba(230,126,34,0.18)",aram:"rgba(0,188,212,0.18)",birthday:"rgba(255,107,157,0.18)"}[l.type as string] ?? "rgba(46,204,113,0.18)"),
-                          color: ({scrim:"#c39bd3",shop:"#f1948a",manual:"#7aa2f7",solo:"#f1c40f",flex:"#e67e22",aram:"#00bcd4",birthday:"#ff6b9d"}[l.type as string] ?? "#2ecc71") }}>
-                          {({ solo: "솔로랭크", flex: "자유랭크", normal: "일반", scrim: "내전", aram: "칼바람", manual: "수동", shop: "상점", birthday: "생일보너스" } as any)[l.type] ?? l.type}
-                        </span>
-                      </td>
-                          <td style={{ padding: "7px 8px", textAlign: "right", color: "var(--muted)" }}>{l.games > 0 ? `${l.games}판` : "-"}</td>
-                      <td style={{ padding: "7px 8px", textAlign: "right", fontWeight: 800,
-                        color: l.points > 0 ? "var(--win-text)" : "var(--loss-text)" }}>
-                        {l.points > 0 ? `+${l.points}` : l.points}P
-                      </td>
-                      <td style={{ padding: "7px 8px", color: "var(--muted)" }}>{l.comment ?? "-"}</td>
-                      <td style={{ padding: "7px 8px", color: "var(--muted)" }}>{l.given_by_name ?? "-"}</td>
-                      <td style={{ padding: "7px 8px" }}>
-                        <button className="del-btn small" onClick={() => cancelPoint(l.id)}>취소</button>
-                      </td>
-                    </tr>
-                  ))}
-                  {pointLogs.length === 0 && (
-                    <tr><td colSpan={8} style={{ padding: "12px 8px", color: "var(--muted)" }}>포인트 내역이 없습니다.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            )}
-          </div>
         </div>
       )}
       {/* 파티 내역 탭 */}
@@ -1512,7 +1370,7 @@ export default function UserInfoPage() {
                     <td style={{ padding: "8px 10px", textAlign: "center" }}>
                       {(m.rookieSessionLogs ?? []).length > 0 ? (
                         <button className="sync-btn" style={{ fontSize: 11, padding: "2px 10px" }}
-                          onClick={() => setRookieLogModal({ nickname: m.nickname, logs: m.rookieSessionLogs ?? [] })}>
+                          onClick={() => setRookieLogModal({ memberId: m.id, nickname: m.nickname, logs: m.rookieSessionLogs ?? [] })}>
                           로그
                         </button>
                       ) : "-"}

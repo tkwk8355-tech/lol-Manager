@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPool, ensureSchema } from "@/lib/db";
-import { tierBaseScore, winRateAdjust } from "@/lib/scrim";
+import { tierBaseScore, winRateAdjust, mmrToScrimTier, SCRIM_TIER_KO } from "@/lib/scrim";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,13 @@ export async function GET() {
     await ensureSchema();
     const pool = getPool();
 
-    const [members] = await pool.query("SELECT id, nickname FROM members WHERE main_line != 'ARAM' OR main_line IS NULL ORDER BY nickname ASC") as [any[], any];
+    // scrim_only 계정(내전관람 등)은 통계에서 제외
+    const [members] = await pool.query(
+      `SELECT m.id, m.nickname FROM members m
+       WHERE (m.main_line != 'ARAM' OR m.main_line IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM users u WHERE u.member_id = m.id AND u.scrim_only = 1)
+       ORDER BY m.nickname ASC`
+    ) as [any[], any];
 
     const [accTiers] = await pool.query(
       `SELECT member_id, is_main, solo_tier, solo_rank, solo_lp FROM accounts ORDER BY is_main DESC, id ASC`
@@ -38,6 +44,11 @@ export async function GET() {
         tierScore(cur?.tier??null, cur?.rank??null, cur?.lp??0) > tierScore(prev?.tier??null, prev?.rank??null, prev?.lp??0) ? cur : prev
       );
     }
+
+    const [ratingRows] = await pool.query(
+      `SELECT member_id, mmr FROM scrim_ratings`
+    ) as [any[], any];
+    const ratingMap = new Map<number, number>(ratingRows.map((r: any) => [r.member_id, r.mmr]));
 
     const [parts] = await pool.query(
       `SELECT p.member_id, p.line, p.champion, p.kills, p.deaths, p.assists,
@@ -104,6 +115,8 @@ export async function GET() {
         tier: t?.tier ?? null, rank: t?.rank ?? null, lp: t?.lp ?? 0,
         lineCounts, lineStats: s.lineStats, lineChamps, kills: s.kills, deaths: s.deaths, assists: s.assists, games: s.games, wins: s.wins, kda, winRate,
         mvpCount, scrimScore,
+        scrimMmr: ratingMap.has(m.id) ? ratingMap.get(m.id)! : null,
+        scrimTier: ratingMap.has(m.id) ? SCRIM_TIER_KO[mmrToScrimTier(ratingMap.get(m.id)!)] : null,
       };
     });
 

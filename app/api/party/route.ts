@@ -406,10 +406,10 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
   const baseTime = party.start_at
     ? new Date(party.start_at.replace(" ", "T") + "+09:00").getTime()
     : new Date(party.created_at.replace(" ", "T")).getTime();
-  // 전적 조회 범위: partyDate 당일 KST 00:00 ~ 23:59:59
+  // 전적 조회 범위: 파티 시작시간 기준 0 ~ +8시간
   const partyDate = toKstDateString(party.start_at ?? party.created_at);
-  const startTime = Math.floor(new Date(partyDate + "T00:00:00+09:00").getTime() / 1000);
-  const endTime = Math.floor(new Date(partyDate + "T23:59:59+09:00").getTime() / 1000);
+  const startTime = Math.floor(baseTime / 1000);
+  const endTime = Math.floor((baseTime + 8 * 60 * 60 * 1000) / 1000);
   const queueIds = party.mode === "solo" ? [420] : party.mode === "flex" ? [440] : [400, 430];
   const pointType = party.mode === "solo" ? "solo" : party.mode === "flex" ? "flex" : "normal";
   const queueType = party.mode === "solo" || party.mode === "flex" ? "ranked" : "normal";

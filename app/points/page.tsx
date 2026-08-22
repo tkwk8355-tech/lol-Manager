@@ -58,6 +58,8 @@ export default function PointsPage() {
   const [pointLogs, setPointLogs] = useState<any[]>([]);
   const [pointLoading, setPointLoading] = useState(false);
   const [pointLogSearch, setPointLogSearch] = useState("");
+  const [pointPage, setPointPage] = useState(0);
+  const [pointTotal, setPointTotal] = useState(0);
   const [pointForm, setPointForm] = useState({ memberId: "", points: "", comment: "" });
   const [pointMemberQuery, setPointMemberQuery] = useState("");
   const [pointMemberOpen, setPointMemberOpen] = useState(false);
@@ -93,12 +95,12 @@ export default function PointsPage() {
     finally { setLoading(false); }
   }
 
-  async function loadPointLogs() {
+  async function loadPointLogs(page = 0) {
     setPointLoading(true);
     try {
-      const res = await fetch("/api/points");
+      const res = await fetch(`/api/points?offset=${page * 50}`);
       const json = await res.json();
-      if (res.ok) setPointLogs(json.logs);
+      if (res.ok) { setPointLogs(json.logs); setPointTotal(json.total ?? 0); }
     } catch {}
     finally { setPointLoading(false); }
   }
@@ -110,7 +112,7 @@ export default function PointsPage() {
   }, [user, authLoading]);
 
   useEffect(() => {
-    if (isAdmin && subTab === "log") loadPointLogs();
+    if (isAdmin && subTab === "log") { setPointPage(0); loadPointLogs(0); }
     if (isAdmin && subTab === "shop") loadShopItems();
   }, [isAdmin, subTab]);
 
@@ -150,14 +152,14 @@ export default function PointsPage() {
     setPointForm({ memberId: "", points: "", comment: "" });
     setPointMemberQuery("");
     setPointMsg("지급 완료!");
-    loadPointLogs();
+    setPointPage(0); loadPointLogs(0);
     loadMembers();
   }
 
   async function cancelPoint(id: number) {
     if (!confirm("포인트 로그를 취소하시겠습니까?")) return;
     const res = await fetch(`/api/points?id=${id}`, { method: "DELETE" });
-    if (res.ok) { loadPointLogs(); loadMembers(); }
+    if (res.ok) { loadPointLogs(pointPage); loadMembers(); }
   }
 
   async function loadShopItems() {
@@ -208,7 +210,7 @@ export default function PointsPage() {
       const json = await res.json();
       if (!res.ok) { setShopErr(json.error || "구매 실패"); return; }
       setShopModal(null); setShopMemberId("");
-      loadMembers(); loadPointLogs();
+      setPointPage(0); loadMembers(); loadPointLogs(0);
     } catch { setShopErr("네트워크 오류"); }
     finally { setShopBusy(false); }
   }
@@ -340,16 +342,38 @@ export default function PointsPage() {
           </div>
           <div className="home-panel">
             <div className="home-panel-head"><h3>포인트 전체 로그</h3></div>
-            <div style={{ marginBottom: 10 }}>
+            <div style={{ marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <input
                 placeholder="클랜원 이름 검색..."
                 value={pointLogSearch}
                 onChange={(e) => setPointLogSearch(e.target.value)}
                 style={{ width: 200, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
               />
+              {pointTotal > 50 && (
+                <div className="page-nav">
+                  <button disabled={pointPage <= 0} onClick={() => { const p = pointPage - 1; setPointPage(p); loadPointLogs(p); }}>‹</button>
+                  <span>{pointPage + 1} / {Math.ceil(pointTotal / 50)} ({pointTotal}건)</span>
+                  <button disabled={pointPage >= Math.ceil(pointTotal / 50) - 1} onClick={() => { const p = pointPage + 1; setPointPage(p); loadPointLogs(p); }}>›</button>
+                </div>
+              )}
             </div>
-            {pointLoading ? <p className="empty">불러오는 중...</p> : (
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <div style={{ position: "relative" }}>
+              {pointLoading && (
+                <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 6, pointerEvents: "none" }}>
+                  <span style={{ fontSize: 13, color: "var(--muted)" }}>불러오는 중...</span>
+                </div>
+              )}
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
+                <colgroup>
+                  <col style={{ width: 130 }} />
+                  <col style={{ width: 110 }} />
+                  <col style={{ width: 80 }} />
+                  <col style={{ width: 55 }} />
+                  <col style={{ width: 70 }} />
+                  <col style={{ width: 260 }} />
+                  <col style={{ width: 100 }} />
+                  <col style={{ width: 52 }} />
+                </colgroup>
                 <thead>
                   <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
                     <th style={{ textAlign: "left", padding: "6px 8px" }}>시간</th>
@@ -364,24 +388,24 @@ export default function PointsPage() {
                 </thead>
                 <tbody>
                   {pointLogs.filter(l => !pointLogSearch.trim() || l.nickname?.toLowerCase().includes(pointLogSearch.toLowerCase())).map((l) => (
-                    <tr key={l.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                      <td style={{ padding: "7px 8px", color: "var(--muted)", whiteSpace: "nowrap" }}>{l.created_at?.slice(0, 16)}</td>
-                      <td style={{ padding: "7px 8px", fontWeight: 700 }}>{l.nickname}</td>
-                      <td style={{ padding: "7px 8px" }}>
+                    <tr key={l.id} style={{ borderBottom: "1px solid var(--border)", height: 38 }}>
+                      <td style={{ padding: "0 8px", color: "var(--muted)", whiteSpace: "nowrap" }}>{l.created_at?.slice(0, 16)}</td>
+                      <td style={{ padding: "0 8px", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.nickname}</td>
+                      <td style={{ padding: "0 8px" }}>
                         <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5,
                           background: ({scrim:"rgba(155,89,182,0.18)",shop:"rgba(231,76,60,0.18)",manual:"rgba(83,131,232,0.18)",solo:"rgba(241,196,15,0.18)",flex:"rgba(230,126,34,0.18)",aram:"rgba(0,188,212,0.18)",birthday:"rgba(255,107,157,0.18)"}[l.type as string] ?? "rgba(46,204,113,0.18)"),
                           color: ({scrim:"#c39bd3",shop:"#f1948a",manual:"#7aa2f7",solo:"#f1c40f",flex:"#e67e22",aram:"#00bcd4",birthday:"#ff6b9d"}[l.type as string] ?? "#2ecc71") }}>
                           {({ solo: "솔로랭크", flex: "자유랭크", normal: "일반", scrim: "내전", aram: "칼바람", manual: "수동", shop: "상점", birthday: "생일보너스", rookie_session: "수습" } as any)[l.type] ?? l.type}
                         </span>
                       </td>
-                      <td style={{ padding: "7px 8px", textAlign: "right", color: "var(--muted)" }}>{l.games > 0 ? `${l.games}판` : "-"}</td>
-                      <td style={{ padding: "7px 8px", textAlign: "right", fontWeight: 800,
+                      <td style={{ padding: "0 8px", textAlign: "right", color: "var(--muted)" }}>{l.games > 0 ? `${l.games}판` : "-"}</td>
+                      <td style={{ padding: "0 8px", textAlign: "right", fontWeight: 800,
                         color: l.points > 0 ? "var(--win-text)" : "var(--loss-text)" }}>
                         {l.points > 0 ? `+${l.points}` : l.points}P
                       </td>
-                      <td style={{ padding: "7px 8px", color: "var(--muted)" }}>{l.comment ?? "-"}</td>
-                      <td style={{ padding: "7px 8px", color: "var(--muted)" }}>{l.given_by_name ?? "-"}</td>
-                      <td style={{ padding: "7px 8px" }}>
+                      <td style={{ padding: "0 8px", color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.comment ?? "-"}</td>
+                      <td style={{ padding: "0 8px", color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.given_by_name ?? "-"}</td>
+                      <td style={{ padding: "0 8px" }}>
                         <button className="del-btn small" onClick={() => cancelPoint(l.id)}>취소</button>
                       </td>
                     </tr>
@@ -391,7 +415,7 @@ export default function PointsPage() {
                   )}
                 </tbody>
               </table>
-            )}
+            </div>
           </div>
         </div>
       )}

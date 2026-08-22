@@ -138,6 +138,8 @@ async function createSchema(): Promise<void> {
   `);
   await pool.query(`ALTER TABLE scrim_participants ADD COLUMN IF NOT EXISTS damage INT NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE scrim_participants ADD COLUMN IF NOT EXISTS vision_score INT NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE scrim_participants ADD COLUMN IF NOT EXISTS cs INT NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE scrim_participants ADD COLUMN IF NOT EXISTS is_mvp TINYINT NOT NULL DEFAULT 0`);
   for (const col of ["item0", "item1", "item2", "item3", "item4", "item5", "item6"]) {
     await pool.query(`ALTER TABLE scrim_participants ADD COLUMN IF NOT EXISTS ${col} INT NOT NULL DEFAULT 0`);
   }
@@ -315,9 +317,7 @@ async function createSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
   await pool.query(`ALTER TABLE point_logs ADD COLUMN IF NOT EXISTS party_count INT NOT NULL DEFAULT 0`);
-  // ref_id가 어느 테이블을 가리키는지 명시한다 ('party' | 'scrim_match' | NULL).
-  // parties와 scrim_matches의 auto-increment id가 우연히 같은 값이 될 수 있어서,
-  // 이 컬럼 없이 ref_id만으로 조인하면 서로 다른 레코드가 섞여 나오는 문제가 있었다.
+  await pool.query(`ALTER TABLE point_logs ADD COLUMN IF NOT EXISTS ref_table VARCHAR(20) NULL`);
   await pool.query(`ALTER TABLE point_logs ADD COLUMN IF NOT EXISTS with_members VARCHAR(500) NULL`);
   // 수습 동반 10점 중복 방지: 클랜원이 특정 수습에게 한 번만 보너스 지급
   await pool.query(`
@@ -383,6 +383,31 @@ async function createSchema(): Promise<void> {
       ('solo', 5, 3)
   `);
 
+  // 내전 전용 MMR 테이블
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scrim_ratings (
+      member_id  INT NOT NULL PRIMARY KEY,
+      mmr        INT NOT NULL DEFAULT 0,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_sr_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 내전 MMR 변동 로그
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scrim_mmr_logs (
+      id         INT AUTO_INCREMENT PRIMARY KEY,
+      member_id  INT NOT NULL,
+      match_id   INT NOT NULL,
+      delta      INT NOT NULL,
+      mmr_after  INT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_mmr_log (member_id, match_id),
+      CONSTRAINT fk_sml_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+      CONSTRAINT fk_sml_match FOREIGN KEY (match_id) REFERENCES scrim_matches(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS shop_items (
       id         INT AUTO_INCREMENT PRIMARY KEY,
@@ -396,6 +421,7 @@ async function createSchema(): Promise<void> {
   `);
 
   await seedDefaultAdmin(pool);
+  await seedScrimRatings(pool);
 }
 
 // 최초 실행 시 로그인할 계정이 하나도 없으면 기본 운영진 계정을 만들어 둔다.
@@ -415,6 +441,28 @@ async function seedDefaultAdmin(pool: mysql.Pool): Promise<void> {
   console.log(
     `[db] 기본 운영진 계정이 생성되었습니다. (아이디: admin / 비밀번호: ${defaultPassword}) 로그인 후 비밀번호를 변경하세요.`
   );
+}
+
+// 솔랭 티어 기반으로 scrim_ratings 초기값 세팅 (이미 있는 행은 건드리지 않음)
+async function seedScrimRatings(pool: mysql.Pool): Promise<void> {
+  const TIER_MMR: Record<string, number> = {
+    SILVER: 100, GOLD: 200, PLATINUM: 300,
+    EMERALD: 400, DIAMOND: 500, MASTER: 500, GRANDMASTER: 500, CHALLENGER: 500,
+  };
+  const [accRows] = await pool.query(
+    `SELECT member_id, solo_tier, is_main FROM accounts ORDER BY is_main DESC, id ASC`
+  ) as [any[], any];
+  const tierMap = new Map<number, string | null>();
+  for (const r of accRows) {
+    if (!tierMap.has(r.member_id)) tierMap.set(r.member_id, r.solo_tier ?? null);
+  }
+  for (const [memberId, tier] of tierMap) {
+    const mmr = TIER_MMR[(tier ?? "").toUpperCase()] ?? 0;
+    await pool.query(
+      `INSERT IGNORE INTO scrim_ratings (member_id, mmr) VALUES (?, ?)`,
+      [memberId, mmr]
+    );
+  }
 }
 
 async function seedScrimOnlyAccount(pool: mysql.Pool): Promise<void> {

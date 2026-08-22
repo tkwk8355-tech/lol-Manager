@@ -55,37 +55,69 @@ export async function GET(req: NextRequest) {
     // ref_table로 ref_id가 parties인지 scrim_matches인지 구분한다.
     // (두 테이블의 auto-increment id가 우연히 같을 수 있어 이 구분 없이는 조인이 섞인다.)
     const [rookieRows] = await pool.query(`
-      SELECT pl.member_id, pl.games, pl.party_count, pl.comment, pl.created_at, pl.ref_id, pl.ref_table, pl.with_members, p.start_at, p.mode
+      SELECT pl.member_id, pl.games, pl.party_count, pl.comment, pl.created_at, pl.ref_id, pl.ref_table, pl.with_members, p.start_at, p.mode, sm.played_at
       FROM point_logs pl
-      LEFT JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
+      LEFT JOIN parties p ON p.id = pl.ref_id AND (pl.ref_table = 'party' OR pl.ref_table IS NULL)
+      LEFT JOIN scrim_matches sm ON sm.id = pl.ref_id AND pl.ref_table = 'scrim_match'
       WHERE pl.type = 'rookie_session'
       ORDER BY pl.created_at ASC
     `) as [any[], any];
 
     const rookiePartyCount = new Map<number, number>();
     const rookieSessionLogs = new Map<number, any[]>();
+    // scrim 로그는 날짜별로 묶기 위한 임시 Map: member_id -> date -> group
+    const scrimGroups = new Map<number, Map<string, { partyCount: number; members: Set<string> }>>();
     for (const r of rookieRows) {
       const isScrimSync = r.ref_table === "scrim_match";
-      const logMode = isScrimSync ? "scrim" : (r.mode ?? "flex");
-      if (!(["flex", "scrim"].includes(logMode))) continue; // 자유랭크/내전만 표시
+      const isEventLog = !r.ref_table && !r.ref_id;
+      const logMode = isScrimSync ? "scrim" : isEventLog ? "event" : (r.mode ?? "flex");
+      if (!(["flex", "scrim", "event"].includes(logMode))) continue;
       const mid = r.member_id;
       rookiePartyCount.set(mid, (rookiePartyCount.get(mid) ?? 0) + Number(r.party_count));
-      if (!rookieSessionLogs.has(mid)) rookieSessionLogs.set(mid, []);
       const rawMembers: string[] = r.with_members
         ? r.with_members.split(",").map((s: string) => s.trim()).filter(Boolean)
         : [];
-      const filteredMembers = [...new Set(rawMembers.filter((n) => !rookieNicknames.has(n)))];
-      rookieSessionLogs.get(mid)!.push({
-        games: Number(r.games),
-        partyCount: Number(r.party_count),
-        comment: r.comment,
-        date: (r.created_at ?? "").slice(0, 10),
-        startAt: isScrimSync
-          ? `${(r.created_at ?? "").slice(0, 10)} - 내전참여`
-          : (r.start_at ?? r.created_at ?? "").slice(0, 16).replace("T", " "),
-        mode: logMode,
-        members: filteredMembers,
-      });
+      const filteredMembers = rawMembers.filter((n) => !rookieNicknames.has(n));
+      if (isScrimSync) {
+        // 내전: played_at 날짜 기준으로 그룹핑
+        const date = (r.played_at ?? r.created_at ?? "").slice(0, 10);
+        if (!scrimGroups.has(mid)) scrimGroups.set(mid, new Map());
+        const dayMap = scrimGroups.get(mid)!;
+        if (!dayMap.has(date)) dayMap.set(date, { partyCount: 0, members: new Set() });
+        const g = dayMap.get(date)!;
+        g.partyCount += Number(r.party_count);
+        filteredMembers.forEach((n) => g.members.add(n));
+      } else {
+        if (!rookieSessionLogs.has(mid)) rookieSessionLogs.set(mid, []);
+        rookieSessionLogs.get(mid)!.push({
+          games: Number(r.games),
+          partyCount: Number(r.party_count),
+          comment: r.comment,
+          date: (r.start_at ?? r.created_at ?? "").slice(0, 10),
+          startAt: isEventLog
+            ? (r.comment ?? (r.created_at ?? "").slice(0, 16).replace("T", " "))
+            : (r.start_at ?? r.created_at ?? "").slice(0, 16).replace("T", " "),
+          mode: logMode,
+          members: [...new Set(filteredMembers)],
+        });
+      }
+    }
+    // scrim 그룹을 rookieSessionLogs에 병합
+    for (const [mid, dayMap] of scrimGroups) {
+      if (!rookieSessionLogs.has(mid)) rookieSessionLogs.set(mid, []);
+      for (const [date, g] of dayMap) {
+        rookieSessionLogs.get(mid)!.push({
+          games: 1,
+          partyCount: g.partyCount,
+          comment: null,
+          date,
+          startAt: `${date} - 내전참여`,
+          mode: "scrim",
+          members: [...g.members],
+        });
+      }
+      // 날짜 오름차순 정렬
+      rookieSessionLogs.get(mid)!.sort((a, b) => a.date.localeCompare(b.date));
     }
 
     const map = new Map<number, any>();

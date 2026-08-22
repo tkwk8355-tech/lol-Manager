@@ -31,9 +31,9 @@ interface Player {
   lineStats: Record<string, LineStat>;
   lineChamps: Record<string, LineChamp[]>;
   kills: number; deaths: number; assists: number; games: number; wins: number; kda: string | null; winRate: number | null;
-  mvpCount: number; scrimScore: number;
+  mvpCount: number; scrimScore: number; scrimMmr: number | null; scrimTier: string | null;
 }
-interface Member { id: number; nickname: string; }
+interface Member { id: number; nickname: string; subLine?: string | null; }
 interface ChampionInfo { id: string; name: string; }
 
 interface SlotData {
@@ -288,6 +288,7 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
   interface Slot { memberId: number; memberName: string; }
   const emptySlots = (): Slot[] => Array.from({ length: SLOT_COUNT }, () => ({ memberId: 0, memberName: "" }));
   const [slots, setSlots] = useState<Slot[]>(emptySlots);
+  const [overrideAll, setOverrideAll] = useState<Set<number>>(new Set());
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   interface BPlayer { id: number; name: string; score: number; line: string; lineAdjust: number; }
@@ -303,7 +304,7 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
       const res = await fetch("/api/scrim/balance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memberIds: ids }),
+        body: JSON.stringify({ memberIds: ids, overrideAll: [...overrideAll] }),
       });
       const json = await res.json();
       if (!res.ok) { setErr(json.error || "팀 생성 실패"); return; }
@@ -339,6 +340,8 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
                     index={idx}
                     members={available}
                     value={slot}
+                    isOverrideAll={overrideAll.has(slot.memberId)}
+                    showAllBtn={members.find((m) => m.id === slot.memberId)?.subLine?.toUpperCase() !== "ALL"}
                     inputRef={(el) => { inputRefs.current[idx] = el; }}
                     onSelect={(m) => {
                       setSlots((prev) => prev.map((s, i) => i === idx ? { memberId: m.id, memberName: m.nickname } : s));
@@ -346,7 +349,16 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
                       const nextEmpty = slots.findIndex((s, i) => i > idx && s.memberId === 0);
                       if (nextEmpty !== -1) setTimeout(() => inputRefs.current[nextEmpty]?.focus(), 0);
                     }}
-                    onClear={() => setSlots((prev) => prev.map((s, i) => i === idx ? { memberId: 0, memberName: "" } : s))}
+                    onClear={() => {
+                      const cleared = slots[idx].memberId;
+                      setSlots((prev) => prev.map((s, i) => i === idx ? { memberId: 0, memberName: "" } : s));
+                      if (cleared) setOverrideAll((prev) => { const n = new Set(prev); n.delete(cleared); return n; });
+                    }}
+                    onToggleAll={() => {
+                      const id = slot.memberId;
+                      if (!id) return;
+                      setOverrideAll((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+                    }}
                     nextRef={() => {
                       const nextEmpty = slots.findIndex((s, i) => i > idx && s.memberId === 0);
                       if (nextEmpty !== -1) inputRefs.current[nextEmpty]?.focus();
@@ -414,14 +426,17 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
 }
 
 // 팀생성 모달용 슬롯 입력
-function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, nextRef }: {
+function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, onToggleAll, nextRef, isOverrideAll, showAllBtn }: {
   index: number;
   members: Member[];
   value: { memberId: number; memberName: string };
   inputRef: (el: HTMLInputElement | null) => void;
   onSelect: (m: Member) => void;
   onClear: () => void;
+  onToggleAll: () => void;
   nextRef: () => void;
+  isOverrideAll?: boolean;
+  showAllBtn?: boolean;
 }) {
   const [query, setQuery] = useState(value.memberName);
   const [open, setOpen] = useState(false);
@@ -469,7 +484,20 @@ function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, n
           }}
         />
         {value.memberId > 0 && (
-          <button onClick={() => { onClear(); setQuery(""); }} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
+          <>
+            {showAllBtn && (
+              <button
+                onClick={onToggleAll}
+                title="ALL 라인으로 임시 처리"
+                style={{
+                  background: isOverrideAll ? "var(--accent)" : "none",
+                  border: `1px solid ${isOverrideAll ? "var(--accent)" : "var(--border)"}`,
+                  color: isOverrideAll ? "#fff" : "var(--muted)",
+                  cursor: "pointer", fontSize: 11, padding: "2px 6px", borderRadius: 5, fontWeight: 700,
+                }}>ALL</button>
+            )}
+            <button onClick={() => { onClear(); }} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
+          </>
         )}
       </div>
       {open && filtered.length > 0 && (
@@ -557,7 +585,7 @@ export default function ScrimPage() {
       const champsJson = await champsRes.json();
       if (!statsRes.ok) setError(statsJson.error || "불러오기 실패");
       else setPlayers(statsJson.players);
-      if (membersRes.ok) setMembers(membersJson.members.filter((m: any) => m.mainLine !== 'ARAM').map((m: any) => ({ id: m.id, nickname: m.nickname })));
+      if (membersRes.ok) setMembers(membersJson.members.filter((m: any) => m.mainLine !== 'ARAM').map((m: any) => ({ id: m.id, nickname: m.nickname, subLine: m.subLine ?? null })));
       if (champsRes.ok && champsJson.champions)
         setChampions(champsJson.champions.map((c: any) => ({ id: c.name_en, name: c.name_ko })));
     } catch { setError("네트워크 오류"); }
@@ -715,6 +743,21 @@ export default function ScrimPage() {
 
   const isAdmin = user.role === "admin" || user.role === "subadmin";
 
+  const [editingMmr, setEditingMmr] = useState<number | null>(null); // memberId
+  const [mmrInput, setMmrInput] = useState("");
+  const [statsSearch, setStatsSearch] = useState("");
+
+  async function saveMmr(memberId: number, newMmr: number) {
+    await fetch("/api/scrim/rating", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memberId, mmr: Math.max(0, newMmr) }),
+    });
+    setEditingMmr(null);
+    setMmrInput("");
+    load();
+  }
+
   return (
     <div className="scrim">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
@@ -727,12 +770,14 @@ export default function ScrimPage() {
               팀생성
             </button>
             {isAdmin && (
-              <button
-                className="btn-secondary"
-                onClick={() => { setShowSyncModal(true); setSyncErr(""); setSyncResult(null); setSyncMemberId(null); setSyncMemberName(""); setSyncStartDate(new Date(Date.now() + 9*60*60*1000).toISOString().slice(0, 10)); setSyncStartTime(""); }}
-              >
-                동기화
-              </button>
+              <>
+                <button
+                  className="btn-secondary"
+                  onClick={() => { setShowSyncModal(true); setSyncErr(""); setSyncResult(null); setSyncMemberId(null); setSyncMemberName(""); setSyncStartDate(new Date(Date.now() + 9*60*60*1000).toISOString().slice(0, 10)); setSyncStartTime(""); }}
+                >
+                  동기화
+                </button>
+              </>
             )}
           </div>
       </div>
@@ -1045,12 +1090,17 @@ export default function ScrimPage() {
           {error && <div className="error">{error}</div>}
           {loading ? <p>불러오는 중...</p> : (
             <div style={{ overflowX: "auto" }}>
+              <input
+                value={statsSearch}
+                onChange={(e) => setStatsSearch(e.target.value)}
+                placeholder="클랜원 검색"
+                style={{ margin: "12px 0 16px", padding: "7px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13, width: 200 }}
+              />
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
                     <th style={{ textAlign: "left", padding: "6px 10px" }}>클랜원</th>
-                    <th style={{ textAlign: "center", padding: "6px 10px" }}>솔랭 티어</th>
-                    {isAdmin && <th style={{ textAlign: "center", padding: "6px 10px" }}>점수</th>}
+                    <th style={{ textAlign: "center", padding: "6px 10px", whiteSpace: "nowrap", minWidth: 140 }}>내전 티어</th>
                     {LINES.map((l) => (
                       <th key={l} style={{ textAlign: "center", padding: "6px 8px" }}>
                         {LINE_MAP[l] ? (
@@ -1062,23 +1112,25 @@ export default function ScrimPage() {
                     <th style={{ textAlign: "center", padding: "6px 10px" }}>총판수</th>
                     <th style={{ textAlign: "center", padding: "6px 10px" }}>승률</th>
                     <th style={{ textAlign: "center", padding: "6px 10px" }}>KDA</th>
+                    {isAdmin && <th style={{ textAlign: "center", padding: "6px 10px" }}>MMR 조정</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {players.map((p) => (
+                  {players.filter((p) => !statsSearch || matchScore(p.nickname, statsSearch) > 0).sort((a, b) => (b.scrimMmr ?? -1) - (a.scrimMmr ?? -1)).map((p) => (
                     <tr key={p.memberId} style={{ borderBottom: "1px solid var(--border)" }}>
-                      <td style={{ padding: "8px 10px", fontWeight: 700, cursor: "pointer", color: "var(--accent)" }}
+                      <td style={{ padding: "8px 10px", fontWeight: 700, cursor: "pointer", color: "var(--text)" }}
+                        onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text)")}
                         onClick={() => setDetail(p)}>{p.nickname}</td>
-                      <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                        <span className={`tier-badge tier-${(p.tier ?? "unranked").toLowerCase()}`}>
-                          {tierLabel(p.tier, p.rank, p.lp)}
-                        </span>
+                      <td style={{ padding: "8px 10px", textAlign: "center", whiteSpace: "nowrap", minWidth: 140 }}>
+                        {p.scrimTier
+                          ? <>
+                              <span className={`tier-badge tier-${p.scrimTier === "브론즈" ? "bronze" : p.scrimTier === "실버" ? "silver" : p.scrimTier === "골드" ? "gold" : p.scrimTier === "플래티넘" ? "platinum" : p.scrimTier === "에메랄드" ? "emerald" : p.scrimTier === "다이아" ? "diamond" : "master"}`}>{p.scrimTier}</span>
+                              {isAdmin && p.scrimMmr !== null && <span style={{ fontSize: 11, color: "var(--muted)", marginLeft: 8 }}>({p.scrimMmr})</span>}
+                            </>
+                          : <span style={{ color: "var(--muted)" }}>-</span>
+                        }
                       </td>
-                      {isAdmin && (
-                        <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800, color: "var(--accent)" }}>
-                          {p.scrimScore}
-                        </td>
-                      )}
                       {LINES.map((l) => (
                         <td key={l} style={{ padding: "8px 8px", textAlign: "center", color: p.lineCounts[l] > 0 ? "var(--text)" : "var(--muted)" }}>
                           {p.lineCounts[l] > 0 ? p.lineCounts[l] : "-"}
@@ -1095,6 +1147,28 @@ export default function ScrimPage() {
                         color: p.kda ? (Number(p.kda) >= 3 ? "var(--win-text)" : "var(--text)") : "var(--muted)" }}>
                         {p.kda ?? "-"}
                       </td>
+                      {isAdmin && (
+                        <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4, justifyContent: "center" }}>
+                            <input
+                              type="number" min={1}
+                              value={editingMmr === p.memberId ? mmrInput : ""}
+                              onFocus={() => { setEditingMmr(p.memberId); setMmrInput(""); }}
+                              onChange={(e) => setMmrInput(e.target.value)}
+                              placeholder="점수"
+                              style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 12, textAlign: "center" }}
+                            />
+                            <button
+                              onClick={() => { const v = Math.max(1, Number(mmrInput) || 0); saveMmr(p.memberId, (p.scrimMmr ?? 0) + v); }}
+                              style={{ width: 28, height: 28, borderRadius: 6, border: "none", background: "#2e6b3e", color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer", flexShrink: 0 }}
+                            >+</button>
+                            <button
+                              onClick={() => { const v = Math.max(1, Number(mmrInput) || 0); saveMmr(p.memberId, (p.scrimMmr ?? 0) - v); }}
+                              style={{ width: 28, height: 28, borderRadius: 6, border: "none", background: "#7a1f2e", color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer", flexShrink: 0 }}
+                            >-</button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

@@ -99,7 +99,7 @@ a {
 }
 
 .container {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 28px 20px;
 }
@@ -1850,7 +1850,7 @@ a {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 12px 14px;
+  padding: 12px 20px;
 }
 .match-card.history-win {
   background: var(--win-bg);
@@ -1877,11 +1877,11 @@ a {
 .mc-teams {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 12px;
 }
 .mc-team {
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 8px 14px;
 }
 .mc-team.win {
   background: var(--win-bg);
@@ -1917,7 +1917,7 @@ a {
 /* 경기 목록: 챔피언 아이콘 / 이름 / KDA / 딜량 그래프 / 아이템을 각각 정렬된 열로 표시 */
 .mc-player-row {
   display: grid;
-  grid-template-columns: 32px 1fr 70px 130px 190px;
+  grid-template-columns: 32px minmax(100px, 1.4fr) 70px 130px 190px;
   align-items: center;
   gap: 10px;
   padding: 5px 2px;

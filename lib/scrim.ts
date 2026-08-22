@@ -3,6 +3,41 @@
 // - 티어 기본점수: 본계정 솔랭 최고 티어 환산
 // - 승패 보정: 2판 이상일 때 (승-패) × 1점, 상한 ±6
 
+// 내전 전용 티어
+export const SCRIM_TIERS = ["BRONZE","SILVER","GOLD","PLATINUM","EMERALD","DIAMOND","MASTER"] as const;
+export type ScrimTier = typeof SCRIM_TIERS[number];
+
+export const SCRIM_TIER_KO: Record<ScrimTier, string> = {
+  BRONZE: "브론즈", SILVER: "실버", GOLD: "골드",
+  PLATINUM: "플래티넘", EMERALD: "에메랄드", DIAMOND: "다이아", MASTER: "마스터",
+};
+
+// 점수 → 내전 티어
+export function mmrToScrimTier(mmr: number): ScrimTier {
+  if (mmr >= 650) return "MASTER";
+  if (mmr >= 550) return "DIAMOND";
+  if (mmr >= 450) return "EMERALD";
+  if (mmr >= 350) return "PLATINUM";
+  if (mmr >= 250) return "GOLD";
+  if (mmr >= 150) return "SILVER";
+  return "BRONZE";
+}
+
+// 솔랭 티어 → 내전 초기 MMR
+export function soloBadgeToInitialMmr(tier?: string | null): number {
+  switch ((tier ?? "").toUpperCase()) {
+    case "SILVER":      return 150;
+    case "GOLD":        return 250;
+    case "PLATINUM":    return 350;
+    case "EMERALD":     return 450;
+    case "DIAMOND":
+    case "MASTER":
+    case "GRANDMASTER":
+    case "CHALLENGER":  return 550;
+    default:            return 0; // 언랭/아이언/브론즈
+  }
+}
+
 export interface TierInfo {
   tier: string;
   rank: string;
@@ -113,15 +148,12 @@ export function computeModeStats(baseScore: number, games: ScrimGameLine[]): Mod
   };
 }
 
-// MVP 계산 (경기 목록 API와 동일한 로직)
-const MVP_LINE_WEIGHTS: Record<string, [number, number, number, number]> = {
-  TOP: [0.35, 0.35, 0.10, 0.20],
-  JG:  [0.35, 0.20, 0.25, 0.20],
-  MID: [0.35, 0.35, 0.10, 0.20],
-  ADC: [0.35, 0.50, 0.05, 0.10],
-  SUP: [0.35, 0.00, 0.45, 0.20],
-};
-const MVP_DEFAULT_WEIGHTS: [number, number, number, number] = [0.35, 0.35, 0.10, 0.20];
+// MVP 계산 (라인 구분 없이 단일 가중치 사용)
+// KDA=0.25, 딜=0.40, CS=0.05, KP=0.30
+const MVP_W_KDA = 0.25;
+const MVP_W_DMG = 0.40;
+const MVP_W_CS  = 0.05;
+const MVP_W_KP  = 0.30;
 
 export interface MvpParticipant {
   memberId: number;
@@ -131,19 +163,43 @@ export interface MvpParticipant {
   deaths: number;
   assists: number;
   damage: number;
-  visionScore: number;
+  cs?: number;
 }
 
 function calcMvpScore(p: MvpParticipant, team: MvpParticipant[], isWin: boolean): number {
-  const [wKda, wDmg, wVis, wKp] = MVP_LINE_WEIGHTS[(p.line ?? "").toUpperCase()] ?? MVP_DEFAULT_WEIGHTS;
   const kda = (p.kills + p.assists) / Math.max(p.deaths, 1);
   const maxKda = Math.max(...team.map((x) => (x.kills + x.assists) / Math.max(x.deaths, 1)), 1);
   const maxDmg = Math.max(...team.map((x) => x.damage), 1);
-  const maxVis = Math.max(...team.map((x) => x.visionScore), 1);
+  const maxCs  = Math.max(...team.map((x) => x.cs ?? 0), 1);
   const teamKills = Math.max(team.reduce((s, x) => s + x.kills, 0), 1);
   const kp = (p.kills + p.assists) / teamKills;
-  const score = (kda / maxKda) * wKda + (p.damage / maxDmg) * wDmg + (p.visionScore / maxVis) * wVis + kp * wKp;
-  return score * (isWin ? 1.2 : 1);
+  return (kda / maxKda) * MVP_W_KDA
+       + (p.damage / maxDmg) * MVP_W_DMG
+       + ((p.cs ?? 0) / maxCs) * MVP_W_CS
+       + kp * MVP_W_KP;
+}
+
+// MMR 변동: 팀 내 순위(1~5) → +10/+5/0/-5/-10
+export const SCRIM_MMR_DELTA = [10, 5, 0, -5, -10] as const;
+
+// 팀별 MVP 점수 계산 후 순위 순으로 정렬된 { memberId, delta } 배열 반환
+export function calcMmrDeltas(
+  participants: MvpParticipant[],
+  winnerTeam: number
+): { memberId: number; delta: number }[] {
+  const result: { memberId: number; delta: number }[] = [];
+  for (const teamNum of [1, 2]) {
+    const team = participants.filter((p) => p.team === teamNum);
+    if (team.length === 0) continue;
+    const isWin = winnerTeam === teamNum;
+    const scored = team
+      .map((p) => ({ memberId: p.memberId, score: calcMvpScore(p, team, isWin) }))
+      .sort((a, b) => b.score - a.score);
+    scored.forEach((p, i) => {
+      result.push({ memberId: p.memberId, delta: SCRIM_MMR_DELTA[Math.min(i, 4)] });
+    });
+  }
+  return result;
 }
 
 // 팀 참가자 목록과 승리팀 번호를 받아 각 팀의 MVP memberId를 반환
