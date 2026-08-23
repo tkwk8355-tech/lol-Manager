@@ -1432,12 +1432,10 @@ export default function UserInfoPage() {
                       ))}
                     </td>
                     <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                      {(m.rookieSessionLogs ?? []).length > 0 ? (
-                        <button className="sync-btn" style={{ fontSize: 11, padding: "2px 10px" }}
-                          onClick={() => setRookieLogModal({ memberId: m.id, nickname: m.nickname, logs: m.rookieSessionLogs ?? [] })}>
-                          로그
-                        </button>
-                      ) : "-"}
+                      <button className="sync-btn" style={{ fontSize: 11, padding: "2px 10px" }}
+                        onClick={() => setRookieLogModal({ memberId: m.id, nickname: m.nickname, logs: m.rookieSessionLogs ?? [] })}>
+                        로그
+                      </button>
                     </td>
                     <td style={{ padding: "8px 10px", textAlign: "center" }}>
                       {isAdmin && (
