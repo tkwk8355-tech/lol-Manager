@@ -218,18 +218,17 @@ export async function POST(req: NextRequest) {
                 .map(x => nicknameByMemberId.get(x.memberId)!)
                 .filter(Boolean).join(",") || null;
               if (isRookie) {
-                // 내전 3판당 카운트 1개: 동기화 윈도우 내 누적 판수 기준
-                // 윈도우 내 이미 rookie_session 로그 있으면 스킵 (1회만 찍음)
-                const [scrimCountRows] = await pool.query(
+                // 윈도우(하루) 내 판수 기준 ceil(판수/3)회 부여
+                // 윈도우 내 이미 찍힌 로그 수 확인
+                const [windowGamesRows] = await pool.query(
                   `SELECT COUNT(*) AS cnt FROM point_logs pl
                    JOIN scrim_matches sm ON sm.id = pl.ref_id AND pl.ref_table = 'scrim_match'
                    WHERE pl.member_id = ? AND pl.type = 'rookie_session'
                    AND sm.played_at >= ? AND sm.played_at < ?`,
                   [mId, windowStart, windowEnd]
                 ) as [any[], any];
-                const prevCount = Number(scrimCountRows[0]?.cnt ?? 0);
-                if (prevCount > 0) continue; // 윈도우 내 이미 찍혔으면 스킵
-                const partyCount = (prevCount + 1) % 3 === 0 ? 1 : 0;
+                const prevWindowGames = Number(windowGamesRows[0]?.cnt ?? 0);
+                const partyCount = Math.ceil((prevWindowGames + 1) / 3) - Math.ceil(prevWindowGames / 3);
                 await givePoints(pool, mId, 0, "rookie_session", 1, `내전 참여 (${startLabel})`, auth.session.userId, newMatchId, partyCount, null, "scrim_match", withMembers);
               } else {
                 // 동기화 윈도우 내 이미 scrim 포인트 받았으면 스킵
