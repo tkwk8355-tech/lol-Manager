@@ -215,7 +215,7 @@ export default function UserInfoPage() {
   const [showInactive, setShowInactive] = useState(false);
 
   
-  const [specialFilter, setSpecialFilter] = useState<"" | "rookie" | "leave">("")
+  const [specialFilter, setSpecialFilter] = useState<"" | "rookie" | "leave" | "warn">("")
   const [sortBy, setSortBy] = useState<"birth" | "activityTier">("birth");
 
 // ── 페이지네이션 state ──
@@ -329,6 +329,7 @@ export default function UserInfoPage() {
     
     if (specialFilter === "rookie" && m.position !== "수습") return false;
     if (specialFilter === "leave" && m.status !== "leave") return false;
+    if (specialFilter === "warn" && m.warningCount === 0) return false;
     
     if (lineFilter && m.mainLine !== lineFilter) return false;
 
@@ -1166,6 +1167,9 @@ export default function UserInfoPage() {
           </button>
           <button className={`filter-btn ${specialFilter === "leave" ? "on" : ""}`} onClick={() => { setSpecialFilter(specialFilter === "leave" ? "" : "leave"); setShowInactive(false); setPage(0); }}>
             외출
+          </button>
+          <button className={`filter-btn ${specialFilter === "warn" ? "on" : ""}`} onClick={() => { setSpecialFilter(specialFilter === "warn" ? "" : "warn"); setShowInactive(false); setPage(0); }}>
+            경고
           </button>
         </div>
       )}
