@@ -326,6 +326,7 @@ export default function UserInfoPage() {
 // 검색어, 라인 필터, 특수 필터(수습/외출/판수미달) 적용
   const filteredMembers = members.filter((m) => {
     
+    if (showInactive && m.position === "수습") return false;
     if (showInactive && (m.aramGames2w >= 4 || m.normalGames2w >= 3)) return false;
     
     if (specialFilter === "rookie" && m.position !== "수습") return false;
