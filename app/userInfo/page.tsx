@@ -1440,7 +1440,7 @@ export default function UserInfoPage() {
               <tr style={{ borderBottom: "2px solid var(--border)" }}>
                 <th style={{ textAlign: "left", padding: "6px 10px" }}>닉네임</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>칼바람 (2주)</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>협곡 (2주)</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>협곡(일반+자랑+솔로) (2주)</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>플레이 로그</th>
               </tr>
             </thead>
