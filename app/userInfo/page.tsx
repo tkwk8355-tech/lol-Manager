@@ -49,6 +49,7 @@ interface Member {
   warningCount: number;
   rookiePartyCount: number;
   createdAt: string | null;
+  promotedAt: string | null;
   rookieSessionLogs?: { games: number; partyCount: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[];
   recentLogs?: { type: string; games: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[];
 }
@@ -327,6 +328,8 @@ export default function UserInfoPage() {
   const filteredMembers = members.filter((m) => {
     
     if (showInactive && m.position === "수습") return false;
+    const twoWeeksMs = 14 * 24 * 60 * 60 * 1000;
+    if (showInactive && m.promotedAt && Date.now() - new Date(m.promotedAt).getTime() < twoWeeksMs) return false;
     if (showInactive && (m.aramGames2w >= 4 || m.normalGames2w >= 3)) return false;
     
     if (specialFilter === "rookie" && m.position !== "수습") return false;

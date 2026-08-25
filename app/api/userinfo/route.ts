@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
     const [rows] = await pool.query(`
       SELECT m.id AS member_id, m.nickname AS member_nickname, m.memo, m.birth_date, m.birth_year, m.gender,
              m.main_line, m.sub_line, m.position, m.status, m.status_note,
-             m.total_points, m.created_at AS member_created_at,
+             m.total_points, m.created_at AS member_created_at, m.promoted_at AS member_promoted_at,
              a.id AS account_id, a.game_name, a.tag_line, a.is_main,
              a.puuid, a.games_total, a.games_2w, a.last_synced_at,
              a.solo_tier, a.solo_rank, a.solo_lp,
@@ -168,6 +168,7 @@ export async function GET(req: NextRequest) {
           statusNote: r.status_note ?? null,
           totalPoints: r.total_points ?? 0,
           createdAt: r.member_created_at ?? null,
+          promotedAt: r.member_promoted_at ?? null,
           scrimMmr: r.scrim_mmr ?? 0,
           warningCount: 0,
           rookiePartyCount: 0,

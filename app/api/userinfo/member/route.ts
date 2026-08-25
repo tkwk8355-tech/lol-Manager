@@ -94,9 +94,15 @@ export async function PUT(req: NextRequest) {
 
     await ensureSchema();
     const pool = getPool();
+
+    // 수습 → 클랜원 전환 시 promoted_at 기록
+    const [prevRows] = await pool.query(`SELECT position FROM members WHERE id = ?`, [Number(id)]) as [any[], any];
+    const wasRookie = prevRows[0]?.position === '수습';
+    const isPromoting = wasRookie && (position === '클랜원' || position === '부운영진' || position === '운영진');
+
     await pool.query(
       `UPDATE members SET birth_year=?, birth_date=?, gender=?, main_line=?, sub_line=?,
-       position=?, status=?, status_note=? WHERE id=?`,
+       position=?, status=?, status_note=?${isPromoting ? ', promoted_at=NOW()' : ''} WHERE id=?`,
       [birthYear || null, birthDate || null, gender || null, mainLine || null, subLine || null,
        position || "클랜원", status || "active", statusNote || null, Number(id)]
     );
