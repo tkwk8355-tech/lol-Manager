@@ -50,6 +50,7 @@ interface Member {
   rookiePartyCount: number;
   createdAt: string | null;
   rookieSessionLogs?: { games: number; partyCount: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[];
+  recentLogs?: { type: string; games: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[];
 }
 
 
@@ -624,6 +625,7 @@ export default function UserInfoPage() {
 
  
   const [rookieLogModal, setRookieLogModal] = useState<{ memberId: number; nickname: string; logs: { games: number; partyCount: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[] } | null>(null);
+  const [inactiveLogModal, setInactiveLogModal] = useState<{ nickname: string; logs: { type: string; games: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[] } | null>(null);
   const [rookieEventForm, setRookieEventForm] = useState("");
   const [rookieEventOpen, setRookieEventOpen] = useState(false);
   const [rookieEventBusy, setRookieEventBusy] = useState(false);
@@ -1101,6 +1103,42 @@ export default function UserInfoPage() {
         </div>
       )}
 
+      {/* 판수미달 파티 로그 모달 */}
+      {inactiveLogModal && (
+        <div className="modal-backdrop" onClick={() => setInactiveLogModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div className="modal-head">
+              <span>{inactiveLogModal.nickname} 최근 2주 플레이</span>
+              <button className="modal-close" onClick={() => setInactiveLogModal(null)}>✕</button>
+            </div>
+            {inactiveLogModal.logs.length === 0 ? (
+              <p style={{ color: "var(--muted)", fontSize: 13 }}>최근 2주 플레이 내역이 없습니다.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {inactiveLogModal.logs.map((log, i) => (
+                  <div key={i} style={{ borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>
+                      <span>{log.startAt}</span>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 4, background: "var(--card-2)", color: "var(--muted)" }}>{MODE_KO[log.mode] ?? log.mode}</span>
+                        <span style={{ fontWeight: 700, color: "#7aa2f7" }}>{log.games}판</span>
+                      </div>
+                    </div>
+                    {log.members.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        {log.members.map((nick: string) => (
+                          <span key={nick} style={{ fontSize: 12, padding: "2px 8px", borderRadius: 10, background: "var(--card-2)", color: "var(--text)", fontWeight: 700 }}>{nick}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 경고 관리 모달 */}
       {/* 경고 관리 모달 */}
       {warnModal && (
@@ -1395,7 +1433,44 @@ export default function UserInfoPage() {
         <p>등록된 클랜원이 없습니다.</p>
       )}
 
-      {specialFilter === "rookie" ? (
+      {showInactive ? (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: "2px solid var(--border)" }}>
+                <th style={{ textAlign: "left", padding: "6px 10px" }}>닉네임</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>칼바람 (2주)</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>협곡 (2주)</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>플레이 로그</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedMembers.map((m) => (
+                <tr key={m.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                  <td style={{ padding: "8px 10px", fontWeight: 700 }}>
+                    {m.nickname}
+                    {m.warningCount > 0 && <span style={{ fontSize: 11, fontWeight: 800, marginLeft: 6, color: "#f1948a" }}>⚠️{m.warningCount}</span>}
+                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800,
+                    color: m.aramGames2w >= 4 ? "var(--win-text)" : "#f1948a" }}>
+                    {m.aramGames2w}판
+                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800,
+                    color: m.normalGames2w >= 3 ? "var(--win-text)" : "#f1948a" }}>
+                    {m.normalGames2w}판
+                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                    <button className="sync-btn" style={{ fontSize: 11, padding: "2px 10px" }}
+                      onClick={() => setInactiveLogModal({ nickname: m.nickname, logs: m.recentLogs ?? [] })}>
+                      로그
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : specialFilter === "rookie" ? (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>

@@ -41,6 +41,30 @@ export async function GET(req: NextRequest) {
       partyGames.set(r.member_id, { aram: Number(r.aram_games), normal: Number(r.normal_games) });
     }
 
+    // 최근 2주 파티 로그 상세 (판수미달 뷰용)
+    const [recentLogRows] = await pool.query(`
+      SELECT pl.member_id, pl.type, pl.games, pl.comment, pl.created_at, pl.with_members,
+             p.start_at, p.mode AS party_mode
+      FROM point_logs pl
+      LEFT JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
+      WHERE pl.type IN ('aram','normal','flex','solo','scrim') AND DATE(pl.created_at) >= ?
+      ORDER BY pl.created_at DESC
+    `, [twoWeeksAgo]) as [any[], any];
+    const recentLogs = new Map<number, any[]>();
+    for (const r of recentLogRows) {
+      const mid = r.member_id;
+      if (!recentLogs.has(mid)) recentLogs.set(mid, []);
+      recentLogs.get(mid)!.push({
+        type: r.type,
+        games: Number(r.games),
+        comment: r.comment,
+        date: (r.start_at ?? r.created_at ?? "").slice(0, 10),
+        startAt: (r.start_at ?? r.created_at ?? "").slice(0, 16).replace("T", " "),
+        mode: r.party_mode ?? r.type,
+        members: r.with_members ? r.with_members.split(",").map((s: string) => s.trim()).filter(Boolean) : [],
+      });
+    }
+
     const [warnRows] = await pool.query(
       `SELECT member_id, COUNT(*) AS cnt FROM warnings GROUP BY member_id`
     ) as [any[], any];
@@ -193,6 +217,7 @@ export async function GET(req: NextRequest) {
       m.warningCount = warnCount.get(id) ?? 0;
       m.rookiePartyCount = rookiePartyCount.get(id) ?? 0;
       m.rookieSessionLogs = rookieSessionLogs.get(id) ?? [];
+      m.recentLogs = recentLogs.get(id) ?? [];
       const pg = partyGames.get(id);
       m.aramGames2w = pg?.aram ?? 0;
       m.normalGames2w = pg?.normal ?? 0;
