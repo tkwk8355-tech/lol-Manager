@@ -2617,7 +2617,8 @@ a {
 }
 .slot-candidates button:last-child { border-bottom: none; }
 .slot-candidates button:hover,
-.slot-candidates button.first { background: var(--card-2); }
+.slot-candidates button.first,
+.slot-candidates button.active { background: var(--card-2); }
 .slot-candidates button em {
   font-style: normal;
   color: var(--muted);
