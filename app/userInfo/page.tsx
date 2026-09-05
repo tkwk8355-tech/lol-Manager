@@ -50,8 +50,8 @@ interface Member {
   rookiePartyCount: number;
   createdAt: string | null;
   promotedAt: string | null;
-  rookieSessionLogs?: { games: number; partyCount: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[];
-  recentLogs?: { type: string; games: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[];
+  rookieSessionLogs?: { id?: number; games: number; partyCount: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[];
+  recentLogs?: { id?: number; type: string; games: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[];
 }
 
 
@@ -129,7 +129,6 @@ interface LinkedUser {
 // 클랜원 목록 페이지 메인 컴포넌트
 export default function UserInfoPage() {
   const { user, isAdmin, loading: authLoading, openAuthModal } = useAuth();
-// 수정 모달 외부 클릭 감지용 ref (mousedown 위치 추적)
   const editModalMouseDownInside = useRef(false);
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState("");
@@ -262,6 +261,7 @@ export default function UserInfoPage() {
     status: string;
     statusNote: string;
     scrimTier: string;
+    scrimMmr: number;
   }>({
     birthYear: "",
     birthMD: "",
@@ -272,6 +272,7 @@ export default function UserInfoPage() {
     status: "active",
     statusNote: "",
     scrimTier: "BRONZE",
+    scrimMmr: 0,
   });
 
 // ── 경고 관리 모달 state ──
@@ -312,10 +313,12 @@ export default function UserInfoPage() {
 
 // 경고 삭제 후 목록 갱신
   async function deleteWarning(id: number) {
-    if (!confirm("경고를 삭제하시겠습니까?")) return;
+    const target = warnModal?.nickname ?? editModal?.nickname ?? "";
+    if (!confirm(`${target ? `"${target}"의 ` : ""}경고를 삭제하시겠습니까?`)) return;
     await fetch(`/api/userinfo/warning?id=${id}`, { method: "DELETE" });
-    if (warnModal) {
-      const r2 = await fetch(`/api/userinfo/warning?memberId=${warnModal.memberId}`);
+    const targetId = warnModal?.memberId ?? editModal?.id;
+    if (targetId) {
+      const r2 = await fetch(`/api/userinfo/warning?memberId=${targetId}`);
       const j2 = await r2.json();
       if (r2.ok) setWarnings(j2.warnings);
       loadMembers();
@@ -329,9 +332,17 @@ export default function UserInfoPage() {
     
     if (showInactive && m.position === "수습") return false;
     if (showInactive && m.status === "leave") return false;
-    const twoWeeksMs = 14 * 24 * 60 * 60 * 1000;
-    if (showInactive && m.promotedAt && Date.now() - new Date(m.promotedAt).getTime() < twoWeeksMs) return false;
-    if (showInactive && (m.aramGames2w >= 4 || m.normalGames2w >= 3)) return false;
+    if (showInactive && (m.position === "운영진" || m.position === "부운영진")) return false;
+    const fourDaysMs = 4 * 24 * 60 * 60 * 1000;
+    if (showInactive && m.promotedAt && Date.now() - new Date(m.promotedAt).getTime() < fourDaysMs) return false;
+    if (showInactive) {
+      const rawDate = (m as any).lastGameAt ?? m.recentLogs?.[0]?.startAt ?? m.recentLogs?.[0]?.date;
+      const lastDate = rawDate ? new Date(String(rawDate).replace(" ", "T")) : null;
+      const daysSinceLast = lastDate && !isNaN(lastDate.getTime())
+        ? (Date.now() - lastDate.getTime()) / (24 * 60 * 60 * 1000)
+        : 999;
+      if (daysSinceLast < 10) return false;
+    }
     
     if (specialFilter === "rookie" && m.position !== "수습") return false;
     if (specialFilter === "leave" && m.status !== "leave") return false;
@@ -393,6 +404,7 @@ export default function UserInfoPage() {
       status: m.status || "active",
       statusNote: m.statusNote || "",
       scrimTier: mmrToScrimTier((m as any).scrimMmr ?? 0),
+      scrimMmr: (m as any).scrimMmr ?? 0,
     });
   }
 
@@ -413,7 +425,7 @@ export default function UserInfoPage() {
           position: editForm.position || "클랜원",
           status: editForm.status || "active",
           statusNote: editForm.statusNote || null,
-          scrimMmr: SCRIM_TIER_INITIAL[editForm.scrimTier] ?? 0,
+          scrimMmr: editForm.scrimMmr,
         }),
       });
       const json = await res.json();
@@ -441,6 +453,7 @@ export default function UserInfoPage() {
       setLoading(false);
     }
   }
+
 
 // 로그인 상태 변경 시 클랜원 목록 재로드
   
@@ -573,8 +586,8 @@ export default function UserInfoPage() {
   }
 
 // 클랜원 또는 계정 삭제
-  async function remove(kind: "member" | "account", id: number) {
-    if (!confirm("삭제하시겠습니까?")) return;
+  async function remove(kind: "member" | "account", id: number, label?: string) {
+    if (!confirm(label ? `"${label}"을(를) 삭제하시겠습니까?` : "삭제하시겠습니까?")) return;
     console.log("[remove] 삭제 요청:", { kind, id });
     try {
       const res = await fetch("/api/userinfo/delete", {
@@ -609,7 +622,7 @@ export default function UserInfoPage() {
 // ── 파티 내역 state ──
   
   const [historyData, setHistoryData] = useState<{
-    parties: { id:number; mode:string; note:string|null; status:string; startAt:string|null; participants:string[]; pastParticipants:string[] }[];
+    parties: { id:number; mode:string; note:string|null; status:string; startAt:string|null; endedBy:string|null; participants:string[]; pastParticipants:string[] }[];
   } | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -629,12 +642,27 @@ export default function UserInfoPage() {
   }, [isAdmin, tab]);
 
  
-  const [rookieLogModal, setRookieLogModal] = useState<{ memberId: number; nickname: string; logs: { games: number; partyCount: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[] } | null>(null);
-  const [inactiveLogModal, setInactiveLogModal] = useState<{ nickname: string; logs: { type: string; games: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[] } | null>(null);
+  const [rookieLogModal, setRookieLogModal] = useState<{ memberId: number; nickname: string; logs: { id?: number; games: number; partyCount: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[] } | null>(null);
+  const [inactiveLogModal, setInactiveLogModal] = useState<{ memberId: number; nickname: string; logs: { id?: number; type: string; games: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[] } | null>(null);
   const [rookieEventForm, setRookieEventForm] = useState("");
   const [rookieEventOpen, setRookieEventOpen] = useState(false);
   const [rookieEventBusy, setRookieEventBusy] = useState(false);
   const [rookieEventErr, setRookieEventErr] = useState("");
+
+// ESC 키로 모달 닫기
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (warnModal) { setWarnModal(null); return; }
+      if (editModal) { setEditModal(null); return; }
+      if (rookieLogModal) { setRookieLogModal(null); setRookieEventForm(""); setRookieEventOpen(false); setRookieEventErr(""); return; }
+      if (inactiveLogModal) { setInactiveLogModal(null); return; }
+      if (accModal) { setAccModal(null); return; }
+      if (memberModal) { setMemberModal(false); return; }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [warnModal, editModal, rookieLogModal, inactiveLogModal, accModal, memberModal]);
 
   async function submitRookieEvent() {
     if (!rookieLogModal) return;
@@ -801,7 +829,7 @@ export default function UserInfoPage() {
     <div className="userinfo">
       {/* 클랜원 추가 모달 */}
       {memberModal && (
-        <div className="modal-backdrop" onClick={() => setMemberModal(false)}>
+        <div className="modal-backdrop">
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
             <div className="modal-head">
               <span>클랜원 추가</span>
@@ -833,10 +861,8 @@ export default function UserInfoPage() {
       {/* 클랜원 수정 모달 */}
       {/* 클랜원 수정 모달 */}
       {editModal && (
-        <div className="modal-backdrop"
-          onMouseDown={(e) => { editModalMouseDownInside.current = e.target !== e.currentTarget; }}
-          onClick={() => { if (!editModalMouseDownInside.current) setEditModal(null); }}>
-          <div className="modal" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560, width: "100%" }}>
+        <div className="modal-backdrop">
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560, width: "100%" }}>
             <div className="modal-head">
               <span>✏️ {editModal.nickname} 수정</span>
               <button className="modal-close" onClick={() => setEditModal(null)}>×</button>
@@ -889,7 +915,7 @@ export default function UserInfoPage() {
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 <label style={{ fontSize: 11, color: "var(--muted)" }}>내전 티어</label>
-                <select value={editForm.scrimTier} onChange={(e) => setEditForm((p) => ({ ...p, scrimTier: e.target.value }))}
+                <select value={editForm.scrimTier} onChange={(e) => { const t=e.target.value; setEditForm((p) => ({ ...p, scrimTier: t, scrimMmr: SCRIM_TIER_INITIAL[t] ?? 0 })); }}
                   style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}>
                   {SCRIM_TIERS.map((t) => (
                     <option key={t} value={t}>{SCRIM_TIER_KO[t]} ({SCRIM_TIER_INITIAL[t]})</option>
@@ -951,7 +977,7 @@ export default function UserInfoPage() {
                       }}>본계정 변경</button>
                     )}
                     <button className="del-btn small" onClick={async () => {
-                      if (!confirm("계정을 삭제하시겠습니까?")) return;
+                      if (!confirm(`"${a.gameName}#${a.tagLine}" 계정을 삭제하시겠습니까?`)) return;
                       await fetch("/api/userinfo/delete", { method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ kind: "account", id: a.id }) });
@@ -995,6 +1021,7 @@ export default function UserInfoPage() {
                       <span style={{ fontWeight: 700, flexShrink: 0, background: "rgba(231,76,60,0.18)",
                         color: "#f1948a", padding: "2px 6px", borderRadius: 4, fontSize: 11 }}>{w.type}</span>
                       <span style={{ flex: 1, color: "var(--muted)", minWidth: 0 }}>{w.reason || "-"}</span>
+                      <button className="del-btn small" onClick={() => deleteWarning(w.id)}>삭제</button>
                     </div>
                   ))}
                 </div>
@@ -1015,7 +1042,7 @@ export default function UserInfoPage() {
       {/* 계정 추가 모달 */}
       {/* 계정 추가 모달 */}
       {accModal && (
-        <div className="modal-backdrop" onClick={() => setAccModal(null)}>
+        <div className="modal-backdrop">
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
             <div className="modal-head">
               <span>계정 추가 — {accModal.nickname}</span>
@@ -1047,7 +1074,7 @@ export default function UserInfoPage() {
 
       {/* 수습 파티 로그 모달 */}
       {rookieLogModal && (
-        <div className="modal-backdrop" onClick={() => { setRookieLogModal(null); setRookieEventForm(""); setRookieEventOpen(false); setRookieEventErr(""); }}>
+        <div className="modal-backdrop">
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
             <div className="modal-head">
               <span>{rookieLogModal.nickname} 파티 로그</span>
@@ -1092,6 +1119,19 @@ export default function UserInfoPage() {
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 4, background: "var(--card-2)", color: "var(--muted)" }}>{MODE_KO[log.mode] ?? log.mode}</span>
                       <span style={{ fontWeight: 700, color: "#7aa2f7" }}>{(log.partyCount ?? 0) > 0 ? `${log.partyCount}회 참여` : "참여"}</span>
+                      {isAdmin && log.id && (
+                        <button className="del-btn small" style={{ fontSize: 10, padding: "1px 6px" }} onClick={async () => {
+                          if (!confirm(`"${rookieLogModal.nickname}"의 ${log.startAt || log.date} 로그를 삭제하시겠습니까?`)) return;
+                          const res = await fetch(`/api/points?id=${log.id}`, { method: "DELETE" });
+                          if (!res.ok) { alert("삭제 실패"); return; }
+                          await loadMembers();
+                          setMembers((prev) => {
+                            const fresh = prev.find((m) => m.id === rookieLogModal.memberId);
+                            if (fresh) setRookieLogModal({ memberId: fresh.id, nickname: fresh.nickname, logs: fresh.rookieSessionLogs ?? [] });
+                            return prev;
+                          });
+                        }}>삭제</button>
+                      )}
                     </div>
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -1110,7 +1150,7 @@ export default function UserInfoPage() {
 
       {/* 판수미달 파티 로그 모달 */}
       {inactiveLogModal && (
-        <div className="modal-backdrop" onClick={() => setInactiveLogModal(null)}>
+        <div className="modal-backdrop">
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
             <div className="modal-head">
               <span>{inactiveLogModal.nickname} 최근 2주 플레이</span>
@@ -1127,6 +1167,19 @@ export default function UserInfoPage() {
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 4, background: "var(--card-2)", color: "var(--muted)" }}>{MODE_KO[log.mode] ?? log.mode}</span>
                         <span style={{ fontWeight: 700, color: "#7aa2f7" }}>{log.games}판</span>
+                        {isAdmin && log.id && (
+                          <button className="del-btn small" style={{ fontSize: 10, padding: "1px 6px" }} onClick={async () => {
+                            if (!confirm(`"${inactiveLogModal.nickname}"의 ${log.startAt} 로그를 삭제하시겠습니까?`)) return;
+                            const res = await fetch(`/api/points?id=${log.id}`, { method: "DELETE" });
+                            if (!res.ok) { alert("삭제 실패"); return; }
+                            await loadMembers();
+                            setMembers((prev) => {
+                              const fresh = prev.find((m) => m.id === inactiveLogModal.memberId);
+                              if (fresh) setInactiveLogModal({ memberId: fresh.id, nickname: fresh.nickname, logs: fresh.recentLogs ?? [] });
+                              return prev;
+                            });
+                          }}>삭제</button>
+                        )}
                       </div>
                     </div>
                     {log.members.length > 0 && (
@@ -1147,7 +1200,7 @@ export default function UserInfoPage() {
       {/* 경고 관리 모달 */}
       {/* 경고 관리 모달 */}
       {warnModal && (
-        <div className="modal-backdrop" onClick={() => setWarnModal(null)}>
+        <div className="modal-backdrop">
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520 }}>
             <div className="modal-head">
               <span>⚠️ {warnModal.nickname} 경고 관리</span>
@@ -1328,7 +1381,7 @@ export default function UserInfoPage() {
                         <span className={`party-mode-badge mode-${p.mode}`}>{MODE_KO[p.mode] ?? p.mode}</span>
                         {p.note && <span style={{ fontWeight: 700, fontSize: 13 }}>{p.note}</span>}
                         <span style={{ fontSize: 11, color: "var(--muted)", marginLeft: "auto" }}>{p.startAt ? p.startAt.slice(5, 16).replace("T", " ") : "-"}</span>
-                        <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5, background: "rgba(231,76,60,0.18)", color: "#f1948a" }}>펑</span>
+                        <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5, background: "rgba(231,76,60,0.18)", color: "#f1948a" }}>펑{p.endedBy ? ` (${p.endedBy})` : ""}</span>
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                         {p.participants.map((nick) => (
@@ -1444,8 +1497,9 @@ export default function UserInfoPage() {
             <thead>
               <tr style={{ borderBottom: "2px solid var(--border)" }}>
                 <th style={{ textAlign: "left", padding: "6px 10px" }}>닉네임</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>칼바람 (2주)</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>협곡(일반+자랑+솔로) (2주)</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>최근 게임</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>칼바람</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>협곡(일반+자랭+내전)</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>플레이 로그</th>
               </tr>
             </thead>
@@ -1456,17 +1510,30 @@ export default function UserInfoPage() {
                     {m.nickname}
                     {m.warningCount > 0 && <span style={{ fontSize: 11, fontWeight: 800, marginLeft: 6, color: "#f1948a" }}>⚠️{m.warningCount}</span>}
                   </td>
-                  <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800,
-                    color: m.aramGames2w >= 4 ? "var(--win-text)" : "#f1948a" }}>
-                    {m.aramGames2w}판
+                  <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)", fontSize: 12 }}>
+                    {m.recentLogs && m.recentLogs.length > 0 ? m.recentLogs[0].startAt?.slice(0, 10) : "-"}
                   </td>
-                  <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800,
-                    color: m.normalGames2w >= 3 ? "var(--win-text)" : "#f1948a" }}>
-                    {m.normalGames2w}판
-                  </td>
+                  {(() => {
+                    const lastAt = (m as any).lastGameAt ? new Date(String((m as any).lastGameAt).replace(" ", "T")) : null;
+                    const afterLast = (m.recentLogs ?? []).filter(l => {
+                      if (!lastAt) return false;
+                      const d = new Date(String(l.startAt || l.date).replace(" ", "T"));
+                      return d > lastAt;
+                    });
+                    const aramAfter = afterLast.filter(l => l.type === "aram").reduce((s, l) => s + l.games, 0);
+                    const normalAfter = afterLast.filter(l => ["normal","flex","solo","scrim"].includes(l.type)).reduce((s, l) => s + l.games, 0);
+                    return (<>
+                      <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800, color: "var(--muted)" }}>
+                        {aramAfter}판
+                      </td>
+                      <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800, color: "var(--muted)" }}>
+                        {normalAfter}판
+                      </td>
+                    </>);
+                  })()}
                   <td style={{ padding: "8px 10px", textAlign: "center" }}>
                     <button className="sync-btn" style={{ fontSize: 11, padding: "2px 10px" }}
-                      onClick={() => setInactiveLogModal({ nickname: m.nickname, logs: m.recentLogs ?? [] })}>
+                      onClick={() => setInactiveLogModal({ memberId: m.id, nickname: m.nickname, logs: m.recentLogs ?? [] })}>
                       로그
                     </button>
                   </td>
@@ -1491,7 +1558,11 @@ export default function UserInfoPage() {
               {pagedMembers.map((m) => {
                 const cnt = m.rookiePartyCount ?? 0;
                 const circles = Array.from({ length: 3 }, (_, i) => i < cnt ? "O" : "X");
-                const canPromote = cnt >= 3;
+                const rookieNickSet2 = new Set(members.filter(x => x.position === '수습').map(x => x.nickname));
+                const playedUnique = new Set(
+                  (m.rookieSessionLogs ?? []).flatMap((log: any) => log.members ?? []).filter((n: string) => !rookieNickSet2.has(n))
+                ).size;
+                const canPromote = cnt >= 3 && playedUnique >= 3;
                 return (
                   <tr key={m.id} style={{ borderBottom: "1px solid var(--border)" }}>
                     <td style={{ padding: "8px 10px", fontWeight: 700 }}>
@@ -1527,7 +1598,7 @@ export default function UserInfoPage() {
                           className="sync-btn"
                           style={{ fontSize: 11, padding: "2px 10px", opacity: canPromote ? 1 : 0.4, cursor: canPromote ? "pointer" : "not-allowed" }}
                           onClick={async () => {
-                            if (!canPromote) { alert("파티 참여 3판을 충족해야 클랜원으로 전환할 수 있습니다."); return; }
+                            if (!canPromote) { alert("파티 참여 3판 + 같이 플레이한 클랜원 3명을 충족해야 클랜원으로 전환할 수 있습니다."); return; }
                             if (!confirm(`${m.nickname}을(를) 클랜원으로 전환하시겠습니까?`)) return;
                             const res = await fetch("/api/userinfo/member", {
                               method: "PUT",
@@ -1616,7 +1687,7 @@ export default function UserInfoPage() {
                     {" "}
                     <button className="edit-btn" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => openEditModal(m)}>수정</button>
                     {" "}
-                    <button className="del-btn small" onClick={() => remove("member", m.id)}>삭제</button>
+                    <button className="del-btn small" onClick={() => remove("member", m.id, m.nickname)}>삭제</button>
                   </td>
                 </tr>
               );

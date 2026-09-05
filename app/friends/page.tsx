@@ -19,6 +19,12 @@ export default function FriendsPage() {
   const [friendSearch, setFriendSearch] = useState("");
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) { if (e.key === "Escape") { setModal(null); setMemberSearch(""); setFriendSearch(""); } }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   function openAddModal() {
     setModal({ id: -1, nickname: "", friends: [] }); // -1 = 클랜원 선택 단계
     setMemberSearch(""); setFriendSearch("");
@@ -105,7 +111,7 @@ export default function FriendsPage() {
 
       {/* 지인 관리 모달 */}
       {modal && (
-        <div className="modal-backdrop" onClick={() => { setModal(null); setMemberSearch(""); setFriendSearch(""); }}>
+        <div className="modal-backdrop">
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
             <div className="modal-head">
               <span>👥 {modal.id === -1 ? "클랜원 선택" : `${modalMember?.nickname} 지인 관리`}</span>

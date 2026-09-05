@@ -66,6 +66,7 @@ export default function PointsPage() {
   const pointMemberWrapRef = useRef<HTMLDivElement>(null);
   const pointInputRef = useRef<HTMLInputElement>(null);
   const pointCommentRef = useRef<HTMLInputElement>(null);
+  const [pointMemberActiveIdx, setPointMemberActiveIdx] = useState(-1);
   const [pointMsg, setPointMsg] = useState("");
 
   // 상점 아이템
@@ -78,6 +79,12 @@ export default function PointsPage() {
   // 상점 구매 모달
   const [shopModal, setShopModal] = useState<{ name: string; cost: number; condition: string } | null>(null);
   const [shopMemberId, setShopMemberId] = useState("");
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) { if (e.key === "Escape") setShopModal(null); }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   const [shopErr, setShopErr] = useState("");
   const [shopBusy, setShopBusy] = useState(false);
 
@@ -95,10 +102,12 @@ export default function PointsPage() {
     finally { setLoading(false); }
   }
 
-  async function loadPointLogs(page = 0) {
+  async function loadPointLogs(page = 0, search = pointLogSearch) {
     setPointLoading(true);
     try {
-      const res = await fetch(`/api/points?offset=${page * 50}`);
+      const params = new URLSearchParams({ offset: String(page * 50) });
+      if (search.trim()) params.set("search", search.trim());
+      const res = await fetch(`/api/points?${params}`);
       const json = await res.json();
       if (res.ok) { setPointLogs(json.logs); setPointTotal(json.total ?? 0); }
     } catch {}
@@ -133,6 +142,7 @@ export default function PointsPage() {
     setPointForm((p) => ({ ...p, memberId: String(m.id) }));
     setPointMemberQuery(`${m.nickname} (${m.totalPoints}P)`);
     setPointMemberOpen(false);
+    setPointMemberActiveIdx(-1);
     pointInputRef.current?.focus();
   }
 
@@ -237,7 +247,7 @@ export default function PointsPage() {
 
       {/* 상점 구매 모달 */}
       {shopModal && (
-        <div className="modal-backdrop" onClick={() => setShopModal(null)}>
+        <div className="modal-backdrop">
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 360 }}>
             <div className="modal-head">
               <span>구매: {shopModal.name}</span>
@@ -308,13 +318,17 @@ export default function PointsPage() {
               <div ref={pointMemberWrapRef} style={{ position: "relative" }}>
                 <input
                   value={pointMemberQuery}
-                  onChange={(e) => { setPointMemberQuery(e.target.value); setPointMemberOpen(true); if (!e.target.value) setPointForm((p) => ({ ...p, memberId: "" })); }}
+                  onChange={(e) => { setPointMemberQuery(e.target.value); setPointMemberOpen(true); setPointMemberActiveIdx(-1); if (!e.target.value) setPointForm((p) => ({ ...p, memberId: "" })); }}
                   onFocus={() => setPointMemberOpen(true)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") {
+                    if (e.key === "ArrowDown") { e.preventDefault(); setPointMemberActiveIdx((i) => Math.min(i + 1, filteredPointMembers.length - 1)); }
+                    else if (e.key === "ArrowUp") { e.preventDefault(); setPointMemberActiveIdx((i) => Math.max(i - 1, -1)); }
+                    else if (e.key === "Enter") {
                       e.preventDefault();
-                      if (filteredPointMembers.length > 0) selectPointMember(filteredPointMembers[0]);
-                    } else if (e.key === "Escape") setPointMemberOpen(false);
+                      const picked = pointMemberActiveIdx >= 0 ? filteredPointMembers[pointMemberActiveIdx] : filteredPointMembers.length > 0 ? filteredPointMembers[0] : null;
+                      if (picked) selectPointMember(picked);
+                      else setPointMemberOpen(false);
+                    } else if (e.key === "Escape") { setPointMemberOpen(false); setPointMemberActiveIdx(-1); }
                   }}
                   placeholder="클랜원 검색"
                   style={{ width: 200, padding: "9px 12px", borderRadius: 8, border: `1px solid ${pointForm.memberId ? "var(--accent)" : "var(--border)"}`, background: "var(--card)", color: "var(--text)", fontSize: 14 }}
@@ -322,7 +336,7 @@ export default function PointsPage() {
                 {pointMemberOpen && filteredPointMembers.length > 0 && (
                   <div className="slot-candidates" style={{ zIndex: 50, minWidth: 200 }}>
                     {filteredPointMembers.map((m, i) => (
-                      <button key={m.id} className={i === 0 ? "first" : ""} onMouseDown={() => selectPointMember(m)}>
+                      <button key={m.id} className={i === pointMemberActiveIdx ? "active" : ""} onMouseDown={() => selectPointMember(m)}>
                         {m.nickname} ({m.totalPoints}P)
                       </button>
                     ))}
@@ -346,7 +360,7 @@ export default function PointsPage() {
               <input
                 placeholder="클랜원 이름 검색..."
                 value={pointLogSearch}
-                onChange={(e) => setPointLogSearch(e.target.value)}
+                onChange={(e) => { setPointLogSearch(e.target.value); setPointPage(0); loadPointLogs(0, e.target.value); }}
                 style={{ width: 200, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
               />
               {pointTotal > 50 && (
@@ -387,7 +401,7 @@ export default function PointsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pointLogs.filter(l => !pointLogSearch.trim() || l.nickname?.toLowerCase().includes(pointLogSearch.toLowerCase())).map((l) => (
+                  {pointLogs.map((l) => (
                     <tr key={l.id} style={{ borderBottom: "1px solid var(--border)", height: 38 }}>
                       <td style={{ padding: "0 8px", color: "var(--muted)", whiteSpace: "nowrap" }}>{l.created_at?.slice(0, 16)}</td>
                       <td style={{ padding: "0 8px", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.nickname}</td>

@@ -11,7 +11,6 @@ export async function GET(req: NextRequest) {
   const sessionId = req.nextUrl.searchParams.get("sessionId");
 
   if (!sessionId) {
-    // 최신 세션 목록
     const [rows] = await pool.query(
       `SELECT s.id, s.status, s.current_idx, s.created_at,
               COUNT(DISTINCT ap.id) AS player_count
@@ -60,8 +59,6 @@ export async function POST(req: NextRequest) {
   await ensureSchema();
   const pool = getPool();
   const body = await req.json();
-  // body: { captains: [{memberId, points}], playerIds?: number[] }
-  // playerIds 없으면 roster 전체(팀장 제외)를 선수로 사용
   const { captains, playerIds } = body as {
     captains: { memberId: number; points: number; captainUserId?: number }[];
     playerIds?: number[];
@@ -71,12 +68,10 @@ export async function POST(req: NextRequest) {
 
   const captainIds = new Set(captains.map((c) => c.memberId));
 
-  // 선수 목록 결정
   let players: number[];
   if (playerIds && playerIds.length > 0) {
     players = playerIds.filter((id) => !captainIds.has(id));
   } else {
-    // roster에서 팀장 제외 전원
     const [rosterRows] = await pool.query(
       `SELECT member_id FROM auction_roster ORDER BY member_id ASC`
     ) as any[];
@@ -86,7 +81,6 @@ export async function POST(req: NextRequest) {
   if (players.length === 0)
     return NextResponse.json({ error: "선수가 없습니다. 참여자 관리에서 먼저 등록하세요." }, { status: 400 });
 
-  // 선수 순서 무작위 셔플 (Fisher-Yates)
   for (let i = players.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [players[i], players[j]] = [players[j], players[i]];
@@ -133,16 +127,13 @@ export async function PATCH(req: NextRequest) {
   const { action, sessionId } = body;
 
   if (action === "bid") {
-    // 팀장이 입찰: { sessionId, captainPlayerId, points }
     const { captainPlayerId, points } = body;
-    // 팀장 본인 확인
     const [[captain]] = await pool.query(
       `SELECT ap.*, m.nickname FROM auction_players ap JOIN members m ON m.id = ap.member_id
        WHERE ap.id = ? AND ap.is_captain = 1`, [captainPlayerId]
     ) as any[];
     if (!captain) return NextResponse.json({ error: "팀장 아님" }, { status: 403 });
 
-    // 현재 경매 중인 선수
     const [[session]] = await pool.query(
       `SELECT * FROM auction_sessions WHERE id = ? AND status = 'running'`, [sessionId]
     ) as any[];
@@ -151,10 +142,10 @@ export async function PATCH(req: NextRequest) {
     const [nonCaptains] = await pool.query(
       `SELECT * FROM auction_players WHERE session_id = ? AND is_captain = 0 ORDER BY sort_order ASC`, [sessionId]
     ) as any[];
-    const currentPlayer = nonCaptains[session.current_idx];
+    // 항상 team_id=null인 첫 번째 선수가 현재 경매 대상
+    const currentPlayer = (nonCaptains as any[]).filter((p:any) => p.team_id === null)[0];
     if (!currentPlayer) return NextResponse.json({ error: "경매 대상 없음" }, { status: 400 });
 
-    // 현재 최고 입찰가 확인
     const [[topBid]] = await pool.query(
       `SELECT MAX(points) AS max_pts FROM auction_bids WHERE session_id = ? AND player_id = ?`,
       [sessionId, currentPlayer.id]
@@ -162,7 +153,6 @@ export async function PATCH(req: NextRequest) {
     if (points <= (topBid?.max_pts ?? 0))
       return NextResponse.json({ error: "현재 최고 입찰가보다 높아야 합니다." }, { status: 400 });
 
-    // 잔여 포인트 확인 - 낙찰된 선수별 최고 입찰가 합산
     const [[spent]] = await pool.query(
       `SELECT COALESCE(SUM(max_pts), 0) AS used FROM (
          SELECT MAX(ab.points) AS max_pts
@@ -181,22 +171,19 @@ export async function PATCH(req: NextRequest) {
       `INSERT INTO auction_bids (session_id, player_id, captain_id, points) VALUES (?, ?, ?, ?)`,
       [sessionId, currentPlayer.id, captainPlayerId, points]
     );
-    await pool.query(`UPDATE auction_sessions SET timer_started_at = ? WHERE id = ?`, [Date.now(), sessionId]);
+    await pool.query(`UPDATE auction_sessions SET timer_started = 1, timer_started_at = ? WHERE id = ?`, [Date.now(), sessionId]);
     return NextResponse.json({ ok: true });
   }
 
   if (action === "award") {
-    // 낙찰 처리: { sessionId } — 현재 최고 입찰자에게 낙찰
     const auth2 = requireAdmin(req);
     if (!auth2.ok) return auth2.response;
 
-    const [[session]] = await pool.query(
-      `SELECT id, status, current_idx FROM auction_sessions WHERE id = ?`, [sessionId]
-    ) as any[];
     const [nonCaptains] = await pool.query(
       `SELECT * FROM auction_players WHERE session_id = ? AND is_captain = 0 ORDER BY sort_order ASC`, [sessionId]
     ) as any[];
-    const currentPlayer = nonCaptains[session.current_idx];
+    // 항상 team_id=null인 첫 번째 선수가 현재 경매 대상
+    const currentPlayer = (nonCaptains as any[]).filter((p:any) => p.team_id === null)[0];
     if (!currentPlayer) return NextResponse.json({ error: "대상 없음" }, { status: 400 });
 
     const [[topBid]] = await pool.query(
@@ -211,24 +198,35 @@ export async function PATCH(req: NextRequest) {
       );
     } else {
       // 유찰: sort_order를 최대값+1로 밀어서 맨 뒤로
-      const maxOrder = nonCaptains.reduce((m: number, p: any) => Math.max(m, p.sort_order), 0);
+      const maxOrder = (nonCaptains as any[]).reduce((m: number, p: any) => Math.max(m, p.sort_order), 0);
       await pool.query(
         `UPDATE auction_players SET sort_order = ? WHERE id = ?`,
         [maxOrder + 1, currentPlayer.id]
       );
     }
 
-    const nextIdx = session.current_idx + 1;
-    // 낙찰된 선수 수 기준으로 완료 판단
-    const awardedCount = topBid
-      ? nonCaptains.filter((p: any) => p.team_id !== null).length + 1
-      : nonCaptains.filter((p: any) => p.team_id !== null).length;
-    const isDone = awardedCount >= nonCaptains.length;
-    // current_idx가 배열 범위를 넘지 않도록 clamp
-    const safeNextIdx = Math.min(nextIdx, nonCaptains.length);
     await pool.query(
-      `UPDATE auction_sessions SET current_idx = ?, status = ?, timer_started = 0, timer_started_at = NULL WHERE id = ?`,
-      [safeNextIdx, isDone ? "done" : "running", sessionId]
+      `UPDATE auction_sessions SET timer_started = 0, timer_started_at = NULL WHERE id = ?`,
+      [sessionId]
+    );
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "next") {
+    const auth2 = requireAdmin(req);
+    if (!auth2.ok) return auth2.response;
+
+    const [nonCaptains] = await pool.query(
+      `SELECT * FROM auction_players WHERE session_id = ? AND is_captain = 0 ORDER BY sort_order ASC`, [sessionId]
+    ) as any[];
+
+    // award 후 현재 선수는 team_id가 설정됐거나 sort_order가 뒤로 밀렸으므로
+    // team_id=null인 선수가 1명 이하면 done
+    const unawardedAll = (nonCaptains as any[]).filter((p: any) => p.team_id === null);
+    const isDone = unawardedAll.length === 0;
+    await pool.query(
+      `UPDATE auction_sessions SET current_idx = current_idx + 1, status = ?, timer_started = 0, timer_started_at = NULL WHERE id = ?`,
+      [isDone ? "done" : "running", sessionId]
     );
     return NextResponse.json({ ok: true, done: isDone });
   }
@@ -250,9 +248,22 @@ export async function PATCH(req: NextRequest) {
   if (action === "reset") {
     const auth2 = requireAdmin(req);
     if (!auth2.ok) return auth2.response;
-    await pool.query(`UPDATE auction_sessions SET status = 'waiting', current_idx = 0, timer_started = 0, timer_started_at = NULL WHERE id = ?`, [sessionId]);
-    await pool.query(`DELETE FROM auction_bids WHERE session_id = ?`, [sessionId]);
-    await pool.query(`UPDATE auction_players SET team_id = NULL WHERE session_id = ? AND is_captain = 0`, [sessionId]);
+    const [nonCaptains] = await pool.query(
+      `SELECT * FROM auction_players WHERE session_id = ? AND is_captain = 0 ORDER BY sort_order ASC`, [sessionId]
+    ) as any[];
+    const unawarded = (nonCaptains as any[]).filter((p:any) => p.team_id === null);
+    const awarded = (nonCaptains as any[]).filter((p:any) => p.team_id !== null);
+    const unawardedIds = unawarded.map((p:any) => p.id);
+    for (let i = 0; i < unawarded.length; i++) {
+      await pool.query(`UPDATE auction_players SET sort_order = ? WHERE id = ?`, [i, unawarded[i].id]);
+    }
+    for (let i = 0; i < awarded.length; i++) {
+      await pool.query(`UPDATE auction_players SET sort_order = ? WHERE id = ?`, [unawarded.length + i, awarded[i].id]);
+    }
+    if (unawardedIds.length > 0) {
+      await pool.query(`DELETE FROM auction_bids WHERE session_id = ? AND player_id IN (?)`, [sessionId, unawardedIds]);
+    }
+    await pool.query(`UPDATE auction_sessions SET status = 'running', current_idx = 0, timer_started = 0, timer_started_at = NULL WHERE id = ?`, [sessionId]);
     return NextResponse.json({ ok: true });
   }
 

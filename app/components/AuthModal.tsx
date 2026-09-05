@@ -20,6 +20,12 @@ export default function AuthModal() {
     setError(""); setInfo("");
   }, [authModalOpen, authModalMode]);
 
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) { if (e.key === "Escape") closeAuthModal(); }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [closeAuthModal]);
+
   if (!authModalOpen) return null;
 
   async function handleLogin(e: React.FormEvent) {
@@ -54,8 +60,8 @@ export default function AuthModal() {
   }
 
   return (
-    <div className="auth-modal-backdrop" onClick={closeAuthModal}>
-      <form className="auth-modal" onClick={(e) => e.stopPropagation()} onSubmit={mode === "login" ? handleLogin : handleSignup}>
+    <div className="auth-modal-backdrop">
+      <form className="auth-modal" onSubmit={mode === "login" ? handleLogin : handleSignup}>
         <div className="auth-modal-head">
           <span className="login-popover-title">{mode === "login" ? "로그인" : "회원가입"}</span>
           <button type="button" className="modal-close" onClick={closeAuthModal}>×</button>

@@ -421,6 +421,66 @@ async function createSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // 경매 참여자 사전 등록 (라인 + 주챔피언)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auction_roster (
+      id         INT AUTO_INCREMENT PRIMARY KEY,
+      member_id  INT NOT NULL UNIQUE,
+      line       VARCHAR(10) NULL,
+      champ1     VARCHAR(50) NULL,
+      champ2     VARCHAR(50) NULL,
+      champ3     VARCHAR(50) NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_roster_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 경매 세션
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auction_sessions (
+      id           INT AUTO_INCREMENT PRIMARY KEY,
+      status       VARCHAR(20) NOT NULL DEFAULT 'waiting',
+      current_idx  INT NOT NULL DEFAULT 0,
+      created_by   INT NOT NULL,
+      created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_auction_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 경매 참가자 (팀장 + 일반 선수)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auction_players (
+      id           INT AUTO_INCREMENT PRIMARY KEY,
+      session_id   INT NOT NULL,
+      member_id    INT NOT NULL,
+      is_captain   TINYINT NOT NULL DEFAULT 0,
+      points       INT NOT NULL DEFAULT 0,
+      team_id      INT NULL,
+      sort_order   INT NOT NULL DEFAULT 0,
+      CONSTRAINT fk_ap_session FOREIGN KEY (session_id) REFERENCES auction_sessions(id) ON DELETE CASCADE,
+      CONSTRAINT fk_ap_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await pool.query(`ALTER TABLE auction_players ADD COLUMN IF NOT EXISTS champ1 VARCHAR(50) NULL`);
+  await pool.query(`ALTER TABLE auction_players ADD COLUMN IF NOT EXISTS champ2 VARCHAR(50) NULL`);
+  await pool.query(`ALTER TABLE auction_players ADD COLUMN IF NOT EXISTS champ3 VARCHAR(50) NULL`);
+  await pool.query(`ALTER TABLE auction_sessions ADD COLUMN IF NOT EXISTS timer_started TINYINT NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE auction_sessions ADD COLUMN IF NOT EXISTS timer_started_at BIGINT NULL`);
+  await pool.query(`ALTER TABLE auction_sessions ADD COLUMN IF NOT EXISTS awarded_player_id INT NULL`);
+
+  // 경매 입찰 기록
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auction_bids (
+      id           INT AUTO_INCREMENT PRIMARY KEY,
+      session_id   INT NOT NULL,
+      player_id    INT NOT NULL,
+      captain_id   INT NOT NULL,
+      points       INT NOT NULL,
+      created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_ab_session FOREIGN KEY (session_id) REFERENCES auction_sessions(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   await seedDefaultAdmin(pool);
   await seedScrimRatings(pool);
 }

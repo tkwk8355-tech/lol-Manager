@@ -16,8 +16,10 @@ export async function GET(req: NextRequest) {
     const pool = getPool();
 
     const [parties] = await pool.query(
-      `SELECT p.id, p.mode, p.note, p.status, p.created_at, p.ended_at, p.start_at, p.host_nickname
+      `SELECT p.id, p.mode, p.note, p.status, p.created_at, p.ended_at, p.start_at, p.host_nickname,
+              u.nickname AS ended_by_nickname
        FROM parties p
+       LEFT JOIN users u ON u.id = p.ended_by
        WHERE p.status = 'ended'
        ORDER BY p.ended_at DESC
        LIMIT 100`
@@ -57,6 +59,7 @@ export async function GET(req: NextRequest) {
           note: p.note,
           status: p.status,
           startAt: p.start_at,
+          endedBy: p.ended_by_nickname ?? null,
           participants: current,
           pastParticipants: past,
         };

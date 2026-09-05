@@ -33,8 +33,17 @@ export async function GET(req: NextRequest) {
 
   // 전체 로그 (운영진만)
   if (auth.session.role !== "admin" && auth.session.role !== "subadmin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
-  const offset = Math.max(0, Number(new URL(req.url).searchParams.get("offset") ?? 0));
-  const [totalRows] = await pool.query(`SELECT COUNT(*) AS cnt FROM point_logs`) as [any[], any];
+  const sp = new URL(req.url).searchParams;
+  const offset = Math.max(0, Number(sp.get("offset") ?? 0));
+  const search = (sp.get("search") ?? "").trim();
+  const whereClause = search
+    ? `WHERE (SELECT a.game_name FROM accounts a WHERE a.member_id = pl.member_id AND a.is_main = 1 LIMIT 1) LIKE ?`
+    : "";
+  const searchParam = search ? [`%${search}%`] : [];
+  const [totalRows] = await pool.query(
+    `SELECT COUNT(*) AS cnt FROM point_logs pl ${whereClause}`,
+    searchParam
+  ) as [any[], any];
   const total = Number(totalRows[0]?.cnt ?? 0);
   const [logs] = await pool.query(
     `SELECT pl.id, pl.member_id,
@@ -44,8 +53,9 @@ export async function GET(req: NextRequest) {
             COALESCE((SELECT a2.game_name FROM users u JOIN accounts a2 ON a2.member_id = u.member_id AND a2.is_main = 1 WHERE u.id = pl.given_by LIMIT 1), u2.nickname) AS given_by_name
      FROM point_logs pl
      LEFT JOIN users u2 ON u2.id = pl.given_by
+     ${whereClause}
      ORDER BY pl.created_at DESC LIMIT 50 OFFSET ?`,
-    [offset]
+    [...searchParam, offset]
   ) as [any[], any];
   return NextResponse.json({ logs, total });
 }

@@ -31,19 +31,21 @@ export async function GET(req: NextRequest) {
     const [partyRows] = await pool.query(`
       SELECT pl.member_id,
              SUM(IF(pl.type = 'aram', pl.games, 0)) AS aram_games,
-             SUM(IF(pl.type IN ('normal','flex','solo'), pl.games, 0)) AS normal_games
+             SUM(IF(pl.type IN ('normal','flex','solo','scrim'), pl.games, 0)) AS normal_games,
+             MAX(COALESCE(p.start_at, pl.created_at)) AS last_game_at
       FROM point_logs pl
-      WHERE pl.type IN ('aram','normal','flex','solo') AND DATE(pl.created_at) >= ?
+      LEFT JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
+      WHERE pl.type IN ('aram','normal','flex','solo','scrim')
       GROUP BY pl.member_id
-    `, [twoWeeksAgo]) as [any[], any];
-    const partyGames = new Map<number, { aram: number; normal: number }>();
+    `) as [any[], any];
+    const partyGames = new Map<number, { aram: number; normal: number; lastGameAt: string | null }>();
     for (const r of partyRows) {
-      partyGames.set(r.member_id, { aram: Number(r.aram_games), normal: Number(r.normal_games) });
+      partyGames.set(r.member_id, { aram: Number(r.aram_games), normal: Number(r.normal_games), lastGameAt: r.last_game_at ?? null });
     }
 
     // 최근 2주 파티 로그 상세 (판수미달 뷰용)
     const [recentLogRows] = await pool.query(`
-      SELECT pl.member_id, pl.type, pl.games, pl.comment, pl.created_at, pl.with_members,
+      SELECT pl.id, pl.member_id, pl.type, pl.games, pl.comment, pl.created_at, pl.with_members,
              p.start_at, p.mode AS party_mode
       FROM point_logs pl
       LEFT JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
@@ -55,6 +57,7 @@ export async function GET(req: NextRequest) {
       const mid = r.member_id;
       if (!recentLogs.has(mid)) recentLogs.set(mid, []);
       recentLogs.get(mid)!.push({
+        id: r.id,
         type: r.type,
         games: Number(r.games),
         comment: r.comment,
@@ -81,7 +84,7 @@ export async function GET(req: NextRequest) {
     // ref_table로 ref_id가 parties인지 scrim_matches인지 구분한다.
     // (두 테이블의 auto-increment id가 우연히 같을 수 있어 이 구분 없이는 조인이 섞인다.)
     const [rookieRows] = await pool.query(`
-      SELECT pl.member_id, pl.games, pl.party_count, pl.comment, pl.created_at, pl.ref_id, pl.ref_table, pl.with_members, p.start_at, p.mode, sm.played_at
+      SELECT pl.id, pl.member_id, pl.games, pl.party_count, pl.comment, pl.created_at, pl.ref_id, pl.ref_table, pl.with_members, p.start_at, p.mode, sm.played_at
       FROM point_logs pl
       LEFT JOIN parties p ON p.id = pl.ref_id AND (pl.ref_table = 'party' OR pl.ref_table IS NULL)
       LEFT JOIN scrim_matches sm ON sm.id = pl.ref_id AND pl.ref_table = 'scrim_match'
@@ -116,6 +119,7 @@ export async function GET(req: NextRequest) {
       } else {
         if (!rookieSessionLogs.has(mid)) rookieSessionLogs.set(mid, []);
         rookieSessionLogs.get(mid)!.push({
+          id: r.id,
           games: Number(r.games),
           partyCount: Number(r.party_count),
           comment: r.comment,
@@ -222,7 +226,7 @@ export async function GET(req: NextRequest) {
       const pg = partyGames.get(id);
       m.aramGames2w = pg?.aram ?? 0;
       m.normalGames2w = pg?.normal ?? 0;
-      // 판수미달: 칼바람 4판 미만 AND 협곡(클랜원+자유+솔로) 3판 미만
+      m.lastGameAt = pg?.lastGameAt ?? null;
       m.games2w = (pg?.aram ?? 0) + (pg?.normal ?? 0);
       // 본계정이 없으면 첫 번째 계정 이름 사용, 계정도 없으면 members.nickname 사용
       if (!m.nickname) {

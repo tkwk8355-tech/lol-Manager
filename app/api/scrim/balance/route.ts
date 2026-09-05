@@ -82,7 +82,7 @@ function teamEffectiveSum(team: Player[], infoMap: Map<number, LineInfo>): numbe
 
 export async function POST(req: NextRequest) {
   try {
-    const { memberIds, overrideAll = [] }: { memberIds: number[]; overrideAll?: number[] } = await req.json();
+    const { memberIds, overrideAll = [], overrideMain = [] }: { memberIds: number[]; overrideAll?: number[]; overrideMain?: number[] } = await req.json();
     if (!Array.isArray(memberIds) || memberIds.length !== 10)
       return NextResponse.json({ error: "클랜원 10명을 선택하세요." }, { status: 400 });
 
@@ -100,8 +100,10 @@ export async function POST(req: NextRequest) {
       return new Map(
         memberRows.map((m: any) => {
           const originalSubLine = m.sub_line ?? null;
-          const isOverride = useOverride && overrideAll.includes(m.id);
-          const effectiveSub = isOverride ? "ALL" : originalSubLine;
+          const isOverrideAllFlag = useOverride && overrideAll.includes(m.id);
+          const isOverrideMainFlag = useOverride && overrideMain.includes(m.id);
+          // 주라인 고정: subLine을 mainLine과 동일하게 설정 (주라인만 배정 가능)
+          const effectiveSub = isOverrideAllFlag ? "ALL" : isOverrideMainFlag ? (m.main_line ?? null) : originalSubLine;
           return [m.id as number, {
             nickname: m.nickname as string,
             mainLine: m.main_line ?? null,
@@ -154,22 +156,21 @@ export async function POST(req: NextRequest) {
       return acceptable.length > 0 ? acceptable[Math.floor(Math.random() * acceptable.length)] : best;
     }
 
-    // 1단계: overrideAll 없이 원래 주/부라인으로 시도
-    const infoMap1 = buildInfoMap(false);
+    // 1단계: overrideAll/overrideMain 적용해서 시도
+    const infoMap1 = buildInfoMap(true);
     let chosen = runBalance(infoMap1);
-    let usedOverride = false;
+    const usedOverride = true;
 
-    // 2단계: 안 되면 overrideAll 적용해서 재시도
-    if (!chosen && overrideAll.length > 0) {
-      const infoMap2 = buildInfoMap(true);
+    // 2단계: 안 되면 override 없이 재시도
+    if (!chosen) {
+      const infoMap2 = buildInfoMap(false);
       chosen = runBalance(infoMap2);
-      if (chosen) usedOverride = true;
     }
 
     if (!chosen)
       return NextResponse.json({ error: "팀 생성 불가능 (라인 조합을 찾을 수 없습니다)" }, { status: 400 });
 
-    const finalInfoMap = buildInfoMap(usedOverride);
+    const finalInfoMap = buildInfoMap(true);
     const team1 = assignLines(chosen.t1, finalInfoMap);
     const team2 = assignLines(chosen.t2, finalInfoMap);
     if (!team1 || !team2)

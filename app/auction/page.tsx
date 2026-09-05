@@ -77,28 +77,37 @@ function MemberSearchInput({members,usedIds,onSelect,placeholder}:{members:Membe
 }
 function useCountdown(seconds:number,onEnd:()=>void,startedAt:number|null,serverNow:number|null){
   const [rem,setRem]=useState(seconds);
-  const timerRef=useRef<ReturnType<typeof setInterval>|null>(null);
+  const rafRef=useRef<number|null>(null);
   const onEndRef=useRef(onEnd);onEndRef.current=onEnd;
-  const serverNowRef=useRef(serverNow);
-  useEffect(()=>{serverNowRef.current=serverNow;},[serverNow]);
-  function reset(){setRem(seconds);if(timerRef.current){clearInterval(timerRef.current);timerRef.current=null;}}
+  const firedRef=useRef(false);
+  // clockOffset: 최초 serverNow 수신 시 1회만 계산, 이후 serverNow 변경 무시
+  const clockOffsetRef=useRef<number>(0);
+  const serverNowInitRef=useRef(false);
+  if(!serverNowInitRef.current&&serverNow!=null){clockOffsetRef.current=Date.now()-serverNow;serverNowInitRef.current=true;}
+  function reset(){setRem(seconds);firedRef.current=false;if(rafRef.current){cancelAnimationFrame(rafRef.current);rafRef.current=null;}}
   useEffect(()=>{
-    if(!startedAt)return;
-    if(timerRef.current)clearInterval(timerRef.current);
-    const now=Date.now();
-    const elapsed=Math.floor((now-startedAt)/1000);
-    const initial=Math.max(0,seconds-elapsed);
-    if(initial<=0){setRem(0);setTimeout(()=>onEndRef.current(),0);return;}
-    setRem(initial);
-    timerRef.current=setInterval(()=>{
-      setRem(prev=>{if(prev<=1){clearInterval(timerRef.current!);timerRef.current=null;onEndRef.current();return 0;}return prev-1;});
-    },1000);
-    return()=>{if(timerRef.current)clearInterval(timerRef.current);};
+    if(!startedAt){reset();return;}
+    firedRef.current=false;
+    if(rafRef.current)cancelAnimationFrame(rafRef.current);
+    const startedAtMs=startedAt;
+    const offset=clockOffsetRef.current;
+    function tick(){
+      const elapsed=(Date.now()-offset-startedAtMs)/1000;
+      const r=Math.max(0,seconds-elapsed);
+      setRem(r);
+      if(r<=0){
+        if(!firedRef.current){firedRef.current=true;onEndRef.current();}
+        return;
+      }
+      rafRef.current=requestAnimationFrame(tick);
+    }
+    rafRef.current=requestAnimationFrame(tick);
+    return()=>{if(rafRef.current)cancelAnimationFrame(rafRef.current);};
   },[startedAt]);
   return{rem,reset};
 }
 
-function AuctionTimer({onEnd,resetRef,startedAt,serverNow,onStart,isAdmin}:{onEnd:()=>void;resetRef:React.MutableRefObject<(()=>void)|null>;startedAt:number|null;serverNow:number|null;onStart:()=>void;isAdmin:boolean}){
+function AuctionTimer({onEnd,resetRef,startedAt,serverNow,onStart,isAdmin,nextButton}:{onEnd:()=>void;resetRef:React.MutableRefObject<(()=>void)|null>;startedAt:number|null;serverNow:number|null;onStart:()=>void;isAdmin:boolean;nextButton?:React.ReactNode}){
   const {rem,reset}=useCountdown(10,onEnd,startedAt,serverNow);
   resetRef.current=reset;
   const pct=(rem/10)*100;
@@ -106,12 +115,13 @@ function AuctionTimer({onEnd,resetRef,startedAt,serverNow,onStart,isAdmin}:{onEn
   return(
     <div style={{textAlign:"center",width:"100%"}}>
       {!startedAt
-        ?<button className="btn-primary" style={{fontSize:16,padding:"12px 40px"}} onClick={onStart} disabled={!isAdmin}>▶ 시작</button>
+        ?<div style={{display:"flex",gap:8,justifyContent:"center",alignItems:"center"}}>
+          {isAdmin&&<button style={{fontSize:13,padding:"8px 20px",borderRadius:8,border:"1px solid rgba(83,131,232,0.6)",background:"transparent",color:"#7aa2f7",fontWeight:700,cursor:"pointer"}} onClick={onStart}>시작</button>}
+          {!isAdmin&&<div style={{fontSize:17,color:"#fff",padding:"12px 0",fontWeight:700}}>경매 대기 중...</div>}
+          {nextButton}
+        </div>
         :<>
-          <div style={{fontSize:56,fontWeight:900,color,lineHeight:1,letterSpacing:2}}>{String(rem).padStart(2,"0")}</div>
-          <div style={{height:8,background:"var(--border)",borderRadius:4,margin:"10px 0",overflow:"hidden"}}>
-            <div style={{height:"100%",width:pct+"%",background:color,borderRadius:4,transition:"width 1s linear,background 0.3s"}} />
-          </div>
+          <div style={{fontSize:56,fontWeight:900,color,lineHeight:1,letterSpacing:2}}>{String(Math.ceil(rem)).padStart(2,"0")}</div>
         </>
       }
     </div>
@@ -206,27 +216,59 @@ function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:bool
   const [serverNow,setServerNow]=useState<number|null>(null);
   const [bidErr,setBidErr]=useState("");
   const [bidLoading,setBidLoading]=useState(false);
-  const [lastBidMsg,setLastBidMsg]=useState<string|null>(null);
-  const lastBidTimerRef=useRef<ReturnType<typeof setTimeout>|null>(null);
-  const [awarding,setAwarding]=useState(false);
+  const [awarded,setAwarded]=useState(false);
+  const [awardedTopBid,setAwardedTopBid]=useState<AuctionBid|null>(null);
+  const [frozenPlayer,setFrozenPlayer]=useState<AuctionPlayer|null>(null);
   const [awardCd,setAwardCd]=useState<number|null>(null);
+  const [nexting,setNexting]=useState(false);
   const pollRef=useRef<ReturnType<typeof setInterval>|null>(null);
   const prevTopRef=useRef<number>(0);
-  const prevTopBidIdRef=useRef<number|null>(null);
   const timerResetRef=useRef<(()=>void)|null>(null);
+  const prevPlayerIdRef=useRef<number|null>(null);
+  const nextingRef=useRef(false);
+  const awardingRef=useRef(false);
   const captains=players.filter(p=>p.is_captain===1);
   const nonCaptains=players.filter(p=>p.is_captain===0);
-  const timerStartedAt=session?.timer_started ? (session.timer_started_at??null) : null;
-  const currentPlayer=session?nonCaptains[session.current_idx]??null:null;
-  const currentBids=currentPlayer?bids.filter(b=>b.player_id===currentPlayer.id):[];
-  const topBid=currentBids.reduce<AuctionBid|null>((top,b)=>(!top||b.points>top.points)?b:top,null);
+  const timerStartedAt=session?.timer_started?(session.timer_started_at??null):null;
+  const currentPlayer=session?nonCaptains.filter(p=>p.team_id===null)[0]??null:null;
+  // 낙찰 표시: awarded state(어드민) 또는 timer_started=0이고 frozenPlayer가 있으면(팀장)
+  const displayPlayer=awarded?frozenPlayer:currentPlayer;
+  const activePlayer=displayPlayer??currentPlayer;
+  const bidSourcePlayer=awarded?frozenPlayer:currentPlayer;
+  const currentBids=bidSourcePlayer?bids.filter(b=>b.player_id===bidSourcePlayer.id):[];
+  const topBid=awarded?awardedTopBid:currentBids.reduce<AuctionBid|null>((top,b)=>(!top||b.points>top.points)?b:top,null);
+  // 챔피언 공개 조건: 어드민은 awarded&&awardedTopBid, 팀장은 awarded&&topBid
+  const champRevealed=awarded&&(awardedTopBid??topBid)!=null;
+  const topBidRef=useRef(topBid);topBidRef.current=topBid;
+  const sessionRef=useRef(session);sessionRef.current=session;
   const myCaptain=myUserId?captains.find(c=>c.user_id===myUserId)??null:null;
+  const awardedRef=useRef(false);
+  awardedRef.current=awarded;
+  const myUserIdRef=useRef(myUserId);myUserIdRef.current=myUserId;
+  const prevCurrentIdxRef=useRef<number|null>(null);
+  const prevTimerStartedRef=useRef<number|null>(null);
   const load=useCallback(async()=>{
     const res=await fetch("/api/auction?sessionId="+sessionId);
     if(!res.ok)return;
     const json=await res.json();
     const s=json.session;
     if(s&&s.timer_started_at!=null)s.timer_started_at=Number(s.timer_started_at);
+    const nc=(json.players as AuctionPlayer[]).filter(p=>p.is_captain===0);
+    // timer_started 1→0: 낙찰 완료
+    if(prevTimerStartedRef.current===1&&s?.timer_started===0&&!nextingRef.current&&!awardedRef.current){
+      const prevPlayer=nc.find(p=>p.id===prevPlayerIdRef.current)??null;
+      const allBids=json.bids as AuctionBid[];
+      const tb=allBids.filter(b=>b.player_id===(prevPlayer?.id??-1)).reduce<AuctionBid|null>((top,b)=>(!top||b.points>top.points)?b:top,null);
+      if(tb&&prevPlayer){setFrozenPlayer(prevPlayer);setAwardedTopBid(tb);setAwarded(true);}
+    }
+    // current_idx 증가 감지: 어드민이 다음 누름 → 팀장 화면 리셋
+    const isCaptain=!!(myUserIdRef.current&&(json.players as AuctionPlayer[]).find(p=>p.is_captain===1&&p.user_id===myUserIdRef.current));
+    if(isCaptain&&awardedRef.current&&prevCurrentIdxRef.current!==null&&s?.current_idx!==prevCurrentIdxRef.current){
+      setAwarded(false);setAwardedTopBid(null);setFrozenPlayer(null);setAwardCd(null);prevTopRef.current=0;
+      prevPlayerIdRef.current=nc.filter(p=>p.team_id===null)[0]?.id??null;
+    }
+    prevTimerStartedRef.current=s?.timer_started??null;
+    prevCurrentIdxRef.current=s?.current_idx??null;
     setSession(s);setPlayers(json.players);setBids(json.bids);setServerNow(json.serverNow??null);
   },[sessionId]);
   useEffect(()=>{
@@ -236,35 +278,51 @@ function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:bool
   },[load]);
   useEffect(()=>{
     const newTop=topBid?.points??0;
-    if(newTop>prevTopRef.current){prevTopRef.current=newTop;setAwardCd(null);}
+    if(newTop>prevTopRef.current&&!awardingRef.current){prevTopRef.current=newTop;setAwardCd(null);}
   },[topBid?.points]);
   useEffect(()=>{
-    if(!topBid)return;
-    if(topBid.id===prevTopBidIdRef.current)return;
-    prevTopBidIdRef.current=topBid.id;
-    if(lastBidTimerRef.current)clearTimeout(lastBidTimerRef.current);
-    setLastBidMsg(topBid.captain_name+"님이 "+topBid.points+" 포인트 입찰했습니다!");
-    lastBidTimerRef.current=setTimeout(()=>setLastBidMsg(null),3000);
-  },[topBid?.id]);
-  const prevIdxRef=useRef<number>(-1);
-  useEffect(()=>{
-    const idx=session?.current_idx??-1;
-    if(idx!==prevIdxRef.current&&idx>=0){prevIdxRef.current=idx;timerResetRef.current?.();}
-  },[session?.current_idx]);
-  const topBidRef=useRef(topBid);topBidRef.current=topBid;
-  const sessionRef=useRef(session);sessionRef.current=session;
-  function onTimerEnd(){if(sessionRef.current?.status==="running"){setAwardCd(topBidRef.current?3:0);}}
+    const pid=currentPlayer?.id??null;
+    if(pid!==prevPlayerIdRef.current&&!nextingRef.current&&!awardedRef.current){
+      prevPlayerIdRef.current=pid;timerResetRef.current?.();
+      setAwarded(false);setAwardedTopBid(null);setFrozenPlayer(null);setAwardCd(null);prevTopRef.current=0;
+    }
+  },[currentPlayer?.id]);
+  function onTimerEnd(){if(sessionRef.current?.status==="running"){if(topBidRef.current)setAwardCd(1);else setAwarded(true);}}
   const handleAwardRef=useRef(handleAward);handleAwardRef.current=handleAward;
   useEffect(()=>{
     if(awardCd===null)return;
-    if(awardCd<=0){if(isAdmin)handleAwardRef.current();return;}
+    if(awardCd<=0){if(isAdmin&&!awardingRef.current)handleAwardRef.current();return;}
     const t=setTimeout(()=>setAwardCd(prev=>(prev??1)-1),1000);
     return()=>clearTimeout(t);
   },[awardCd,isAdmin]);
   async function handleAward(){
-    setAwarding(true);
+    if(awardingRef.current)return;
+    awardingRef.current=true;
+    const wonBid=topBidRef.current;
+    const frozen=currentPlayer;
+    setFrozenPlayer(frozen);setAwarded(true);setAwardedTopBid(wonBid);
     await fetch("/api/auction",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"award",sessionId})});
-    setAwardCd(null);prevTopRef.current=0;setAwarding(false);timerResetRef.current?.();load();
+    await load();
+    setAwardCd(null);prevTopRef.current=0;timerResetRef.current?.();
+    awardingRef.current=false;
+  }
+  async function handleNext(){
+    nextingRef.current=true;setNexting(true);
+    setAwarded(false);setAwardedTopBid(null);setFrozenPlayer(null);setAwardCd(null);prevTopRef.current=0;timerResetRef.current?.();
+    if(!topBidRef.current){
+      await fetch("/api/auction",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"award",sessionId})});
+    }
+    await fetch("/api/auction",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"next",sessionId})});
+    const res=await fetch("/api/auction?sessionId="+sessionId);
+    if(res.ok){
+      const json=await res.json();
+      const s=json.session;
+      if(s&&s.timer_started_at!=null)s.timer_started_at=Number(s.timer_started_at);
+      setSession(s);setPlayers(json.players);setBids(json.bids);setServerNow(json.serverNow??null);
+      const nc=(json.players as AuctionPlayer[]).filter(p=>p.is_captain===0);
+      prevPlayerIdRef.current=nc.filter(p=>p.team_id===null)[0]?.id??null;
+    }
+    nextingRef.current=false;setNexting(false);
   }
   async function handleBid(pts:number){
     if(!myCaptain)return;
@@ -286,19 +344,28 @@ function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:bool
         return s+won;
       },0);
   }
+  const CAPTAIN_COLORS=[
+    {main:"#7aa2f7",bg:"rgba(83,131,232,0.15)",border:"rgba(83,131,232,0.6)"},
+    {main:"#f7768e",bg:"rgba(247,118,142,0.15)",border:"rgba(247,118,142,0.6)"},
+    {main:"#9ece6a",bg:"rgba(158,206,106,0.15)",border:"rgba(158,206,106,0.6)"},
+    {main:"#e0af68",bg:"rgba(224,175,104,0.15)",border:"rgba(224,175,104,0.6)"},
+    {main:"#bb9af7",bg:"rgba(187,154,247,0.15)",border:"rgba(187,154,247,0.6)"},
+    {main:"#2ac3de",bg:"rgba(42,195,222,0.15)",border:"rgba(42,195,222,0.6)"},
+  ];
+  function capColor(capId:number){const idx=captains.findIndex(c=>c.id===capId);return CAPTAIN_COLORS[idx%CAPTAIN_COLORS.length];}
   const LINES_ORDER=["TOP","JG","MID","ADC","SUP"] as const;
   const isDone=session?.status==="done";
   const isRunning=session?.status==="running";
   const isWaiting=session?.status==="waiting";
-  const remaining=nonCaptains.filter(p=>p.team_id===null);
+  const remaining=nonCaptains.filter(p=>p.team_id===null).sort((a,b)=>a.sort_order-b.sort_order);
   return(
-    <div style={{display:"grid",gridTemplateColumns:"280px 1fr 180px",gap:16,minHeight:600}}>
+    <div style={{display:"grid",gridTemplateColumns:"400px 780px 200px",gap:16,minHeight:700}}>
       {/* 팀장 패널 - 라인별 슬롯 */}
-      <div style={{display:"flex",flexDirection:"column",gap:10,overflowY:"auto",maxHeight:"80vh"}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,overflowY:"auto",maxHeight:"80vh",alignContent:"start"}}>
         {captains.map(cap=>{
-          const team=getTeam(cap.id);const used=getUsed(cap.id);const left=cap.points-used;const isMe=myCaptain?.id===cap.id;
+          const team=getTeam(cap.id);const used=getUsed(cap.id);const left=cap.points-used;const isMe=myCaptain?.id===cap.id;const color=capColor(cap.id);
           return(
-            <div key={cap.id} style={{background:"var(--card)",border:"2px solid "+(isMe?"var(--accent)":"var(--border)"),borderRadius:10,padding:12}}>
+            <div key={cap.id} style={{background:"var(--card)",border:"2px solid "+(isMe?color.main:color.border),borderRadius:10,padding:12}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                 <span style={{fontWeight:800,fontSize:14}}>{cap.nickname}{isMe&&<span style={{fontSize:11,color:"var(--accent)",marginLeft:4}}>(나)</span>}</span>
                 <span style={{fontSize:12,color:left<200?"var(--loss-text)":"var(--win-text)",fontWeight:700}}>{left}pt</span>
@@ -323,31 +390,45 @@ function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:bool
           );
         })}
       </div>      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:24,display:"flex",flexDirection:"column",alignItems:"center",gap:16}}>
-        {isWaiting&&isAdmin&&(<button className="btn-primary" style={{fontSize:16,padding:"14px 40px"}} onClick={async()=>{await fetch("/api/auction",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"start",sessionId})});load();}}>경매 시작</button>)}
-        {isWaiting&&!isAdmin&&<div style={{color:"var(--muted)",fontSize:15}}>운영진이 경매를 시작할 때까지 대기하세요.</div>}
-        {isDone&&(<div style={{textAlign:"center"}}><div style={{fontSize:28,fontWeight:900,color:"var(--win-text)",marginBottom:8}}>경매 완료!</div>{isAdmin&&<button className="btn-secondary" onClick={async()=>{await fetch("/api/auction",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"reset",sessionId})});load();}}>초기화</button>}</div>)}
-        {isRunning&&currentPlayer&&(
+        {isWaiting&&isAdmin&&!myCaptain&&(<button className="btn-primary" style={{fontSize:16,padding:"14px 40px"}} onClick={async()=>{await fetch("/api/auction",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"start",sessionId})});load();}}>경매 시작</button>)}
+        {isWaiting&&(myCaptain||!isAdmin)&&<div style={{color:"var(--muted)",fontSize:15}}>운영진이 경매를 시작할 때까지 대기하세요.</div>}
+        {isDone&&(<div style={{textAlign:"center"}}><div style={{fontSize:28,fontWeight:900,color:"var(--win-text)",marginBottom:8}}>경매 완료!</div>{isAdmin&&<button className="btn-secondary" onClick={async()=>{await fetch("/api/auction",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"reset",sessionId})});load();}}>재경매</button>}</div>)}
+        {isRunning&&activePlayer&&(
           <>
-            <div style={{fontSize:13,color:"var(--muted)"}}>현재 경매 중 ({(session?.current_idx??0)+1} / {nonCaptains.length})</div>
-            <div style={{fontSize:36,fontWeight:900,color:"var(--text)"}}>{currentPlayer.nickname}</div>
-            {(currentPlayer.champ1||currentPlayer.champ2||currentPlayer.champ3)&&(
+            <div style={{fontSize:15,color:"#fff",fontWeight:600}}>현재 경매 중 ({nonCaptains.filter(p=>p.team_id!==null).length+1} / {nonCaptains.length})</div>
+            <div style={{fontSize:36,fontWeight:900,color:"var(--text)"}}>{activePlayer.nickname}</div>
+            <div style={{display:"flex",gap:10,alignItems:"center",fontSize:13,color:"var(--muted)"}}>
+              {(activePlayer.roster_line&&LINE_ICON[activePlayer.roster_line])&&<img src={LINE_ICON[activePlayer.roster_line]} alt={activePlayer.roster_line} width={32} height={32} style={{filter:"brightness(0) invert(1)",opacity:0.85}}/>}
+              {activePlayer.solo_tier&&<span style={{fontWeight:700,color:"var(--win-text)"}}>{activePlayer.solo_tier} {activePlayer.solo_rank}</span>}
+            </div>
+            {(activePlayer.champ1||activePlayer.champ2||activePlayer.champ3)&&(
               <div style={{display:"flex",gap:8,justifyContent:"center"}}>
-                <ChampImg name={currentPlayer.champ1} size={72}/>
-                <ChampImg name={currentPlayer.champ2} size={72}/>
-                <ChampImg name={currentPlayer.champ3} size={72}/>
+                {([activePlayer.champ1,activePlayer.champ2,activePlayer.champ3] as (string|null)[]).map((c,i)=>(
+                  c ? (
+                    <div key={i} style={{position:"relative",width:72,height:72}}>
+                      {champRevealed
+                        ?<ChampImg name={c} size={72}/>
+                        :<img src="/champions/security.png" alt="?" width={72} height={72} style={{borderRadius:4,objectFit:"cover",border:"1px solid var(--border)"}} />}
+                    </div>
+                  ) : <div key={i} style={{width:72,height:72,borderRadius:4,background:"var(--card-2)",border:"1px solid var(--border)"}} />
+                ))}
               </div>
             )}
-            <div style={{display:"flex",gap:10,alignItems:"center",fontSize:13,color:"var(--muted)"}}>
-              {(currentPlayer.roster_line&&LINE_ICON[currentPlayer.roster_line])&&<img src={LINE_ICON[currentPlayer.roster_line]} alt={currentPlayer.roster_line} width={32} height={32} style={{filter:"brightness(0) invert(1)",opacity:0.85}}/>}
-              {currentPlayer.solo_tier&&<span style={{fontWeight:700,color:"var(--win-text)"}}>{currentPlayer.solo_tier} {currentPlayer.solo_rank}</span>}
+            {awardCd!==null&&awardCd>0&&timerStartedAt===null&&!awarded&&topBid&&(<div style={{fontSize:20,fontWeight:800,color:"#e67e22"}}>{topBid.captain_name+" 낙찰 확정 중..."}</div>)}
+            <div style={{width:"100%",background:"var(--card-2)",borderRadius:8,padding:16}}>
+              <div style={{fontSize:14,color:"var(--muted)",marginBottom:8}}>입찰 현황</div>
+              {currentBids.length===0&&<div style={{color:"var(--muted)",fontSize:15}}>아직 입찰 없음</div>}
+              {[...currentBids].sort((a,b)=>b.points-a.points).slice(0,5).map(b=>{const bc=capColor(b.captain_id);const isTop=b.id===topBid?.id;return(<div key={b.id} style={{display:"flex",justifyContent:"space-between",fontSize:17,padding:"8px 10px",borderRadius:6,fontWeight:isTop?800:500,background:isTop?bc.bg:"transparent",color:bc.main,border:isTop?"1px solid "+bc.border:"1px solid transparent"}}><span>{b.captain_name}</span><span>{b.points}pt</span></div>);})}
             </div>
-            <AuctionTimer onEnd={onTimerEnd} resetRef={timerResetRef} startedAt={timerStartedAt} serverNow={serverNow} onStart={async()=>{await fetch("/api/auction",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"timer_start",sessionId})});load();}} isAdmin={isAdmin}/>
-            {awardCd!==null&&(<div style={{fontSize:20,fontWeight:800,color:"#e67e22"}}>{topBid?topBid.captain_name+" 낙찰 확정까지 "+awardCd+"초":"유찰 처리까지 "+awardCd+"초"}</div>)}
-            <div style={{width:"100%",background:"var(--card-2)",borderRadius:8,padding:12}}>
-              <div style={{fontSize:12,color:"var(--muted)",marginBottom:6}}>입찰 현황</div>
-              {currentBids.length===0&&<div style={{color:"var(--muted)",fontSize:13}}>아직 입찰 없음</div>}
-              {[...currentBids].sort((a,b)=>b.points-a.points).map(b=>(<div key={b.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"3px 0",fontWeight:b.id===topBid?.id?800:400,color:b.id===topBid?.id?"var(--win-text)":"var(--text)"}}><span>{b.captain_name}</span><span>{b.points}pt</span></div>))}
-            </div>
+            {isAdmin&&!myCaptain&&(
+              <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:"center",width:"100%"}}>
+                <div style={{display:"flex",gap:8,justifyContent:"center"}}>
+                  {!timerStartedAt&&!awarded&&<button style={{fontSize:13,padding:"8px 20px",borderRadius:8,border:"1px solid rgba(83,131,232,0.6)",background:"transparent",color:"#7aa2f7",fontWeight:700,cursor:"pointer"}} onClick={async()=>{await fetch("/api/auction",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"timer_start",sessionId})});load();}}>시작</button>}
+                  {awarded&&<button style={{fontSize:13,padding:"8px 20px",whiteSpace:"nowrap",borderRadius:8,border:"1px solid rgba(158,206,106,0.6)",background:"transparent",color:"#9ece6a",fontWeight:700,cursor:"pointer"}} onClick={handleNext}>다음</button>}
+                </div>
+                <AuctionTimer onEnd={onTimerEnd} resetRef={timerResetRef} startedAt={nexting?null:timerStartedAt} serverNow={serverNow} onStart={async()=>{}} isAdmin={false}/>
+              </div>
+            )}
             {myCaptain&&(
               <div style={{width:"100%"}}>
                 {(()=>{
@@ -362,7 +443,7 @@ function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:bool
                     const remain=myCaptain.points-getUsed(myCaptain.id)-myCurrentBid;
                     const cpLine=currentPlayer?.roster_line;
                     const lineBlocked=!!cpLine&&(myCaptain.roster_line===cpLine||getTeam(myCaptain.id).some(p=>p.roster_line===cpLine));
-                    const dis=bidLoading||lineBlocked||next>remain+myCurrentBid;
+                    const dis=bidLoading||lineBlocked||next>remain+myCurrentBid||awarded||!timerStartedAt;
                     const colors=[
                       {border:"rgba(255,255,255,0.12)",text:"#9aa5b8",hover:"rgba(255,255,255,0.06)"},
                       {border:"rgba(83,131,232,0.4)",text:"#7aa2f7",hover:"rgba(83,131,232,0.1)"},
@@ -385,18 +466,18 @@ function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:bool
                   })}
                 </div>
                 {bidErr&&<div style={{color:"var(--loss-text)",fontSize:12,marginTop:6,textAlign:"center"}}>{bidErr}</div>}
-                <div style={{fontSize:12,color:"var(--muted)",marginTop:4,textAlign:"center"}}>잔여: {myCaptain.points-getUsed(myCaptain.id)}pt{topBid&&" · 현재 최고: "+topBid.points+"pt ("+topBid.captain_name+")"}</div>
+                <div style={{fontSize:13,color:"#fff",marginTop:4,textAlign:"center"}}>잔여: {myCaptain.points-getUsed(myCaptain.id)}pt{topBid&&" · 현재 최고: "+topBid.points+"pt ("+topBid.captain_name+")"}</div>
               </div>
             )}
-            {lastBidMsg&&(
-              <div style={{position:"fixed",bottom:32,left:"50%",transform:"translateX(-50%)",background:"rgba(20,20,30,0.97)",border:"1px solid var(--accent)",borderRadius:12,padding:"14px 32px",fontSize:17,fontWeight:700,color:"var(--win-text)",zIndex:9999,pointerEvents:"none",whiteSpace:"nowrap",boxShadow:"0 4px 24px rgba(0,0,0,0.4)"}}>{lastBidMsg}</div>
+
+            {myCaptain&&(
+              <AuctionTimer onEnd={onTimerEnd} resetRef={timerResetRef} startedAt={nexting?null:timerStartedAt} serverNow={serverNow} onStart={async()=>{}} isAdmin={false}/>
             )}
-            {isAdmin&&(<button className="btn-secondary" onClick={handleAward} disabled={awarding} style={{marginTop:4}}>{awarding?"처리 중":"수동 낙찰"}</button>)}
           </>
         )}
         {isRunning&&!currentPlayer&&<div style={{color:"var(--muted)"}}>모든 선수 경매 완료</div>}
       </div>      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14,overflowY:"auto",maxHeight:"80vh"}}>
-        <div style={{fontWeight:800,fontSize:13,marginBottom:10,color:"var(--muted)"}}>미경매 선수 ({remaining.length}명)</div>
+        <div style={{fontWeight:800,fontSize:13,marginBottom:10,color:"var(--muted)"}}>경매 순서 ({remaining.length}명)</div>
         <div style={{display:"flex",flexDirection:"column",gap:4}}>
           {remaining.map((pl,i)=>(<div key={pl.id} style={{padding:"5px 8px",borderRadius:7,fontSize:13,fontWeight:700,background:currentPlayer?.id===pl.id?"rgba(83,131,232,0.18)":"var(--card-2)",border:currentPlayer?.id===pl.id?"1px solid var(--accent)":"1px solid transparent",color:currentPlayer?.id===pl.id?"var(--win-text)":"var(--text)"}}><span style={{color:"var(--muted)",fontSize:11,marginRight:5}}>{i+1}</span>{pl.nickname}</div>))}
           {remaining.length===0&&<div style={{color:"var(--muted)",fontSize:13}}>없음</div>}
@@ -407,7 +488,7 @@ function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:bool
 }
 
 function RosterManager({members,roster,isAdmin,onSaved}:{members:Member[];roster:RosterEntry[];isAdmin:boolean;onSaved:()=>void;}){
-  const [editing,setEditing]=useState<number|null>(null);
+  const [editTarget,setEditTarget]=useState<RosterEntry|null>(null);
   const [editLine,setEditLine]=useState("");
   const [editChamps,setEditChamps]=useState<string[]>([]);
   const [champQ,setChampQ]=useState("");
@@ -417,21 +498,25 @@ function RosterManager({members,roster,isAdmin,onSaved}:{members:Member[];roster
   const [addLine,setAddLine]=useState("");
   const [addChamps,setAddChamps]=useState<string[]>([]);
   const [addChampQ,setAddChampQ]=useState("");
-  const filteredChamps=champQ?CHAMP_LIST.filter(c=>c.toLowerCase().includes(champQ.toLowerCase())):CHAMP_LIST;
-  const filteredAddChamps=addChampQ?CHAMP_LIST.filter(c=>c.toLowerCase().includes(addChampQ.toLowerCase())):CHAMP_LIST;
+  const [champList,setChampList]=useState<{name_en:string;name_ko:string}[]>([]);
+  useEffect(()=>{fetch("/api/champions").then(r=>r.json()).then(j=>setChampList(j.champions??[]));},[])
+  const filterChamps=(q:string)=>q?champList.filter(c=>c.name_en.toLowerCase().includes(q.toLowerCase())||c.name_ko.includes(q)):champList;
+  const filteredChamps=filterChamps(champQ);
+  const filteredAddChamps=filterChamps(addChampQ);
   const rosterIds=new Set(roster.map(r=>r.member_id));
   const addCandidates=addQ?members.filter(m=>!rosterIds.has(m.id)&&matchScore(m.nickname,addQ)>0).sort((a,b)=>matchScore(b.nickname,addQ)-matchScore(a.nickname,addQ)).slice(0,8):[];
   function startEdit(r:RosterEntry){
-    setEditing(r.member_id);
+    setEditTarget(r);
     setEditLine(r.line??"");
     setEditChamps([r.champ1,r.champ2,r.champ3].filter(Boolean) as string[]);
     setChampQ("");
   }
-  async function save(memberId:number){
+  async function save(){
+    if(!editTarget)return;
     setSaving(true);
     await fetch("/api/auction/roster",{method:"PUT",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({memberId,line:editLine||null,champ1:editChamps[0]||null,champ2:editChamps[1]||null,champ3:editChamps[2]||null})});
-    setSaving(false);setEditing(null);onSaved();
+      body:JSON.stringify({memberId:editTarget.member_id,line:editLine||null,champ1:editChamps[0]||null,champ2:editChamps[1]||null,champ3:editChamps[2]||null})});
+    setSaving(false);setEditTarget(null);onSaved();
   }
   async function addMember(m:Member){
     setAddQ("");
@@ -497,9 +582,9 @@ function RosterManager({members,roster,isAdmin,onSaved}:{members:Member[];roster
               </div>
               <input value={addChampQ} onChange={e=>setAddChampQ(e.target.value)} placeholder="챔피언 검색" style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card-2)",color:"var(--text)",fontSize:12,marginBottom:4}}/>
               <div style={{display:"flex",flexWrap:"wrap",gap:3,maxHeight:220,overflowY:"auto"}}>
-                {filteredAddChamps.map(c=>{const sel=addChamps.includes(c);return(
-                  <button key={c} onClick={()=>{if(sel)setAddChamps(prev=>prev.filter(x=>x!==c));else if(addChamps.length<3)setAddChamps(prev=>[...prev,c]);}} style={{padding:0,border:"2px solid "+(sel?"var(--accent)":"transparent"),borderRadius:3,cursor:"pointer",background:"none",opacity:(!sel&&addChamps.length>=3)?0.3:1}}>
-                    <ChampImg name={c} size={40}/>
+                {filteredAddChamps.map(c=>{const sel=addChamps.includes(c.name_en);return(
+                  <button key={c.name_en} title={c.name_ko} onClick={()=>{if(sel)setAddChamps(prev=>prev.filter(x=>x!==c.name_en));else if(addChamps.length<3)setAddChamps(prev=>[...prev,c.name_en]);}} style={{padding:0,border:"2px solid "+(sel?"var(--accent)":"transparent"),borderRadius:3,cursor:"pointer",background:"none",opacity:(!sel&&addChamps.length>=3)?0.3:1}}>
+                    <ChampImg name={c.name_en} size={40}/>
                   </button>
                 );})}
               </div>
@@ -511,69 +596,102 @@ function RosterManager({members,roster,isAdmin,onSaved}:{members:Member[];roster
           </div>
         </div>
       )}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:10}}>
-        {roster.map(r=>{
-          const isEdit=editing===r.member_id;
-          return(
-            <div key={r.member_id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:12}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:isEdit?10:6}}>
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <span style={{fontWeight:800,fontSize:14}}>{r.nickname}</span>
-                  {r.solo_tier&&<span style={{fontSize:11,fontWeight:700,color:"var(--win-text)"}}>{r.solo_tier} {r.solo_rank}</span>}
-                </div>
-                {isAdmin&&!isEdit&&(
-                  <div style={{display:"flex",gap:4}}>
-                    <button onClick={()=>startEdit(r)} style={{fontSize:12,padding:"3px 10px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card-2)",cursor:"pointer",color:"var(--text)"}}>수정</button>
-                    <button onClick={()=>removeMember(r.member_id)} style={{fontSize:12,padding:"3px 8px",borderRadius:6,border:"1px solid rgba(231,76,60,0.4)",background:"transparent",cursor:"pointer",color:"#f1948a"}}>×</button>
-                  </div>
-                )}
+      {/* 수정 모달 */}
+      {editTarget&&(
+        <div className="modal-backdrop">
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:560}}>
+            <div className="modal-head">
+              <span>{editTarget.nickname} 수정</span>
+              <button className="modal-close" onClick={()=>setEditTarget(null)}>×</button>
+            </div>
+            <div style={{marginBottom:10}}>
+              <div style={{fontSize:11,color:"var(--muted)",marginBottom:6}}>라인</div>
+              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                {LINES.map(l=>(
+                  <button key={l} onClick={()=>setEditLine(prev=>prev===l?"":l)} style={{padding:"4px 10px",borderRadius:6,fontSize:12,fontWeight:700,cursor:"pointer",background:editLine===l?"var(--accent)":"var(--card-2)",color:editLine===l?"#fff":"var(--text)",border:"1px solid "+(editLine===l?"var(--accent)":"var(--border)")}}>{LINE_LABEL[l]}</button>
+                ))}
               </div>
-              {!isEdit&&(
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  {r.line&&<span style={{fontSize:12,color:"var(--muted)",background:"var(--card-2)",borderRadius:4,padding:"2px 7px"}}>{LINE_LABEL[r.line]??r.line}</span>}
-                  {[r.champ1,r.champ2,r.champ3].filter(Boolean).map((c,i)=><ChampImg key={i} name={c} size={32}/>)}
-                  {!r.line&&!r.champ1&&<span style={{fontSize:12,color:"var(--muted)"}}>(라인/챔피언 미입력)</span>}
+            </div>
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:11,color:"var(--muted)",marginBottom:6}}>주챔피언 ({editChamps.length}/3)</div>
+              <div style={{display:"flex",gap:5,marginBottom:6}}>
+                {[0,1,2].map(i=>(
+                  <div key={i} style={{position:"relative",cursor:editChamps[i]?"pointer":"default"}} onClick={()=>{if(editChamps[i])setEditChamps(prev=>prev.filter((_,idx)=>idx!==i));}}>
+                    <ChampImg name={editChamps[i]??null} size={40}/>
+                    {editChamps[i]&&<div style={{position:"absolute",top:-4,right:-4,background:"var(--loss-text)",color:"#fff",borderRadius:"50%",width:14,height:14,fontSize:9,display:"flex",alignItems:"center",justifyContent:"center"}}>×</div>}
+                  </div>
+                ))}
+              </div>
+              <input value={champQ} onChange={e=>setChampQ(e.target.value)} placeholder="챔피언 검색" style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card-2)",color:"var(--text)",fontSize:12,marginBottom:4}}/>
+              <div style={{display:"flex",flexWrap:"wrap",gap:3,maxHeight:220,overflowY:"auto"}}>
+                {filteredChamps.map(c=>{const sel=editChamps.includes(c.name_en);return(
+                  <button key={c.name_en} title={c.name_ko} onClick={()=>{if(sel)setEditChamps(prev=>prev.filter(x=>x!==c.name_en));else if(editChamps.length<3)setEditChamps(prev=>[...prev,c.name_en]);}} style={{padding:0,border:"2px solid "+(sel?"var(--accent)":"transparent"),borderRadius:3,cursor:"pointer",background:"none",opacity:(!sel&&editChamps.length>=3)?0.3:1}}>
+                    <ChampImg name={c.name_en} size={40}/>
+                  </button>
+                );})}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button className="btn-primary" style={{flex:1}} onClick={save} disabled={saving}>{saving?"저장 중..":"저장"}</button>
+              <button className="btn-secondary" style={{flex:1}} onClick={()=>setEditTarget(null)}>취소</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 5컬럼 그리드 */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:0,border:"1px solid var(--border)",borderRadius:10,overflow:"hidden"}}>
+        {LINES.map((line,li)=>(
+          <div key={line} style={{borderRight:li<4?"1px solid var(--border)":"none"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"10px 0",background:"var(--card-2)",borderBottom:"1px solid var(--border)"}}>
+              <img src={LINE_ICON[line]} alt={line} width={18} height={18} style={{filter:"brightness(0) invert(1)",opacity:0.8}}/>
+              <span style={{fontSize:13,fontWeight:800,color:"var(--muted)"}}>{LINE_LABEL[line]}</span>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:0}}>
+              {roster.filter(r=>r.line===line).map(r=>(
+                <div key={r.member_id} style={{padding:"10px 12px",borderBottom:"1px solid rgba(255,255,255,0.04)",display:"flex",flexDirection:"column",gap:6}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:4}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:15}}>{r.nickname}</div>
+                      {r.solo_tier&&<div style={{fontSize:12,color:"var(--win-text)",fontWeight:700}}>{r.solo_tier} {r.solo_rank}</div>}
+                    </div>
+                    {isAdmin&&(
+                      <div style={{display:"flex",gap:3,flexShrink:0}}>
+                        <button onClick={()=>startEdit(r)} style={{fontSize:11,padding:"2px 7px",borderRadius:5,border:"1px solid var(--border)",background:"var(--card-2)",cursor:"pointer",color:"var(--text)"}}>수정</button>
+                        <button onClick={()=>removeMember(r.member_id)} style={{fontSize:11,padding:"2px 6px",borderRadius:5,border:"1px solid rgba(231,76,60,0.4)",background:"transparent",cursor:"pointer",color:"#f1948a"}}>×</button>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{display:"flex",gap:3}}>
+                    {[r.champ1,r.champ2,r.champ3].filter(Boolean).map((c,i)=><ChampImg key={i} name={c} size={34}/>)}
+                  </div>
                 </div>
-              )}
-              {isEdit&&(
-                <div>
-                  <div style={{marginBottom:8}}>
-                    <div style={{fontSize:11,color:"var(--muted)",marginBottom:4}}>라인</div>
-                    <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                      {LINES.map(l=>(
-                        <button key={l} onClick={()=>setEditLine(prev=>prev===l?"":l)} style={{padding:"3px 9px",borderRadius:6,fontSize:12,fontWeight:700,cursor:"pointer",background:editLine===l?"var(--accent)":"var(--card-2)",color:editLine===l?"#fff":"var(--text)",border:"1px solid "+(editLine===l?"var(--accent)":"var(--border)")}}>{LINE_LABEL[l]}</button>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{marginBottom:8}}>
-                    <div style={{fontSize:11,color:"var(--muted)",marginBottom:4}}>주챔피언 ({editChamps.length}/3)</div>
-                    <div style={{display:"flex",gap:5,marginBottom:5}}>
-                      {[0,1,2].map(i=>(
-                        <div key={i} style={{position:"relative",cursor:editChamps[i]?"pointer":"default"}} onClick={()=>{if(editChamps[i])setEditChamps(prev=>prev.filter((_,idx)=>idx!==i));}}>
-                          <ChampImg name={editChamps[i]??null} size={36}/>
-                          {editChamps[i]&&<div style={{position:"absolute",top:-4,right:-4,background:"var(--loss-text)",color:"#fff",borderRadius:"50%",width:13,height:13,fontSize:9,display:"flex",alignItems:"center",justifyContent:"center"}}>×</div>}
-                        </div>
-                      ))}
-                    </div>
-                    <input value={champQ} onChange={e=>setChampQ(e.target.value)} placeholder="챔피언 검색" style={{width:"100%",padding:"4px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card-2)",color:"var(--text)",fontSize:12,marginBottom:4}}/>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:2,maxHeight:90,overflowY:"auto"}}>
-                      {filteredChamps.map(c=>{const sel=editChamps.includes(c);return(
-                        <button key={c} onClick={()=>{if(sel)setEditChamps(prev=>prev.filter(x=>x!==c));else if(editChamps.length<3)setEditChamps(prev=>[...prev,c]);}} style={{padding:0,border:"2px solid "+(sel?"var(--accent)":"transparent"),borderRadius:3,cursor:"pointer",background:"none",opacity:(!sel&&editChamps.length>=3)?0.3:1}}>
-                          <ChampImg name={c} size={26}/>
-                        </button>
-                      );})}
-                    </div>
-                  </div>
-                  <div style={{display:"flex",gap:6}}>
-                    <button className="btn-primary" style={{fontSize:12,padding:"5px 14px"}} onClick={()=>save(r.member_id)} disabled={saving}>{saving?"저장 중..": "저장"}</button>
-                    <button className="btn-secondary" style={{fontSize:12,padding:"5px 14px"}} onClick={()=>setEditing(null)}>취소</button>
-                  </div>
-                </div>
+              ))}
+              {roster.filter(r=>r.line===line).length===0&&(
+                <div style={{padding:"12px 10px",fontSize:12,color:"rgba(255,255,255,0.15)",textAlign:"center"}}>-</div>
               )}
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
+      {/* 라인 미지정 */}
+      {roster.filter(r=>!r.line).length>0&&(
+        <div style={{marginTop:12}}>
+          <div style={{fontSize:12,color:"var(--muted)",marginBottom:6}}>라인 미지정</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {roster.filter(r=>!r.line).map(r=>(
+              <div key={r.member_id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontWeight:700,fontSize:13}}>{r.nickname}</span>
+                {isAdmin&&(
+                  <>
+                    <button onClick={()=>startEdit(r)} style={{fontSize:11,padding:"2px 7px",borderRadius:5,border:"1px solid var(--border)",background:"var(--card-2)",cursor:"pointer",color:"var(--text)"}}>수정</button>
+                    <button onClick={()=>removeMember(r.member_id)} style={{fontSize:11,padding:"2px 6px",borderRadius:5,border:"1px solid rgba(231,76,60,0.4)",background:"transparent",cursor:"pointer",color:"#f1948a"}}>×</button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -609,6 +727,7 @@ export default function AuctionPage(){
   },[user,authLoading,loadSessions,loadRoster]);
   if(authLoading||loadingData)return null;
   if(!user)return(<div className="scrim"><div className="party-login-notice">경매 시스템을 이용하려면 로그인이 필요합니다.<button type="button" className="inline-login-btn" onClick={()=>openAuthModal("login")}>로그인 / 회원가입</button></div></div>);
+  if(user.scrimOnly)return(<div className="scrim"><div className="party-login-notice">경매 시스템에 접근할 수 없습니다.</div></div>);
   return(
     <div className="scrim">
       {!activeId&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>

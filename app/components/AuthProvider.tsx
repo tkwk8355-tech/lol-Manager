@@ -7,7 +7,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-export type Role = "admin" | "subadmin" | "member";
+export type Role = "admin" | "subadmin" | "member" | "captain";
 export interface AuthUser {
   userId: number;
   username: string;
@@ -89,6 +89,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function logout() {
     try {
       await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // 서버 연결 실패해도 클라이언트 상태는 초기화
     } finally {
       setUser(null);
     }

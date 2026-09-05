@@ -1,7 +1,8 @@
 @echo off
 cd /d "%~dp0"
 
-echo === [1/3] Build ===
+echo === [1/3] Clean + Build ===
+if exist .next rmdir /s /q .next
 call npm run build
 if errorlevel 1 ( echo Build failed ^& pause ^& exit /b 1 )
 

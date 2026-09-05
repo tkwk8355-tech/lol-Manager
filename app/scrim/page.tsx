@@ -33,7 +33,7 @@ interface Player {
   kills: number; deaths: number; assists: number; games: number; wins: number; kda: string | null; winRate: number | null;
   mvpCount: number; scrimScore: number; scrimMmr: number | null; scrimTier: string | null;
 }
-interface Member { id: number; nickname: string; subLine?: string | null; }
+interface Member { id: number; nickname: string; subLine?: string | null; mainLine?: string | null; }
 interface ChampionInfo { id: string; name: string; }
 
 interface SlotData {
@@ -111,6 +111,7 @@ function MemberInput({ members, value, onChange, nextRef, inputRef, usedIds }: {
 }) {
   const [query, setQuery] = useState(value.memberName);
   const [open, setOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
   const available = members.filter((m) => !usedIds?.includes(m.id) || m.id === value.memberId);
   const filtered = query.length > 0
@@ -121,7 +122,7 @@ function MemberInput({ members, value, onChange, nextRef, inputRef, usedIds }: {
 
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) { setOpen(false); setActiveIdx(-1); }
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -131,6 +132,7 @@ function MemberInput({ members, value, onChange, nextRef, inputRef, usedIds }: {
     onChange({ memberId: m.id, memberName: m.nickname });
     setQuery(m.nickname);
     setOpen(false);
+    setActiveIdx(-1);
     nextRef?.current?.focus();
   }
 
@@ -139,14 +141,19 @@ function MemberInput({ members, value, onChange, nextRef, inputRef, usedIds }: {
       <input
         ref={inputRef}
         value={query}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true); if (!e.target.value) onChange({ memberId: 0, memberName: "" }); }}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); setActiveIdx(-1); if (!e.target.value) onChange({ memberId: 0, memberName: "" }); }}
         onFocus={() => setOpen(true)}
         onKeyDown={(e) => {
-          if (e.key === "Enter") {
+          if (open && filtered.length > 0 && e.key === "ArrowDown") {
+            e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, filtered.length - 1));
+          } else if (open && filtered.length > 0 && e.key === "ArrowUp") {
+            e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, -1));
+          } else if (e.key === "Enter") {
             e.preventDefault();
-            if (filtered.length > 0) selectMember(filtered[0]);
+            const picked = activeIdx >= 0 ? filtered[activeIdx] : filtered.length > 0 ? filtered[0] : null;
+            if (picked) selectMember(picked);
             else { setOpen(false); nextRef?.current?.focus(); }
-          } else if (e.key === "Escape") setOpen(false);
+          } else if (e.key === "Escape") { setOpen(false); setActiveIdx(-1); }
         }}
         placeholder="클랜원 검색"
         style={{ width: "100%", padding: "7px 10px", borderRadius: 7, border: `1px solid ${value.memberId ? "var(--accent)" : "var(--border)"}`, background: "var(--card)", color: "var(--text)", fontSize: 13 }}
@@ -154,7 +161,7 @@ function MemberInput({ members, value, onChange, nextRef, inputRef, usedIds }: {
       {open && filtered.length > 0 && (
         <div className="slot-candidates" style={{ zIndex: 50 }}>
           {filtered.map((m, i) => (
-            <button key={m.id} className={i === 0 ? "first" : ""} onMouseDown={() => selectMember(m)}>
+            <button key={m.id} className={i === activeIdx ? "active" : ""} onMouseDown={() => selectMember(m)}>
               {m.nickname}
             </button>
           ))}
@@ -175,6 +182,7 @@ function ChampionInput({ champions, value, onChange, inputRef, nextRef }: {
   const toDisplay = (id: string) => champions.find((c) => c.id === id)?.name ?? id;
   const [query, setQuery] = useState(() => toDisplay(value));
   const [open, setOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setQuery(toDisplay(value)); }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -183,16 +191,17 @@ function ChampionInput({ champions, value, onChange, inputRef, nextRef }: {
 
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) { setOpen(false); setActiveIdx(-1); }
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
   function selectChamp(c: ChampionInfo) {
-    onChange(c.id); // 영문 id 저장
-    setQuery(c.name); // 한글명 표시
+    onChange(c.id);
+    setQuery(c.name);
     setOpen(false);
+    setActiveIdx(-1);
     nextRef?.current?.focus();
   }
 
@@ -201,14 +210,19 @@ function ChampionInput({ champions, value, onChange, inputRef, nextRef }: {
       <input
         ref={inputRef}
         value={query}
-        onChange={(e) => { setQuery(e.target.value); onChange(""); setOpen(true); }}
+        onChange={(e) => { setQuery(e.target.value); onChange(""); setOpen(true); setActiveIdx(-1); }}
         onFocus={() => setOpen(true)}
         onKeyDown={(e) => {
-          if (e.key === "Enter") {
+          if (open && filtered.length > 0 && e.key === "ArrowDown") {
+            e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, filtered.length - 1));
+          } else if (open && filtered.length > 0 && e.key === "ArrowUp") {
+            e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, -1));
+          } else if (e.key === "Enter") {
             e.preventDefault();
-            if (filtered.length > 0) selectChamp(filtered[0]);
+            const picked = activeIdx >= 0 ? filtered[activeIdx] : filtered.length > 0 ? filtered[0] : null;
+            if (picked) selectChamp(picked);
             else { setOpen(false); nextRef?.current?.focus(); }
-          } else if (e.key === "Escape") setOpen(false);
+          } else if (e.key === "Escape") { setOpen(false); setActiveIdx(-1); }
         }}
         placeholder="챔피언"
         style={{ width: "100%", padding: "7px 8px", borderRadius: 7, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
@@ -216,7 +230,7 @@ function ChampionInput({ champions, value, onChange, inputRef, nextRef }: {
       {open && filtered.length > 0 && (
         <div className="slot-candidates" style={{ zIndex: 50 }}>
           {filtered.map((c, i) => (
-            <button key={c.id} className={i === 0 ? "first" : ""} onMouseDown={() => selectChamp(c)}>
+            <button key={c.id} className={i === activeIdx ? "active" : ""} onMouseDown={() => selectChamp(c)}>
               {c.name}
             </button>
           ))}
@@ -242,12 +256,13 @@ interface MatchRecord {
 function HistorySearch({ members, onSelect }: { members: Member[]; onSelect: (id: number) => void }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
   const filtered = q.length > 0 ? filterMembers(members, q) : [];
 
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) { setOpen(false); setActiveIdx(-1); }
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -257,22 +272,33 @@ function HistorySearch({ members, onSelect }: { members: Member[]; onSelect: (id
     onSelect(m.id);
     setQ(m.nickname);
     setOpen(false);
+    setActiveIdx(-1);
   }
 
   return (
     <div ref={wrapRef} style={{ position: "relative", width: 220 }}>
       <input
         value={q}
-        onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+        onChange={(e) => { setQ(e.target.value); setOpen(true); setActiveIdx(-1); }}
         onFocus={() => setOpen(true)}
-        onKeyDown={(e) => { if (e.key === "Enter" && filtered.length > 0) { e.preventDefault(); select(filtered[0]); } }}
+        onKeyDown={(e) => {
+          if (open && filtered.length > 0 && e.key === "ArrowDown") {
+            e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, filtered.length - 1));
+          } else if (open && filtered.length > 0 && e.key === "ArrowUp") {
+            e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, -1));
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            const picked = activeIdx >= 0 ? filtered[activeIdx] : filtered.length > 0 ? filtered[0] : null;
+            if (picked) select(picked);
+          } else if (e.key === "Escape") { setOpen(false); setActiveIdx(-1); }
+        }}
         placeholder="클랜원 검색 (전적 조회)"
         style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
       />
       {open && filtered.length > 0 && (
         <div className="slot-candidates" style={{ zIndex: 50 }}>
           {filtered.map((m, i) => (
-            <button key={m.id} className={i === 0 ? "first" : ""} onMouseDown={() => select(m)}>{m.nickname}</button>
+            <button key={m.id} className={i === activeIdx ? "active" : ""} onMouseDown={() => select(m)}>{m.nickname}</button>
           ))}
         </div>
       )}
@@ -289,22 +315,75 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
   const emptySlots = (): Slot[] => Array.from({ length: SLOT_COUNT }, () => ({ memberId: 0, memberName: "" }));
   const [slots, setSlots] = useState<Slot[]>(emptySlots);
   const [overrideAll, setOverrideAll] = useState<Set<number>>(new Set());
+  const [overrideMain, setOverrideMain] = useState<Set<number>>(new Set());
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   interface BPlayer { id: number; name: string; score: number; line: string; lineAdjust: number; }
   interface BResult { team1: BPlayer[]; team2: BPlayer[]; sum1: number; sum2: number; diff: number; }
   const [result, setResult] = useState<BResult | null>(null);
+  const [tournamentCode, setTournamentCode] = useState("");
+  const [codeLoading, setCodeLoading] = useState(false);
+  const [codeErr, setCodeErr] = useState("");
   const inputRefs = useRef<(HTMLInputElement | null)[]>(Array(SLOT_COUNT).fill(null));
+
+  // 프리셋
+  interface Preset { name: string; memberIds: number[]; }
+  const PRESET_KEY = "scrim_presets";
+  const loadPresets = (): Preset[] => { try { return JSON.parse(localStorage.getItem(PRESET_KEY) || "[]"); } catch { return []; } };
+  const [presets, setPresets] = useState<Preset[]>(loadPresets);
+  const [presetName, setPresetName] = useState("");
+  const [presetOpen, setPresetOpen] = useState(false);
+
+  function savePreset() {
+    const name = presetName.trim();
+    if (!name) return;
+    const ids = slots.filter((s) => s.memberId > 0).map((s) => s.memberId);
+    if (ids.length === 0) return;
+    const next = [...presets.filter((p) => p.name !== name), { name, memberIds: ids }];
+    localStorage.setItem(PRESET_KEY, JSON.stringify(next));
+    setPresets(next);
+    setPresetName("");
+  }
+
+  function loadPreset(preset: Preset) {
+    const newSlots = emptySlots();
+    preset.memberIds.forEach((id, i) => {
+      if (i >= SLOT_COUNT) return;
+      const m = members.find((x) => x.id === id);
+      if (m) newSlots[i] = { memberId: m.id, memberName: m.nickname };
+    });
+    setSlots(newSlots);
+    setOverrideAll(new Set());
+    setResult(null);
+    setPresetOpen(false);
+  }
+
+  function deletePreset(name: string) {
+    const next = presets.filter((p) => p.name !== name);
+    localStorage.setItem(PRESET_KEY, JSON.stringify(next));
+    setPresets(next);
+  }
 
   const usedIds = slots.map((s) => s.memberId).filter((id) => id > 0);
 
+  async function generateCode() {
+    setCodeErr(""); setCodeLoading(true);
+    try {
+      const res = await fetch("/api/scrim/tournament-code");
+      const json = await res.json();
+      if (!res.ok) { setCodeErr(json.error || "코드 생성 실패"); return; }
+      setTournamentCode(json.code);
+    } catch { setCodeErr("네트워크 오류"); }
+    finally { setCodeLoading(false); }
+  }
+
   async function generate(ids: number[]) {
-    setErr(""); setLoading(true);
+    setErr(""); setLoading(true); setTournamentCode(""); setCodeErr("");
     try {
       const res = await fetch("/api/scrim/balance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memberIds: ids, overrideAll: [...overrideAll] }),
+        body: JSON.stringify({ memberIds: ids, overrideAll: [...overrideAll], overrideMain: [...overrideMain] }),
       });
       const json = await res.json();
       if (!res.ok) { setErr(json.error || "팀 생성 실패"); return; }
@@ -318,9 +397,15 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
 
   const LINE_LBL: Record<string, string> = { TOP: "탑", JG: "정글", MID: "미드", ADC: "원딜", SUP: "서폿" };
 
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520, width: "95vw" }}>
+    <div className="modal-backdrop">
+      <div className="modal" style={{ maxWidth: 640, width: "95vw" }}>
         <div className="modal-head">
           <span>팀 생성</span>
           <button className="modal-close" onClick={onClose}>×</button>
@@ -331,6 +416,34 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
             <p style={{ fontSize: 13, color: "var(--muted)", margin: "0 0 12px" }}>
               참가할 클랜원 10명을 입력하세요. ({filledIds.length}/10)
             </p>
+            {/* 프리셋 */}
+            <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+              <input
+                placeholder="프리셋 이름"
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") savePreset(); }}
+                style={{ flex: 1, minWidth: 100, padding: "5px 10px", borderRadius: 7, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
+              />
+              <button className="btn-secondary" style={{ fontSize: 12, padding: "5px 12px", whiteSpace: "nowrap" }} onClick={savePreset}>💾 저장</button>
+              {presets.length > 0 && (
+                <div style={{ position: "relative" }}>
+                  <button className="btn-secondary" style={{ fontSize: 12, padding: "5px 12px", whiteSpace: "nowrap" }} onClick={() => setPresetOpen((p) => !p)}>📂 불러오기 ({presets.length})</button>
+                  {presetOpen && (
+                    <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, zIndex: 50, minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+                      {presets.map((p) => (
+                        <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderBottom: "1px solid var(--border)" }}>
+                          <button onClick={() => loadPreset(p)} style={{ flex: 1, background: "none", border: "none", color: "var(--text)", fontSize: 13, fontWeight: 700, cursor: "pointer", textAlign: "left" }}>
+                            {p.name} <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 11 }}>({p.memberIds.length}명)</span>
+                          </button>
+                          <button onClick={() => deletePreset(p.name)} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 14, padding: "0 2px", flexShrink: 0 }}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
               {slots.map((slot, idx) => {
                 const available = members.filter((m) => !usedIds.includes(m.id) || m.id === slot.memberId);
@@ -341,6 +454,7 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
                     members={available}
                     value={slot}
                     isOverrideAll={overrideAll.has(slot.memberId)}
+                    isOverrideMain={overrideMain.has(slot.memberId)}
                     showAllBtn={members.find((m) => m.id === slot.memberId)?.subLine?.toUpperCase() !== "ALL"}
                     inputRef={(el) => { inputRefs.current[idx] = el; }}
                     onSelect={(m) => {
@@ -352,12 +466,22 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
                     onClear={() => {
                       const cleared = slots[idx].memberId;
                       setSlots((prev) => prev.map((s, i) => i === idx ? { memberId: 0, memberName: "" } : s));
-                      if (cleared) setOverrideAll((prev) => { const n = new Set(prev); n.delete(cleared); return n; });
+                      if (cleared) {
+                        setOverrideAll((prev) => { const n = new Set(prev); n.delete(cleared); return n; });
+                        setOverrideMain((prev) => { const n = new Set(prev); n.delete(cleared); return n; });
+                      }
                     }}
                     onToggleAll={() => {
                       const id = slot.memberId;
                       if (!id) return;
                       setOverrideAll((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+                      setOverrideMain((prev) => { const n = new Set(prev); n.delete(id); return n; });
+                    }}
+                    onToggleMain={() => {
+                      const id = slot.memberId;
+                      if (!id) return;
+                      setOverrideMain((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+                      setOverrideAll((prev) => { const n = new Set(prev); n.delete(id); return n; });
                     }}
                     nextRef={() => {
                       const nextEmpty = slots.findIndex((s, i) => i > idx && s.memberId === 0);
@@ -387,7 +511,7 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
                   <div key={t} style={{ border: `2px solid ${color}`, borderRadius: 10, padding: 14 }}>
                     <div style={{ fontWeight: 800, fontSize: 14, color, marginBottom: 10 }}>
                       {t === 1 ? "블루팀" : "레드팀"}
-                      {isAdmin && <span style={{ fontSize: 12, fontWeight: 400, color: "var(--muted)", marginLeft: 8 }}>점수합 {sum}</span>}
+                      <span style={{ fontSize: 12, fontWeight: 400, color: "var(--muted)", marginLeft: 8 }}>점수합 {sum}</span>
                     </div>
                     {["TOP","JG","MID","ADC","SUP"].map((line) => {
                       const p = team.find((x) => x.line === line);
@@ -413,9 +537,22 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
                 점수 차이: <strong style={{ color: result.diff <= 5 ? "var(--win-text)" : "var(--loss-text)" }}>{result.diff}</strong>
               </div>
             )}
+            {codeErr && <div className="error" style={{ marginBottom: 10 }}>{codeErr}</div>}
+            {tournamentCode && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "10px 14px", background: "var(--card-2)", borderRadius: 8, border: "1px solid var(--border)" }}>
+                <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0 }}>코드</span>
+                <span style={{ fontSize: 13, fontWeight: 700, flex: 1, wordBreak: "break-all" }}>{tournamentCode}</span>
+                <button
+                  onClick={() => navigator.clipboard.writeText(tournamentCode)}
+                  title="복사"
+                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, padding: "0 2px", flexShrink: 0, color: "var(--muted)" }}
+                >⎘</button>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn-primary" onClick={() => setResult(null)}>다시 선택</button>
+              <button className="btn-primary" onClick={() => { setResult(null); setTournamentCode(""); setCodeErr(""); }}>다시 선택</button>
               <button className="btn-secondary" disabled={loading} onClick={() => generate(filledIds)}>다시 생성</button>
+              <button className="btn-secondary" disabled={codeLoading || !!tournamentCode} onClick={generateCode}>{codeLoading ? "생성 중..." : "🎮 코드 생성"}</button>
               <button className="btn-secondary" onClick={onClose}>닫기</button>
             </div>
           </>
@@ -426,7 +563,7 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
 }
 
 // 팀생성 모달용 슬롯 입력
-function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, onToggleAll, nextRef, isOverrideAll, showAllBtn }: {
+function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, onToggleAll, onToggleMain, nextRef, isOverrideAll, isOverrideMain, showAllBtn }: {
   index: number;
   members: Member[];
   value: { memberId: number; memberName: string };
@@ -434,12 +571,15 @@ function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, o
   onSelect: (m: Member) => void;
   onClear: () => void;
   onToggleAll: () => void;
+  onToggleMain: () => void;
   nextRef: () => void;
   isOverrideAll?: boolean;
+  isOverrideMain?: boolean;
   showAllBtn?: boolean;
 }) {
   const [query, setQuery] = useState(value.memberName);
   const [open, setOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
   const filtered = query.length > 0 ? filterMembers(members, query) : members.slice(0, 8);
 
@@ -447,7 +587,7 @@ function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, o
 
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) { setOpen(false); setActiveIdx(-1); }
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -457,6 +597,7 @@ function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, o
     onSelect(m);
     setQuery(m.nickname);
     setOpen(false);
+    setActiveIdx(-1);
     nextRef();
   }
 
@@ -467,43 +608,59 @@ function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, o
         <input
           ref={inputRef}
           value={query}
-          onChange={(e) => { setQuery(e.target.value); setOpen(true); if (!e.target.value) onClear(); }}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); setActiveIdx(-1); if (!e.target.value) onClear(); }}
           onFocus={() => setOpen(true)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
+            if (open && filtered.length > 0 && e.key === "ArrowDown") {
+              e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, filtered.length - 1));
+            } else if (open && filtered.length > 0 && e.key === "ArrowUp") {
+              e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, -1));
+            } else if (e.key === "Enter") {
               e.preventDefault();
-              if (filtered.length > 0) select(filtered[0]);
+              const picked = activeIdx >= 0 ? filtered[activeIdx] : filtered.length > 0 ? filtered[0] : null;
+              if (picked) select(picked);
               else { setOpen(false); nextRef(); }
-            } else if (e.key === "Escape") setOpen(false);
+            } else if (e.key === "Escape") { setOpen(false); setActiveIdx(-1); }
           }}
           placeholder={`클랜원 ${index + 1}`}
           style={{
-            flex: 1, padding: "7px 10px", borderRadius: 7, fontSize: 13,
+            width: 180, flexShrink: 0, padding: "7px 10px", borderRadius: 7, fontSize: 13,
             border: `1px solid ${value.memberId ? "var(--accent)" : "var(--border)"}`,
             background: "var(--card)", color: "var(--text)",
           }}
         />
-        {value.memberId > 0 && (
-          <>
-            {showAllBtn && (
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+          {value.memberId > 0 && (
+            <>
+              {showAllBtn && (
+                <button
+                  onClick={onToggleAll}
+                  title="ALL 라인으로 임시 처리"
+                  style={{
+                    background: isOverrideAll ? "var(--accent)" : "none",
+                    border: `1px solid ${isOverrideAll ? "var(--accent)" : "var(--border)"}`,
+                    color: isOverrideAll ? "#fff" : "var(--muted)",
+                    cursor: "pointer", fontSize: 11, padding: "2px 6px", borderRadius: 5, fontWeight: 700,
+                  }}>ALL</button>
+              )}
               <button
-                onClick={onToggleAll}
-                title="ALL 라인으로 임시 처리"
+                onClick={onToggleMain}
+                title="주라인 고정"
                 style={{
-                  background: isOverrideAll ? "var(--accent)" : "none",
-                  border: `1px solid ${isOverrideAll ? "var(--accent)" : "var(--border)"}`,
-                  color: isOverrideAll ? "#fff" : "var(--muted)",
+                  background: isOverrideMain ? "#7c3aed" : "none",
+                  border: `1px solid ${isOverrideMain ? "#7c3aed" : "var(--border)"}`,
+                  color: isOverrideMain ? "#fff" : "var(--muted)",
                   cursor: "pointer", fontSize: 11, padding: "2px 6px", borderRadius: 5, fontWeight: 700,
-                }}>ALL</button>
-            )}
-            <button onClick={() => { onClear(); }} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
-          </>
-        )}
+                }}>주라인</button>
+              <button onClick={onClear} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
+            </>
+          )}
+        </div>
       </div>
       {open && filtered.length > 0 && (
         <div className="slot-candidates" style={{ zIndex: 50, left: 26 }}>
           {filtered.map((m, i) => (
-            <button key={m.id} className={i === 0 ? "first" : ""} onMouseDown={() => select(m)}>{m.nickname}</button>
+            <button key={m.id} className={i === activeIdx ? "active" : ""} onMouseDown={() => select(m)}>{m.nickname}</button>
           ))}
         </div>
       )}
@@ -520,7 +677,7 @@ export default function ScrimPage() {
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<Player | null>(null);
   const [ddragonVersion, setDdragonVersion] = useState<string | null>(null);
-  const [tab, setTab] = useState<"matches" | "stats">("matches");
+  const [tab, setTab] = useState<"matches" | "ranking" | "stats">("matches");
   const [matches, setMatches] = useState<MatchRecord[]>([]);
   const [matchesLoading, setMatchesLoading] = useState(false);
   const [editMatch, setEditMatch] = useState<MatchRecord | null>(null);
@@ -585,7 +742,7 @@ export default function ScrimPage() {
       const champsJson = await champsRes.json();
       if (!statsRes.ok) setError(statsJson.error || "불러오기 실패");
       else setPlayers(statsJson.players);
-      if (membersRes.ok) setMembers(membersJson.members.filter((m: any) => m.mainLine !== 'ARAM').map((m: any) => ({ id: m.id, nickname: m.nickname, subLine: m.subLine ?? null })));
+      if (membersRes.ok) setMembers(membersJson.members.filter((m: any) => m.mainLine !== 'ARAM').map((m: any) => ({ id: m.id, nickname: m.nickname, subLine: m.subLine ?? null, mainLine: m.mainLine ?? null })));
       if (champsRes.ok && champsJson.champions)
         setChampions(champsJson.champions.map((c: any) => ({ id: c.name_en, name: c.name_ko })));
     } catch { setError("네트워크 오류"); }
@@ -658,6 +815,17 @@ export default function ScrimPage() {
     } catch { setFormErr("네트워크 오류"); }
     finally { setSubmitting(false); }
   }
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (editMatch) { setEditMatch(null); return; }
+      if (showSyncModal) { setShowSyncModal(false); return; }
+      if (detail) { setDetail(null); return; }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [editMatch, showSyncModal, detail]);
 
   if (authLoading) return null;
   if (!user) return (
@@ -784,6 +952,7 @@ export default function ScrimPage() {
 
       <div className="scrim-tabs">
         <button className={tab === "matches" ? "on" : ""} onClick={() => setTab("matches")}>경기 목록</button>
+        <button className={tab === "ranking" ? "on" : ""} onClick={() => setTab("ranking")}>순위표</button>
         <button className={tab === "stats" ? "on" : ""} onClick={() => setTab("stats")}>통계</button>
       </div>
 
@@ -921,8 +1090,8 @@ export default function ScrimPage() {
 
       {/* 상세 모달 */}
       {detail && (
-        <div className="modal-backdrop" onClick={() => setDetail(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 700, width: "95vw" }}>
+        <div className="modal-backdrop">
+          <div className="modal" style={{ maxWidth: 700, width: "95vw" }}>
             <div className="modal-head">
               <span>📊 {detail.nickname} 내전 상세</span>
               <button className="modal-close" onClick={() => setDetail(null)}>×</button>
@@ -1088,6 +1257,58 @@ export default function ScrimPage() {
         </div>
       )}
 
+      {tab === "ranking" && (
+        <div style={{ marginTop: 16 }}>
+          {loading ? <p>불러오는 중...</p> : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+              {LINES.map((line) => {
+                const lineMembers = members
+                  .filter((m) => m.mainLine === line)
+                  .map((m) => players.find((p) => p.memberId === m.id))
+                  .filter((p): p is Player => !!p && p.scrimMmr !== null)
+                  .sort((a, b) => (b.scrimMmr ?? 0) - (a.scrimMmr ?? 0));
+                return (
+                  <div key={line} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "var(--card-2)", borderBottom: "1px solid var(--border)" }}>
+                      {LINE_MAP[line] && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={lineIconUrl(LINE_MAP[line].icon)} alt={line} width={20} height={20} />
+                      )}
+                      <span style={{ fontWeight: 800, fontSize: 14 }}>{LINE_LABEL[line]}</span>
+                      <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: "auto" }}>{lineMembers.length}명</span>
+                    </div>
+                    <div style={{ padding: "8px 0" }}>
+                      {lineMembers.length === 0 && (
+                        <div style={{ padding: "12px 14px", color: "var(--muted)", fontSize: 13 }}>등록된 클랜원 없음</div>
+                      )}
+                      {lineMembers.map((p, i) => (
+                        <div key={p.memberId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: i < lineMembers.length - 1 ? "1px solid var(--border)" : "none", background: i === 0 ? "rgba(255,215,0,0.05)" : i === 1 ? "rgba(192,192,192,0.05)" : i === 2 ? "rgba(205,127,50,0.05)" : "transparent" }}>
+                          <span style={{ width: 20, textAlign: "center", fontSize: 13, fontWeight: 800, color: i === 0 ? "#FFD700" : i === 1 ? "#C0C0C0" : i === 2 ? "#CD7F32" : "var(--muted)", flexShrink: 0 }}>
+                            {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}
+                          </span>
+                          <span style={{ flex: 1, fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+                            onClick={() => setDetail(p)}
+                            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
+                            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text)")}>
+                            {p.nickname}
+                          </span>
+                          <div style={{ textAlign: "right", flexShrink: 0 }}>
+                            {p.scrimTier && (
+                              <span className={`tier-badge tier-${p.scrimTier === "브론즈" ? "bronze" : p.scrimTier === "실버" ? "silver" : p.scrimTier === "골드" ? "gold" : p.scrimTier === "플래티넘" ? "platinum" : p.scrimTier === "에메랄드" ? "emerald" : p.scrimTier === "다이아" ? "diamond" : "master"}`} style={{ fontSize: 11 }}>{p.scrimTier}</span>
+                            )}
+                            {isAdmin && p.scrimMmr !== null && <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>{p.scrimMmr}점</div>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {tab === "stats" && (
         <>
           {error && <div className="error">{error}</div>}
@@ -1192,8 +1413,8 @@ export default function ScrimPage() {
 
       {/* Riot 전적 자동 동기화 모달 */}
       {showSyncModal && (
-        <div className="modal-backdrop" onClick={() => setShowSyncModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+        <div className="modal-backdrop">
+          <div className="modal" style={{ maxWidth: 420 }}>
             <div className="modal-head">
               <span>🔄 내전 전적 동기화</span>
               <button className="modal-close" onClick={() => setShowSyncModal(false)}>×</button>
@@ -1250,8 +1471,8 @@ export default function ScrimPage() {
 
       {/* 경기 수정 모달 */}
       {editMatch && (
-        <div className="modal-backdrop" onClick={() => setEditMatch(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640, width: "95vw" }}>
+        <div className="modal-backdrop">
+          <div className="modal" style={{ maxWidth: 640, width: "95vw" }}>
             <div className="modal-head">
               <span>경기 #{editMatch.id} 수정</span>
               <button className="modal-close" onClick={() => setEditMatch(null)}>×</button>

@@ -38,6 +38,7 @@ function ParticipantInput({ value, onChange, onAddNext, autoFocusOnMount, isLast
   value: string; onChange: (v: string) => void; onAddNext: () => void; autoFocusOnMount?: boolean; isLast?: boolean;
 }) {
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [activeIdx, setActiveIdx] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -46,12 +47,18 @@ function ParticipantInput({ value, onChange, onAddNext, autoFocusOnMount, isLast
 
   async function handleChange(v: string) {
     onChange(v);
+    setActiveIdx(-1);
     if (!v.trim()) { setSuggestions([]); return; }
     try {
       const res = await fetch(`/api/party/members?q=${encodeURIComponent(v.trim())}`);
       const json = await res.json();
       setSuggestions((json.members ?? []).map((m: any) => m.gameName));
     } catch { setSuggestions([]); }
+  }
+
+  function confirm(name: string) {
+    onChange(name); setSuggestions([]); setActiveIdx(-1);
+    if (isLast) onAddNext();
   }
 
   return (
@@ -63,19 +70,29 @@ function ParticipantInput({ value, onChange, onAddNext, autoFocusOnMount, isLast
         value={value}
         onChange={(e) => handleChange(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter") {
+          if (suggestions.length > 0 && e.key === "ArrowDown") {
             e.preventDefault();
-            const confirmed = suggestions.length > 0 ? suggestions[0] : value.trim();
-            if (confirmed) { onChange(confirmed); setSuggestions([]); if (isLast) onAddNext(); }
+            setActiveIdx((i) => Math.min(i + 1, suggestions.length - 1));
+          } else if (suggestions.length > 0 && e.key === "ArrowUp") {
+            e.preventDefault();
+            setActiveIdx((i) => Math.max(i - 1, -1));
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            const picked = activeIdx >= 0 ? suggestions[activeIdx] : suggestions.length > 0 ? suggestions[0] : value.trim();
+            if (picked) confirm(picked);
+          } else if (e.key === "Escape") {
+            setSuggestions([]); setActiveIdx(-1);
           }
         }}
-        onBlur={() => setTimeout(() => setSuggestions([]), 150)}
+        onBlur={() => setTimeout(() => { setSuggestions([]); setActiveIdx(-1); }, 150)}
         maxLength={50}
       />
       {suggestions.length > 0 && (
         <div className="slot-candidates" style={{ zIndex: 20 }}>
-          {suggestions.map((s) => (
-            <button key={s} type="button" onMouseDown={() => { onChange(s); setSuggestions([]); }}>{s}</button>
+          {suggestions.map((s, i) => (
+            <button key={s} type="button"
+              className={i === activeIdx ? "active" : ""}
+              onMouseDown={() => confirm(s)}>{s}</button>
           ))}
         </div>
       )}
@@ -86,7 +103,7 @@ function ParticipantInput({ value, onChange, onAddNext, autoFocusOnMount, isLast
 export default function PartyPage() {
   const { user, loading: authLoading, openAuthModal } = useAuth();
   const [tab, setTab] = useState<Tab>("all");
-  const effectiveMode = tab === "all" ? "normal" : tab;
+  const [createMode, setCreateMode] = useState<Mode>("normal");
   const [parties, setParties] = useState<Party[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -106,6 +123,16 @@ export default function PartyPage() {
   const [settingsModal, setSettingsModal] = useState(false);
   const [pointSettings, setPointSettings] = useState<{mode:string;points:number;min_games:number}[]>([]);
   const [settingsBusy, setSettingsBusy] = useState(false);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (settingsModal) { setSettingsModal(false); return; }
+      if (aramModal !== null) { setAramModal(null); return; }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [settingsModal, aramModal]);
 
   async function openSettings() {
     const res = await fetch("/api/party/settings");
@@ -145,7 +172,7 @@ export default function PartyPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode: effectiveMode,
+          mode: createMode,
           note: note.trim() || null,
           startDate: startDate,
           startTime: startTime.trim() || null,
@@ -162,7 +189,7 @@ export default function PartyPage() {
   function updateParticipant(i: number, val: string) {
     setParticipants((prev) => prev.map((v, idx) => idx === i ? val : v));
   }
-  const createMaxSize = effectiveMode === "solo" ? 2 : 5;
+  const createMaxSize = createMode === "solo" ? 2 : 5;
   function addParticipant() { setParticipants((prev) => prev.length >= createMaxSize ? prev : [...prev, ""]); }
   function removeParticipant(i: number) {
     setParticipants((prev) => prev.length === 1 ? [""] : prev.filter((_, idx) => idx !== i));
@@ -203,7 +230,7 @@ export default function PartyPage() {
   return (
     <div className="party">
       {settingsModal && (
-        <div className="modal-backdrop" onClick={() => setSettingsModal(false)}>
+        <div className="modal-backdrop">
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ minWidth: 320 }}>
             <h3 style={{ marginBottom: 16 }}>⚙️ 파티 점수 설정</h3>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 16 }}>
@@ -238,7 +265,7 @@ export default function PartyPage() {
         </div>
       )}
       {aramModal !== null && (
-        <div className="modal-backdrop" onClick={() => setAramModal(null)}>
+        <div className="modal-backdrop">
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 340 }}>
             <div className="modal-head">
               <span>🌊 칼바람 판수 입력</span>
@@ -292,7 +319,7 @@ export default function PartyPage() {
         <>
           {isAdmin(user.role) && (
             <form className="party-create-form" onSubmit={createParty}>
-              <select className="party-mode-select" value={effectiveMode} onChange={(e) => setTab(e.target.value as Mode)}>
+              <select className="party-mode-select" value={createMode} onChange={(e) => setCreateMode(e.target.value as Mode)}>
                 {MODES.map((m) => <option key={m} value={m}>{MODE_KO[m]}</option>)}
               </select>
               <input className="party-note-input" placeholder="메모 (선택)" value={note}
@@ -368,6 +395,7 @@ export default function PartyPage() {
                             onChange={(v) => setEditParticipants((prev) => prev.map((x, idx) => idx === i ? v : x))}
                             onAddNext={() => setEditParticipants((prev) => prev.length >= p.maxSize ? prev : [...prev, ""])}
                             autoFocusOnMount={i === editParticipants.length - 1 && i > 0}
+                            isLast={i === editParticipants.length - 1}
                           />
                           <button type="button" className="party-participant-add-inline"
                             onClick={() => setEditParticipants((prev) => prev.length >= p.maxSize ? prev : [...prev, ""])} disabled={editParticipants.length >= p.maxSize}>+</button>
