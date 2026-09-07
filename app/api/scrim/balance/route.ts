@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
         const t1 = arr.slice(0, half), t2 = arr.slice(half);
         const s1 = teamEffectiveSum(t1, infoMap), s2 = teamEffectiveSum(t2, infoMap);
         if (s1 === null || s2 === null) continue; // 라인 배정 불가 조합 스킵
-        const diff = Math.abs(s1 - s2);
+        const diff = Math.abs((s1 + 50) - s2);
         if (!best || diff < best.diff) best = { t1, t2, diff };
         if (diff <= tolerance && acceptable.length < 300) acceptable.push({ t1, t2, diff });
       }
@@ -175,7 +175,7 @@ export async function POST(req: NextRequest) {
     const team2 = assignLines(chosen.t2, finalInfoMap);
     if (!team1 || !team2)
       return NextResponse.json({ error: "팀 생성 불가능 (라인 조합을 찾을 수 없습니다)" }, { status: 400 });
-    const sum1 = Math.round(team1.reduce((s, p) => s + p.score + p.lineAdjust, 0) * 10) / 10;
+    const sum1 = Math.round((team1.reduce((s, p) => s + p.score + p.lineAdjust, 0) + 50) * 10) / 10;
     const sum2 = Math.round(team2.reduce((s, p) => s + p.score + p.lineAdjust, 0) * 10) / 10;
 
     return NextResponse.json({ team1, team2, sum1, sum2, diff: Math.round(Math.abs(sum1 - sum2) * 10) / 10, usedOverride });

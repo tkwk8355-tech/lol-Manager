@@ -324,6 +324,8 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
   const [tournamentCode, setTournamentCode] = useState("");
   const [codeLoading, setCodeLoading] = useState(false);
   const [codeErr, setCodeErr] = useState("");
+  const [notifyLoading, setNotifyLoading] = useState(false);
+  const [notifyMsg, setNotifyMsg] = useState("");
   const inputRefs = useRef<(HTMLInputElement | null)[]>(Array(SLOT_COUNT).fill(null));
 
   // 프리셋
@@ -549,10 +551,24 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
                 >⎘</button>
               </div>
             )}
+            {notifyMsg && <div style={{ fontSize: 13, color: notifyMsg.startsWith("✅") ? "var(--win-text)" : "var(--loss-text)", marginBottom: 8 }}>{notifyMsg}</div>}
             <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn-primary" onClick={() => { setResult(null); setTournamentCode(""); setCodeErr(""); }}>다시 선택</button>
+              <button className="btn-primary" onClick={() => { setResult(null); setTournamentCode(""); setCodeErr(""); setNotifyMsg(""); }}>다시 선택</button>
               <button className="btn-secondary" disabled={loading} onClick={() => generate(filledIds)}>다시 생성</button>
               <button className="btn-secondary" disabled={codeLoading || !!tournamentCode} onClick={generateCode}>{codeLoading ? "생성 중..." : "🎮 코드 생성"}</button>
+              <button className="btn-secondary" disabled={notifyLoading} onClick={async () => {
+                setNotifyLoading(true); setNotifyMsg("");
+                try {
+                  const res = await fetch("/api/scrim/notify", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ team1: result!.team1, team2: result!.team2, sum1: result!.sum1, sum2: result!.sum2, diff: result!.diff, slotMemberIds: slots.slice(0, 5).map(s => s.memberId).filter(id => id > 0) }),
+                  });
+                  const json = await res.json();
+                  setNotifyMsg(res.ok ? "✅ 디스코드 전송 완료" : `❌ ${json.error}`);
+                } catch { setNotifyMsg("❌ 네트워크 오류"); }
+                finally { setNotifyLoading(false); }
+              }}>{notifyLoading ? "전송 중..." : "📢 디스코드 전송"}</button>
               <button className="btn-secondary" onClick={onClose}>닫기</button>
             </div>
           </>
