@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
-tar -xzf ~/deploy.tar.gz
-npm install --production
+git pull origin main
+npm install
+npm run build
 pm2 restart lolclanManager
