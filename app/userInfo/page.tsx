@@ -336,12 +336,7 @@ export default function UserInfoPage() {
     const fourDaysMs = 4 * 24 * 60 * 60 * 1000;
     if (showInactive && m.promotedAt && Date.now() - new Date(m.promotedAt).getTime() < fourDaysMs) return false;
     if (showInactive) {
-      const rawDate = (m as any).lastGameAt ?? m.recentLogs?.[0]?.startAt ?? m.recentLogs?.[0]?.date;
-      const lastDate = rawDate ? new Date(String(rawDate).replace(" ", "T")) : null;
-      const daysSinceLast = lastDate && !isNaN(lastDate.getTime())
-        ? (Date.now() - lastDate.getTime()) / (24 * 60 * 60 * 1000)
-        : 999;
-      if (daysSinceLast < 10) return false;
+      if (m.aramGames2w >= 4 || m.normalGames2w >= 3) return false;
     }
     
     if (specialFilter === "rookie" && m.position !== "수습") return false;
@@ -1513,24 +1508,14 @@ export default function UserInfoPage() {
                   <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)", fontSize: 12 }}>
                     {m.recentLogs && m.recentLogs.length > 0 ? m.recentLogs[0].startAt?.slice(0, 10) : "-"}
                   </td>
-                  {(() => {
-                    const lastAt = (m as any).lastGameAt ? new Date(String((m as any).lastGameAt).replace(" ", "T")) : null;
-                    const afterLast = (m.recentLogs ?? []).filter(l => {
-                      if (!lastAt) return false;
-                      const d = new Date(String(l.startAt || l.date).replace(" ", "T"));
-                      return d > lastAt;
-                    });
-                    const aramAfter = afterLast.filter(l => l.type === "aram").reduce((s, l) => s + l.games, 0);
-                    const normalAfter = afterLast.filter(l => ["normal","flex","solo","scrim"].includes(l.type)).reduce((s, l) => s + l.games, 0);
-                    return (<>
-                      <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800, color: "var(--muted)" }}>
-                        {aramAfter}판
-                      </td>
-                      <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800, color: "var(--muted)" }}>
-                        {normalAfter}판
-                      </td>
-                    </>);
-                  })()}
+                  <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800,
+                    color: m.aramGames2w >= 4 ? "var(--win-text)" : "var(--loss-text)" }}>
+                    {m.aramGames2w}판
+                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800,
+                    color: m.normalGames2w >= 3 ? "var(--win-text)" : "var(--loss-text)" }}>
+                    {m.normalGames2w}판
+                  </td>
                   <td style={{ padding: "8px 10px", textAlign: "center" }}>
                     <button className="sync-btn" style={{ fontSize: 11, padding: "2px 10px" }}
                       onClick={() => setInactiveLogModal({ memberId: m.id, nickname: m.nickname, logs: m.recentLogs ?? [] })}>

@@ -28,20 +28,32 @@ export async function GET(req: NextRequest) {
     // 2주간 파티 참여 게임수 (party_participant_history + point_logs.games 기반)
     // aram: games 합산, normal/flex/solo: 파티 참여 횟수(games 합산)
     const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const [partyRows] = await pool.query(`
       SELECT pl.member_id,
              SUM(IF(pl.type = 'aram', pl.games, 0)) AS aram_games,
-             SUM(IF(pl.type IN ('normal','flex','solo','scrim'), pl.games, 0)) AS normal_games,
+             SUM(IF(pl.type IN ('normal','flex','solo'), pl.games, 0)) AS normal_games,
              MAX(COALESCE(p.start_at, pl.created_at)) AS last_game_at
       FROM point_logs pl
       LEFT JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
-      WHERE pl.type IN ('aram','normal','flex','solo','scrim')
+      WHERE pl.type IN ('aram','normal','flex','solo') AND DATE(pl.created_at) >= ?
       GROUP BY pl.member_id
-    `) as [any[], any];
+    `, [tenDaysAgo]) as [any[], any];
     const partyGames = new Map<number, { aram: number; normal: number; lastGameAt: string | null }>();
     for (const r of partyRows) {
       partyGames.set(r.member_id, { aram: Number(r.aram_games), normal: Number(r.normal_games), lastGameAt: r.last_game_at ?? null });
     }
+
+    // 내전 참여 횟수 (scrim_participants 기준)
+    const [scrimCountRows] = await pool.query(`
+      SELECT sp.member_id, COUNT(*) AS scrim_games
+      FROM scrim_participants sp
+      JOIN scrim_matches sm ON sm.id = sp.match_id
+      WHERE DATE(sm.played_at) >= ? AND sm.status = 'done'
+      GROUP BY sp.member_id
+    `, [tenDaysAgo]) as [any[], any];
+    const scrimGames = new Map<number, number>();
+    for (const r of scrimCountRows) scrimGames.set(r.member_id, Number(r.scrim_games));
 
     // 최근 2주 파티 로그 상세 (판수미달 뷰용)
     const [recentLogRows] = await pool.query(`
@@ -51,7 +63,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
       WHERE pl.type IN ('aram','normal','flex','solo','scrim') AND DATE(pl.created_at) >= ?
       ORDER BY pl.created_at DESC
-    `, [twoWeeksAgo]) as [any[], any];
+    `, [tenDaysAgo]) as [any[], any];
     const recentLogs = new Map<number, any[]>();
     for (const r of recentLogRows) {
       const mid = r.member_id;
@@ -225,7 +237,7 @@ export async function GET(req: NextRequest) {
       m.recentLogs = recentLogs.get(id) ?? [];
       const pg = partyGames.get(id);
       m.aramGames2w = pg?.aram ?? 0;
-      m.normalGames2w = pg?.normal ?? 0;
+      m.normalGames2w = (pg?.normal ?? 0) + (scrimGames.get(id) ?? 0);
       m.lastGameAt = pg?.lastGameAt ?? null;
       m.games2w = (pg?.aram ?? 0) + (pg?.normal ?? 0);
       // 본계정이 없으면 첫 번째 계정 이름 사용, 계정도 없으면 members.nickname 사용
