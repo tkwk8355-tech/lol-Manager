@@ -12,6 +12,7 @@ interface Party {
   hostUserId: number; hostNickname: string; note: string | null;
   startAt: string | null; createdAt: string;
   participants: Participant[]; waiting: Participant[];
+  historyParticipants: string[];
 }
 
 const MODES: Mode[] = ["flex", "solo", "aram", "normal"];
@@ -118,8 +119,8 @@ export default function PartyPage() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editParticipants, setEditParticipants] = useState<string[]>([""]);
-  const [aramModal, setAramModal] = useState<number | null>(null); // partyId
-  const [aramGames, setAramGames] = useState("");
+  const [aramModal, setAramModal] = useState<{id:number;participants:Participant[]} | null>(null);
+  const [aramMemberGames, setAramMemberGames] = useState<Record<string,string>>({});
   const [settingsModal, setSettingsModal] = useState(false);
   const [pointSettings, setPointSettings] = useState<{mode:string;points:number;min_games:number}[]>([]);
   const [settingsBusy, setSettingsBusy] = useState(false);
@@ -129,6 +130,7 @@ export default function PartyPage() {
       if (e.key !== "Escape") return;
       if (settingsModal) { setSettingsModal(false); return; }
       if (aramModal !== null) { setAramModal(null); return; }
+
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -195,13 +197,12 @@ export default function PartyPage() {
     setParticipants((prev) => prev.length === 1 ? [""] : prev.filter((_, idx) => idx !== i));
   }
 
-  async function deleteParty(partyId: number, games?: number) {
+  async function deleteParty(partyId: number, memberGames?: Record<string,number>) {
     setBusyId(partyId); setError("");
     try {
-      const url = games != null
-        ? `/api/party?id=${partyId}&games=${games}`
-        : `/api/party?id=${partyId}`;
-      const res = await fetch(url, { method: "DELETE" });
+      const res = memberGames
+        ? await fetch("/api/party", { method: "DELETE", headers: {"Content-Type":"application/json"}, body: JSON.stringify({id: partyId, memberGames}) })
+        : await fetch(`/api/party?id=${partyId}`, { method: "DELETE" });
       const json = await res.json();
       if (!res.ok) setError(json.error || "삭제 실패");
       else load(tab);
@@ -266,32 +267,34 @@ export default function PartyPage() {
       )}
       {aramModal !== null && (
         <div className="modal-backdrop">
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 340 }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
             <div className="modal-head">
               <span>🌊 칼바람 판수 입력</span>
               <button className="modal-close" onClick={() => setAramModal(null)}>×</button>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>4판당 5점, 하루 최대 5점</p>
-              <input
-                autoFocus
-                type="number"
-                min={0}
-                placeholder="플레이한 판수"
-                value={aramGames}
-                onChange={(e) => setAramGames(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    const g = Number(aramGames);
-                    if (!isNaN(g) && g >= 0) { setAramModal(null); deleteParty(aramModal!, g); }
-                  }
-                }}
-                style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14 }}
-              />
-              <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>참가자별 판수를 입력하세요 (4판당 5점, 하루 최대 5점)</p>
+              {aramModal.participants.map((pp) => (
+                <div key={pp.nickname} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ flex: 1, fontWeight: 700, fontSize: 14 }}>{pp.nickname}</span>
+                  <input
+                    type="number" min={0} placeholder="판수"
+                    value={aramMemberGames[pp.nickname] ?? ""}
+                    onChange={(e) => setAramMemberGames(prev => ({ ...prev, [pp.nickname]: e.target.value }))}
+                    style={{ width: 70, padding: "6px 8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14, textAlign: "center" }}
+                  />
+                </div>
+              ))}
+              <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
                 <button className="sync-btn" style={{ flex: 1 }} onClick={() => {
-                  const g = Number(aramGames);
-                  if (!isNaN(g) && g >= 0) { setAramModal(null); deleteParty(aramModal!, g); }
+                  const mg: Record<string,number> = {};
+                  for (const pp of aramModal!.participants) {
+                    const g = Number(aramMemberGames[pp.nickname] ?? 0);
+                    mg[pp.nickname] = isNaN(g) ? 0 : g;
+                  }
+                  const id = aramModal!.id;
+                  setAramModal(null);
+                  deleteParty(id, mg);
                 }}>펑</button>
                 <button className="cancel-btn" style={{ flex: 1 }} onClick={() => setAramModal(null)}>취소</button>
               </div>
@@ -427,7 +430,7 @@ export default function PartyPage() {
                       <button className="party-boom-btn" disabled={busyId === p.id}
                         onClick={() => {
                           if (!confirm("파티를 종료할까요?")) return;
-                          if (p.mode === "aram") { setAramGames(""); setAramModal(p.id); }
+                          if (p.mode === "aram") { setAramMemberGames({}); setAramModal({id: p.id, participants: (p.historyParticipants ?? []).map(n => ({userId: null, nickname: n}))}); }
                           else deleteParty(p.id);
                         }}>
                         {busyId === p.id ? "처리 중..." : "💥 펑 (파티 종료)"}

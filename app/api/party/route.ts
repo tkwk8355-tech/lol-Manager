@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import mysql from "mysql2/promise";
 import { getPool, ensureSchema } from "@/lib/db";
 import { requireAuth, requireAdmin } from "@/lib/auth";
@@ -85,13 +85,26 @@ export async function GET(req: NextRequest) {
       ids
     ) as [ParticipantRow[], any];
 
+    const [histRows] = await pool.query(
+      `SELECT DISTINCT party_id, nickname FROM party_participant_history WHERE party_id IN (${ph})`,
+      ids
+    ) as [any[], any];
+
     const byParty = new Map<number, ParticipantRow[]>();
     for (const pp of participants) {
       if (!byParty.has(pp.party_id)) byParty.set(pp.party_id, []);
       byParty.get(pp.party_id)!.push(pp);
     }
+    const histByParty = new Map<number, string[]>();
+    for (const h of histRows) {
+      if (!histByParty.has(h.party_id)) histByParty.set(h.party_id, []);
+      histByParty.get(h.party_id)!.push(h.nickname);
+    }
 
-    const result = parties.map((p) => shapeParty(p, byParty.get(p.id) ?? []));
+    const result = parties.map((p) => ({
+      ...shapeParty(p, byParty.get(p.id) ?? []),
+      historyParticipants: histByParty.get(p.id) ?? [],
+    }));
     return NextResponse.json({ parties: result });
   } catch (err) {
     console.error(err);
@@ -241,13 +254,21 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-// DELETE /api/party?id=1 — 파티 종료(펑), 운영진만
+// DELETE /api/party — 파티 종료(펑), 운영진만
 export async function DELETE(req: NextRequest) {
   const auth = requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
-    const id = Number(new URL(req.url).searchParams.get("id"));
-    const games = Number(new URL(req.url).searchParams.get("games") ?? "-1");
+    let id: number;
+    let memberGames: Record<string,number> | null = null;
+    const contentType = req.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      const body = await req.json().catch(() => ({}));
+      id = Number(body.id);
+      memberGames = body.memberGames ?? null;
+    } else {
+      id = Number(new URL(req.url).searchParams.get("id"));
+    }
     if (!id) return NextResponse.json({ error: "id가 필요합니다." }, { status: 400 });
 
     await ensureSchema();
@@ -258,11 +279,10 @@ export async function DELETE(req: NextRequest) {
 
     await pool.query("UPDATE parties SET status = 'ended', ended_at = NOW(), ended_by = ? WHERE id = ?", [auth.session.userId, id]);
 
-    // 펑을 누른 사람을 포인트 지급자로 남긴다.
     const givenBy = auth.session.userId;
     try {
       if (party.mode === "aram") {
-        if (games >= 0) await awardAramPoints(pool, id, party, games, givenBy);
+        if (memberGames) await awardAramPoints(pool, id, party, memberGames, givenBy);
       } else {
         await awardPartyPoints(pool, id, party, givenBy);
       }
@@ -290,9 +310,10 @@ async function checkHasRookie(pool: mysql.Pool, histRows: any[]): Promise<boolea
 }
 
 // 어떤 파티 때문에 포인트를 받았는지 알 수 있도록, 파티 시작 시각(+메모)을 comment에 붙일 라벨을 만든다.
+// 새벽 6시 기준 날짜: 서버가 KST이므로 6시간만 빼면 됨
 function toKstDateString(val: string | Date): string {
   const ms = typeof val === 'string' ? new Date(val).getTime() : val.getTime();
-  return new Date(ms + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return new Date(ms - 6 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 function partyLabel(party: PartyRow): string {
@@ -302,11 +323,10 @@ function partyLabel(party: PartyRow): string {
   return ` (${dt}${notePart})`;
 }
 
-// 칼바람: 판수 입력 기반 점수 지급 (DB 설정 기반)
-async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRow, games: number, givenBy: number) {
+// 칼바람: 참가자별 개별 판수 기반 점수 지급
+async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRow, memberGames: Record<string,number>, givenBy: number) {
   const [settingRows] = await pool.query(`SELECT points, min_games FROM party_point_settings WHERE mode = 'aram'`) as [any[], any];
   const cfg = settingRows[0] ?? { points: 5, min_games: 4 };
-  const points = Math.min(Math.floor(games / cfg.min_games) * cfg.points, cfg.points);
 
   const [histRows] = await pool.query(
     `SELECT DISTINCT nickname FROM party_participant_history WHERE party_id = ?`,
@@ -317,6 +337,8 @@ async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRo
   const hasRookie = await checkHasRookie(pool, histRows);
 
   for (const h of histRows) {
+    const games = memberGames[h.nickname] ?? 0;
+
     const [mRows] = await pool.query(
       `SELECT m.id AS member_id, m.position FROM members m
        JOIN accounts a ON a.member_id = m.id AND a.is_main = 1 AND a.game_name = ?`,
@@ -325,20 +347,27 @@ async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRo
     if (!mRows.length) continue;
     const memberId = mRows[0].member_id;
     const isRookie = mRows[0].position === '수습';
-    if (isRookie) continue; // 칼바람은 수습 카운트 미적용, 로그 저장 안 함
-    // 같은 날(KST 기준) 칼바람 포인트 중복 지급 방지
+    if (isRookie) continue;
+
     const partyStartAt = party.start_at ?? party.created_at;
     const partyDate = toKstDateString(partyStartAt);
-    const [already] = await pool.query(
-      `SELECT pl.id FROM point_logs pl
+
+    // 당일 누적 판수 및 이미 포인트 받았는지 조회
+    const [prevLogs] = await pool.query(
+      `SELECT pl.points, pl.games FROM point_logs pl
        JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
-       WHERE pl.member_id = ? AND pl.type = 'aram' AND pl.points > 0
-       AND DATE(COALESCE(p.start_at, p.created_at)) = ?`,
+       WHERE pl.member_id = ? AND pl.type = 'aram'
+       AND DATE(COALESCE(p.start_at, p.created_at) - INTERVAL 6 HOUR) = ?`,
       [memberId, partyDate]
     ) as [any[], any];
-    const alreadyGotAram = already.length > 0;
+    let prevGames = 0;
+    let alreadyGotPoints = false;
+    for (const pl of prevLogs) {
+      prevGames += Number(pl.games ?? 0);
+      if (Number(pl.points) > 0) alreadyGotPoints = true;
+    }
 
-    // 수습 동반 보너스 계산
+    // 수습 동반 보너스
     let rookieBonus = 0;
     if (hasRookie) {
       const rookieMemberIds: number[] = [];
@@ -363,20 +392,21 @@ async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRo
       }
     }
 
-    if (points <= 0 && rookieBonus === 0) continue;
-    if (alreadyGotAram && rookieBonus === 0) { console.log(`[award] skip memberId=${memberId}: already got aram on ${partyDate}`); continue; }
+    const withMembersAram = histRows.filter((x: any) => x.nickname !== h.nickname).map((x: any) => x.nickname).join(",") || null;
+    const totalGames = prevGames + games;
 
-    if (points > 0 && !alreadyGotAram) {
-      const comment = `칼바람 ${games}판${partyLabel(party)}`;
-      const withMembersAram = histRows.filter((x: any) => x.nickname !== h.nickname).map((x: any) => x.nickname).join(",") || null;
-      await givePoints(pool, memberId, points, "aram", games, comment, givenBy, partyId, 0, null, "party", withMembersAram);
-    } else {
-      // 판수 미달 — 판수만 로그 기록
-      const withMembersAram = histRows.filter((x: any) => x.nickname !== h.nickname).map((x: any) => x.nickname).join(",") || null;
-      await givePoints(pool, memberId, 0, "aram", games, `칼바람 ${games}판 (미달)${partyLabel(party)}`, givenBy, partyId, 0, null, "party", withMembersAram);
+    if (games <= 0 && rookieBonus === 0) continue;
+
+    if (totalGames >= cfg.min_games && !alreadyGotPoints) {
+      await givePoints(pool, memberId, cfg.points, "aram", games, `칼바람 ${totalGames}판 달성${partyLabel(party)}`, givenBy, partyId, 0, null, "party", withMembersAram);
+    } else if (totalGames < cfg.min_games && games > 0) {
+      await givePoints(pool, memberId, 0, "aram", games, `칼바람 ${totalGames}판 누적 (미달)${partyLabel(party)}`, givenBy, partyId, 0, null, "party", withMembersAram);
+    } else if (alreadyGotPoints && rookieBonus === 0) {
+      console.log(`[award] skip memberId=${memberId}: already got aram on ${partyDate}`);
+      continue;
     }
+
     if (rookieBonus > 0) {
-      const withMembersAram = histRows.filter((x: any) => x.nickname !== h.nickname).map((x: any) => x.nickname).join(",") || null;
       await givePoints(pool, memberId, rookieBonus, "aram", 0, `칼바람 (수습 동반 보너스)${partyLabel(party)}`, givenBy, partyId, 0, null, "party", withMembersAram);
     }
   }
@@ -453,7 +483,7 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
     let alreadyGotPoints = false;
     if (!isRookie) {
       const [prevLogs] = await pool.query(
-        `SELECT pl.points, pl.games FROM point_logs pl JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party' WHERE pl.member_id = ? AND pl.type = ? AND DATE(COALESCE(p.start_at, p.created_at)) = ?`,
+        `SELECT pl.points, pl.games FROM point_logs pl JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party' WHERE pl.member_id = ? AND pl.type = ? AND DATE(COALESCE(p.start_at, p.created_at) - INTERVAL 6 HOUR) = ?`,
         [memberId, checkType, partyDate]
       ) as [any[], any];
       for (const pl of prevLogs) {
