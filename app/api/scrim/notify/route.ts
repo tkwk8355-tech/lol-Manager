@@ -18,7 +18,11 @@ export async function POST(req: NextRequest) {
     let syncResult = null;
     const memberIds: number[] = (slotMemberIds ?? []).filter(Boolean);
     if (memberIds.length > 0) {
-      const startAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      // 오늘 새벽 6시 ~ 내일 새벽 6시 범위의 매치를 동기화
+      const now = new Date();
+      let todayBase = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 6, 0, 0);
+      if (now < todayBase) todayBase = new Date(todayBase.getTime() - 24 * 60 * 60 * 1000);
+      const startAt = todayBase.toISOString();
       for (const memberId of memberIds) {
         try {
           syncResult = await syncScrimMatches(memberId, startAt, auth.session.userId);

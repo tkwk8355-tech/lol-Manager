@@ -336,7 +336,13 @@ export default function UserInfoPage() {
     const fourDaysMs = 4 * 24 * 60 * 60 * 1000;
     if (showInactive && m.promotedAt && Date.now() - new Date(m.promotedAt).getTime() < fourDaysMs) return false;
     if (showInactive) {
-      if (m.aramGames2w >= 4 || m.normalGames2w >= 3) return false;
+      const last = (m as any).lastAchievedAt;
+      if (!last) return false;
+      const [y, mo, d] = last.split("-").map(Number);
+      const lastDate = new Date(y, mo - 1, d);
+      const today = new Date(); today.setHours(0,0,0,0);
+      const daysSince = Math.floor((today.getTime() - lastDate.getTime()) / (24 * 60 * 60 * 1000));
+      if (daysSince < 10) return false;
     }
     
     if (specialFilter === "rookie" && m.position !== "수습") return false;
@@ -1492,9 +1498,10 @@ export default function UserInfoPage() {
             <thead>
               <tr style={{ borderBottom: "2px solid var(--border)" }}>
                 <th style={{ textAlign: "left", padding: "6px 10px" }}>닉네임</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>최근 게임</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>칼바람</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>협곡(일반+자랭+내전)</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>달성일</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>마감일</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>플레이 로그</th>
               </tr>
             </thead>
@@ -1505,16 +1512,31 @@ export default function UserInfoPage() {
                     {m.nickname}
                     {m.warningCount > 0 && <span style={{ fontSize: 11, fontWeight: 800, marginLeft: 6, color: "#f1948a" }}>⚠️{m.warningCount}</span>}
                   </td>
-                  <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)", fontSize: 12 }}>
-                    {m.recentLogs && m.recentLogs.length > 0 ? m.recentLogs[0].startAt?.slice(0, 10) : "-"}
+                  <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800,
+                    color: (m as any).aramGamesSince >= 4 ? "var(--win-text)" : "var(--loss-text)" }}>
+                    {(m as any).aramGamesSince}판
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800,
-                    color: m.aramGames2w >= 4 ? "var(--win-text)" : "var(--loss-text)" }}>
-                    {m.aramGames2w}판
+                    color: (m as any).normalGamesSince >= 3 ? "var(--win-text)" : "var(--loss-text)" }}>
+                    {(m as any).normalGamesSince}판
                   </td>
-                  <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800,
-                    color: m.normalGames2w >= 3 ? "var(--win-text)" : "var(--loss-text)" }}>
-                    {m.normalGames2w}판
+                  <td style={{ padding: "8px 10px", textAlign: "center", fontSize: 12, color: "var(--muted)" }}>
+                    {(m as any).lastAchievedAt ? (() => { const [y,mo,d] = (m as any).lastAchievedAt.split("-").map(Number); return `${mo}/${d}`; })() : "-"}
+                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "center", fontSize: 12 }}>
+                    {(() => {
+                      const last = (m as any).lastAchievedAt;
+                      if (!last) return <span style={{ color: "var(--loss-text)" }}>달성 이력 없음</span>;
+                      const [y, mo, d] = last.split("-").map(Number);
+                      const deadline = new Date(y, mo - 1, d + 14);
+                      const today = new Date(); today.setHours(0,0,0,0);
+                      const daysLeft = Math.ceil((deadline.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+                      const label = `${deadline.getMonth()+1}/${deadline.getDate()}`;
+                      const color = daysLeft <= 0 ? "var(--loss-text)" : daysLeft <= 3 ? "#f39c12" : "var(--muted)";
+                      return <span style={{ color, fontWeight: daysLeft <= 3 ? 800 : 400 }}>
+                        {label}{daysLeft <= 0 ? ` (초과 ${Math.abs(daysLeft)}일)` : ` (${daysLeft}일 남음)`}
+                      </span>;
+                    })()}
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "center" }}>
                     <button className="sync-btn" style={{ fontSize: 11, padding: "2px 10px" }}
@@ -1562,7 +1584,7 @@ export default function UserInfoPage() {
                         const playedCount = new Set(
                           (m.rookieSessionLogs ?? []).flatMap((log: any) => log.members ?? []).filter((n: string) => !rookieNickSet.has(n))
                         ).size;
-                        return <span style={{ color }}>{m.nickname}{playedCount >= 10 && <span title="같이 플레이한 클랜원 10명 이상"> ✅</span>}</span>;
+                        return <span style={{ color }}>{m.nickname}{cnt >= 3 && playedCount >= 10 && <span title="파티참여 OOO + 같이 플레이한 클랜원 10명 이상"> ✅</span>}</span>;
                       })()}
                     </td>
                     <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)" }}>{m.createdAt ? m.createdAt.slice(0, 10) : "-"}</td>

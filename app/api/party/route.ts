@@ -526,10 +526,10 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
 
     if (isRookie) {
       const [snapRows] = await pool.query(
-        `SELECT COUNT(*) AS cnt FROM party_participant_history WHERE party_id = ? AND nickname = (SELECT game_name FROM accounts WHERE member_id = ? AND is_main = 1 LIMIT 1)`,
+        `SELECT 1 FROM party_participant_history WHERE party_id = ? AND nickname = (SELECT game_name FROM accounts WHERE member_id = ? AND is_main = 1 LIMIT 1) LIMIT 1`,
         [partyId, memberId]
       ) as [any[], any];
-      const snapCount = Number(snapRows[0]?.cnt ?? 0);
+      const snapCount = snapRows.length > 0 ? 1 : 0;
       if (snapCount > 0) {
         const countableMode = party.mode === 'flex' || party.mode === 'scrim';
         const withMembers = memberData.filter(m => m.memberId !== memberId).map(m => m.nickname).join(",") || null;

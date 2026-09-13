@@ -4,18 +4,26 @@ import { getAccountByRiotId, getMatchIds, getMatch, RiotApiError } from "@/lib/r
 import { givePoints } from "@/lib/points";
 import { pickMvpIds } from "@/lib/scrim";
 
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-
 function kstDateTimeString(ms: number): string {
   const d = new Date(ms);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
+// 새벽 6시 기준 하루의 시작/끝 (KST, 서버 로컬 시각)
+function getDayWindow(playedAtMs: number): { windowStart: string; windowEnd: string } {
+  const shifted = new Date(playedAtMs - 6 * 60 * 60 * 1000); // 6시간 빼서 날짜 구분 (로컬 기준)
+  const y = shifted.getFullYear(), mo = shifted.getMonth(), day = shifted.getDate();
+  const windowStartMs = new Date(y, mo, day, 6, 0, 0).getTime(); // 당일 06:00 (로컬 KST)
+  return {
+    windowStart: kstDateTimeString(windowStartMs),
+    windowEnd: kstDateTimeString(windowStartMs + 24 * 60 * 60 * 1000),
+  };
+}
+
 export async function syncScrimMatches(memberId: number, startAt: string, givenByUserId: number) {
   const startMs = new Date(startAt).getTime();
   if (!Number.isFinite(startMs)) throw new Error("시작 시각 형식이 올바르지 않습니다.");
-  const endMs = startMs + ONE_DAY_MS;
   const startSec = Math.floor(startMs / 1000);
 
   await ensureSchema();
@@ -71,7 +79,7 @@ export async function syncScrimMatches(memberId: number, startAt: string, givenB
 
         const match = await getMatch(matchId);
         const info = match.info;
-        if (info.gameCreation < startMs || info.gameCreation > endMs) continue;
+        if (info.gameCreation < startMs) continue;
         if (info.gameType !== "CUSTOM_GAME") { skippedNoCustom++; continue; }
 
         const matched = info.participants
@@ -132,14 +140,10 @@ export async function syncScrimMatches(memberId: number, startAt: string, givenB
           await conn.commit();
           addedMatches++;
 
-          const windowStart = kstDateTimeString(startMs);
-          const windowEnd = kstDateTimeString(endMs);
-          const startLabel = kstDateTimeString(startMs).slice(5, 11);
+          const { windowStart, windowEnd } = getDayWindow(info.gameCreation);
+          const startLabel = kstDateTimeString(info.gameCreation).slice(5, 11);
           for (const { memberId: mId } of matched) {
             const isRookie = isRookieByMemberId.get(mId) === true;
-            const checkType = isRookie ? "rookie_session" : "scrim";
-            const [alreadyRows] = await pool.query(`SELECT id FROM point_logs WHERE member_id = ? AND type = ? AND ref_id = ? AND ref_table = 'scrim_match'`, [mId, checkType, newMatchId]) as [any[], any];
-            if (alreadyRows.length > 0) continue;
             const withMembers = matched.filter((x: any) => x.memberId !== mId).map((x: any) => nicknameByMemberId.get(x.memberId)!).filter(Boolean).join(",") || null;
             if (isRookie) {
               const [windowGamesRows] = await pool.query(`SELECT COUNT(*) AS cnt FROM point_logs pl JOIN scrim_matches sm ON sm.id = pl.ref_id AND pl.ref_table = 'scrim_match' WHERE pl.member_id = ? AND pl.type = 'rookie_session' AND sm.played_at >= ? AND sm.played_at < ?`, [mId, windowStart, windowEnd]) as [any[], any];

@@ -28,7 +28,6 @@ export async function GET(req: NextRequest) {
     // 2주간 파티 참여 게임수 (party_participant_history + point_logs.games 기반)
     // aram: games 합산, normal/flex/solo: 파티 참여 횟수(games 합산)
     const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const [partyRows] = await pool.query(`
       SELECT pl.member_id,
              SUM(IF(pl.type = 'aram', pl.games, 0)) AS aram_games,
@@ -38,7 +37,7 @@ export async function GET(req: NextRequest) {
       LEFT JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
       WHERE pl.type IN ('aram','normal','flex','solo') AND DATE(pl.created_at) >= ?
       GROUP BY pl.member_id
-    `, [tenDaysAgo]) as [any[], any];
+    `, [twoWeeksAgo]) as [any[], any];
     const partyGames = new Map<number, { aram: number; normal: number; lastGameAt: string | null }>();
     for (const r of partyRows) {
       partyGames.set(r.member_id, { aram: Number(r.aram_games), normal: Number(r.normal_games), lastGameAt: r.last_game_at ?? null });
@@ -51,19 +50,43 @@ export async function GET(req: NextRequest) {
       JOIN scrim_matches sm ON sm.id = sp.match_id
       WHERE DATE(sm.played_at) >= ? AND sm.status = 'done'
       GROUP BY sp.member_id
-    `, [tenDaysAgo]) as [any[], any];
+    `, [twoWeeksAgo]) as [any[], any];
     const scrimGames = new Map<number, number>();
     for (const r of scrimCountRows) scrimGames.set(r.member_id, Number(r.scrim_games));
 
-    // 최근 2주 파티 로그 상세 (판수미달 뷰용)
+    // 최근 2주 파티 로그 상세 (판수미달 뷰용) - lastAchievedAt 계산을 위해 더 넓게 조회
     const [recentLogRows] = await pool.query(`
-      SELECT pl.id, pl.member_id, pl.type, pl.games, pl.comment, pl.created_at, pl.with_members,
+      SELECT pl.id, pl.member_id, pl.type, pl.games, pl.points, pl.comment, pl.created_at, pl.with_members,
              p.start_at, p.mode AS party_mode
       FROM point_logs pl
       LEFT JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
       WHERE pl.type IN ('aram','normal','flex','solo','scrim') AND DATE(pl.created_at) >= ?
       ORDER BY pl.created_at DESC
-    `, [tenDaysAgo]) as [any[], any];
+    `, [twoWeeksAgo]) as [any[], any];
+    // lastAchievedAt 이후 판수 계산용 전체 로그 (멤버별 기준일이 다르므로 넉넉히 조회)
+    const sinceDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const [sinceLogRows] = await pool.query(`
+      SELECT pl.member_id, pl.type, pl.games, COALESCE(p.start_at, pl.created_at) AS game_at
+      FROM point_logs pl
+      LEFT JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
+      WHERE pl.type IN ('aram','normal','flex','solo') AND DATE(pl.created_at) >= ?
+    `, [sinceDate]) as [any[], any];
+    const sinceLogMap = new Map<number, { type: string; games: number; gameAt: string }[]>();
+    for (const r of sinceLogRows) {
+      if (!sinceLogMap.has(r.member_id)) sinceLogMap.set(r.member_id, []);
+      sinceLogMap.get(r.member_id)!.push({ type: r.type, games: Number(r.games), gameAt: r.game_at?.slice(0, 10) ?? "" });
+    }
+    // 내전 로그도 포함
+    const [sinceScrimRows] = await pool.query(`
+      SELECT sp.member_id, DATE(sm.played_at) AS game_at
+      FROM scrim_participants sp
+      JOIN scrim_matches sm ON sm.id = sp.match_id AND sm.status = 'done'
+      WHERE DATE(sm.played_at) >= ?
+    `, [sinceDate]) as [any[], any];
+    for (const r of sinceScrimRows) {
+      if (!sinceLogMap.has(r.member_id)) sinceLogMap.set(r.member_id, []);
+      sinceLogMap.get(r.member_id)!.push({ type: 'scrim', games: 1, gameAt: r.game_at?.slice(0, 10) ?? "" });
+    }
     const recentLogs = new Map<number, any[]>();
     for (const r of recentLogRows) {
       const mid = r.member_id;
@@ -72,12 +95,70 @@ export async function GET(req: NextRequest) {
         id: r.id,
         type: r.type,
         games: Number(r.games),
+        points: Number(r.points ?? 0),
         comment: r.comment,
         date: (r.start_at ?? r.created_at ?? "").slice(0, 10),
         startAt: (r.start_at ?? r.created_at ?? "").slice(0, 16).replace("T", " "),
         mode: r.party_mode ?? r.type,
         members: r.with_members ? r.with_members.split(",").map((s: string) => s.trim()).filter(Boolean) : [],
       });
+    }
+
+    // 멤버별 마지막 판수 달성 날짜
+    // 칼바람: 날짜별 4판 이상, 협곡(normal/flex/solo): 날짜별 3판 이상인 날 중 가장 최근
+    const [lastAchievedRows] = await pool.query(`
+      SELECT member_id,
+             MAX(COALESCE(p.start_at, pl.created_at)) AS last_achieved_at
+      FROM point_logs pl
+      LEFT JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
+      WHERE pl.type = 'aram'
+      GROUP BY member_id, DATE(COALESCE(p.start_at, pl.created_at))
+      HAVING SUM(pl.games) >= 4
+    `) as [any[], any];
+    // 날짜별 집계 후 멤버별 MAX
+    const lastAchievedAram = new Map<number, string>();
+    for (const r of lastAchievedRows) {
+      const existing = lastAchievedAram.get(r.member_id);
+      const val = r.last_achieved_at?.slice(0, 10);
+      if (val && (!existing || val > existing)) lastAchievedAram.set(r.member_id, val);
+    }
+
+    const [lastAchievedNormalRows] = await pool.query(`
+      SELECT member_id,
+             MAX(COALESCE(p.start_at, pl.created_at)) AS last_achieved_at
+      FROM point_logs pl
+      LEFT JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
+      WHERE pl.type IN ('normal','flex','solo')
+      GROUP BY member_id, DATE(COALESCE(p.start_at, pl.created_at))
+      HAVING SUM(pl.games) >= 3
+    `) as [any[], any];
+    const lastAchievedNormal = new Map<number, string>();
+    for (const r of lastAchievedNormalRows) {
+      const existing = lastAchievedNormal.get(r.member_id);
+      const val = r.last_achieved_at?.slice(0, 10);
+      if (val && (!existing || val > existing)) lastAchievedNormal.set(r.member_id, val);
+    }
+
+    const lastAchieved = new Map<number, string>();
+    const allMemberIds = new Set([...lastAchievedAram.keys(), ...lastAchievedNormal.keys()]);
+    for (const mid of allMemberIds) {
+      const a = lastAchievedAram.get(mid) ?? null;
+      const n = lastAchievedNormal.get(mid) ?? null;
+      const best = a && n ? (a > n ? a : n) : (a ?? n)!;
+      lastAchieved.set(mid, best);
+    }
+
+    // 내전: 날짜별 3판 이상인 날 중 가장 최근 날짜
+    const [scrimAchievedRows] = await pool.query(`
+      SELECT sp.member_id, DATE(sm.played_at) AS play_date, COUNT(*) AS cnt
+      FROM scrim_participants sp
+      JOIN scrim_matches sm ON sm.id = sp.match_id AND sm.status = 'done'
+      GROUP BY sp.member_id, DATE(sm.played_at)
+      HAVING COUNT(*) >= 3
+    `) as [any[], any];
+    for (const r of scrimAchievedRows) {
+      const existing = lastAchieved.get(r.member_id);
+      if (!existing || r.play_date > existing) lastAchieved.set(r.member_id, r.play_date);
     }
 
     const [warnRows] = await pool.query(
@@ -238,7 +319,26 @@ export async function GET(req: NextRequest) {
       const pg = partyGames.get(id);
       m.aramGames2w = pg?.aram ?? 0;
       m.normalGames2w = (pg?.normal ?? 0) + (scrimGames.get(id) ?? 0);
-      m.lastGameAt = pg?.lastGameAt ?? null;
+      const achievedAt = lastAchieved.get(id) ?? null;
+      const promotedDate = m.promotedAt ? m.promotedAt.slice(0, 10) : null;
+      m.lastAchievedAt = promotedDate && (!achievedAt || promotedDate > achievedAt) ? promotedDate : achievedAt;
+      // lastAchievedAt 이후 판수 계산
+      const sinceBase = m.lastAchievedAt;
+      if (sinceBase) {
+        const logs = sinceLogMap.get(id) ?? [];
+        let aramSince = 0, normalSince = 0;
+        for (const l of logs) {
+          if (l.gameAt > sinceBase) {
+            if (l.type === 'aram') aramSince += l.games;
+            else normalSince += l.games;
+          }
+        }
+        m.aramGamesSince = aramSince;
+        m.normalGamesSince = normalSince;
+      } else {
+        m.aramGamesSince = 0;
+        m.normalGamesSince = 0;
+      }
       m.games2w = (pg?.aram ?? 0) + (pg?.normal ?? 0);
       // 본계정이 없으면 첫 번째 계정 이름 사용, 계정도 없으면 members.nickname 사용
       if (!m.nickname) {

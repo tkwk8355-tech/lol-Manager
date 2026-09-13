@@ -696,6 +696,8 @@ export default function ScrimPage() {
   const [tab, setTab] = useState<"matches" | "ranking" | "stats">("matches");
   const [matches, setMatches] = useState<MatchRecord[]>([]);
   const [matchesLoading, setMatchesLoading] = useState(false);
+  const [matchPage, setMatchPage] = useState(0);
+  const MATCH_PAGE_SIZE = 20;
   const [editMatch, setEditMatch] = useState<MatchRecord | null>(null);
   const [editWinner, setEditWinner] = useState<1 | 2>(1);
   const [editSlots, setEditSlots] = useState<SlotData[]>([]);
@@ -967,7 +969,7 @@ export default function ScrimPage() {
       </div>
 
       <div className="scrim-tabs">
-        <button className={tab === "matches" ? "on" : ""} onClick={() => setTab("matches")}>경기 목록</button>
+        <button className={tab === "matches" ? "on" : ""} onClick={() => { setTab("matches"); setMatchPage(0); }}>경기 목록</button>
         <button className={tab === "ranking" ? "on" : ""} onClick={() => setTab("ranking")}>순위표</button>
         <button className={tab === "stats" ? "on" : ""} onClick={() => setTab("stats")}>통계</button>
       </div>
@@ -1181,8 +1183,9 @@ export default function ScrimPage() {
           {matchesLoading ? <p>불러오는 중...</p> : matches.length === 0
             ? <p style={{ color: "var(--muted)", fontSize: 14 }}>등록된 경기가 없습니다.</p>
             : (
+            <>
             <div className="match-log">
-              {matches.map((m) => {
+              {matches.slice(matchPage * MATCH_PAGE_SIZE, (matchPage + 1) * MATCH_PAGE_SIZE).map((m) => {
                 const dt = new Date(m.playedAt);
                 const dateStr = dt.toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
                 const timeStr = dt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
@@ -1269,6 +1272,12 @@ export default function ScrimPage() {
                 );
               })}
             </div>
+            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginTop: 16 }}>
+              <button className="btn-secondary" disabled={matchPage <= 0} onClick={() => setMatchPage(p => p - 1)}>‹ 이전</button>
+              <span style={{ fontSize: 13, color: "var(--muted)" }}>{matchPage + 1} / {Math.ceil(matches.length / MATCH_PAGE_SIZE)}</span>
+              <button className="btn-secondary" disabled={(matchPage + 1) * MATCH_PAGE_SIZE >= matches.length} onClick={() => setMatchPage(p => p + 1)}>다음 ›</button>
+            </div>
+            </>
           )}
         </div>
       )}
