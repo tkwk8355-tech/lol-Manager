@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
     try {
       await conn.beginTransaction();
       const [mRes] = await conn.query(
-        `INSERT INTO members (nickname, position) VALUES (?, '클랜원')`, [name]
+        `INSERT INTO members (nickname, position) VALUES (?, '수습')`, [name]
       ) as any;
       const memberId = mRes.insertId;
       await conn.query(

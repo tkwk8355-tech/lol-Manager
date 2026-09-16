@@ -26,7 +26,10 @@ export default function SiteHeader() {
     { href: "/userInfo",icon: "👥", label: user?.role === "admin" || user?.role === "subadmin" ? "클랜원 관리" : "클랜원", scrimOnly: false },
     // { href: "/search",  icon: "🔍", label: "전적 검색", scrimOnly: false },
   ];
-  const nav = !user ? [] : user.scrimOnly ? allNav.filter((i) => i.scrimOnly) : user.role==="captain" ? allNav.filter(i=>i.href==="/auction") : allNav;
+  const nav = !user ? [] 
+    : user.scrimOnly ? allNav.filter((i) => i.scrimOnly)
+    : user.role === "captain" ? allNav.filter((i) => i.href === "/auction")
+    : allNav;
 
   return (
     <header className="site-header">
@@ -47,7 +50,7 @@ export default function SiteHeader() {
         {loading ? null : user ? (
           <div className="auth-user">
             <span className={`auth-role-badge ${user.role}`}>{user.role === "admin" ? "운영진" : user.role === "subadmin" ? "부운영진" : user.role === "captain" ? "팀장" : "클랜원"}</span>
-            <button className="auth-nickname-btn" onClick={() => setShowPwModal(true)}>{user.nickname}</button>
+            <button className="auth-nickname-btn" onClick={() => { if (!user.scrimOnly) setShowPwModal(true); }} style={{ cursor: user.scrimOnly ? "default" : "pointer" }}>{user.nickname}</button>
             <button className="auth-logout-btn" onClick={logout}>로그아웃</button>
           </div>
         ) : (

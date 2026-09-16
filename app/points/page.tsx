@@ -236,6 +236,9 @@ export default function PointsPage() {
       </div>
     );
   }
+  if (user.role === "captain" || user.scrimOnly) return (
+    <div className="userinfo"><div className="party-login-notice">접근 권한이 없습니다.</div></div>
+  );
 
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto", padding: "0 16px" }}>

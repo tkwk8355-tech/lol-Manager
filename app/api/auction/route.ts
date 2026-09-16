@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
   if (!sessionId) {
     const [rows] = await pool.query(
-      `SELECT s.id, s.status, s.current_idx, s.created_at,
+      `SELECT s.id, s.name, s.status, s.current_idx, s.created_at,
               COUNT(DISTINCT ap.id) AS player_count
        FROM auction_sessions s
        LEFT JOIN auction_players ap ON ap.session_id = s.id
@@ -59,9 +59,10 @@ export async function POST(req: NextRequest) {
   await ensureSchema();
   const pool = getPool();
   const body = await req.json();
-  const { captains, playerIds } = body as {
+  const { captains, playerIds, name } = body as {
     captains: { memberId: number; points: number; captainUserId?: number }[];
     playerIds?: number[];
+    name?: string;
   };
   if (!captains?.length)
     return NextResponse.json({ error: "팀장을 입력하세요." }, { status: 400 });
@@ -90,8 +91,8 @@ export async function POST(req: NextRequest) {
   try {
     await conn.beginTransaction();
     const [res] = await conn.query(
-      `INSERT INTO auction_sessions (status, current_idx, created_by) VALUES ('waiting', 0, ?)`,
-      [auth.session.userId]
+      `INSERT INTO auction_sessions (name, status, current_idx, created_by) VALUES (?, 'waiting', 0, ?)`,
+      [name || null, auth.session.userId]
     ) as any[];
     const sessionId = res.insertId;
 

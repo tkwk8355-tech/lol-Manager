@@ -12,12 +12,12 @@ export async function GET(req: NextRequest) {
     await ensureSchema();
     const pool = getPool();
     const [rows] = await pool.query(
-      `SELECT id, username, nickname, role, status, created_at FROM users ORDER BY id ASC`
+      `SELECT id, username, nickname, role, scrim_only, show_roster, status, created_at FROM users ORDER BY id ASC`
     ) as [any[], any];
     return NextResponse.json({
       users: rows.map((r) => ({
         id: r.id, username: r.username, nickname: r.nickname,
-        role: r.role, status: r.status ?? "active", createdAt: r.created_at,
+        role: r.role, scrimOnly: !!r.scrim_only, showRoster: !!r.show_roster, status: r.status ?? "active", createdAt: r.created_at,
       })),
     });
   } catch (err) {
@@ -35,7 +35,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "최고 운영진만 역할을 변경할 수 있습니다." }, { status: 403 });
   }
   try {
-    const { userId, role, approve } = await req.json();
+    const { userId, role, approve, showRoster } = await req.json();
     // 승인 처리
     if (approve) {
       await ensureSchema();
@@ -43,7 +43,14 @@ export async function PUT(req: NextRequest) {
       await pool.query("UPDATE users SET status = 'active' WHERE id = ?", [Number(userId)]);
       return NextResponse.json({ ok: true });
     }
-    if (!userId || !["admin", "subadmin", "member"].includes(role)) {
+    // show_roster 토글
+    if (showRoster !== undefined) {
+      await ensureSchema();
+      const pool = getPool();
+      await pool.query("UPDATE users SET show_roster = ? WHERE id = ?", [showRoster ? 1 : 0, Number(userId)]);
+      return NextResponse.json({ ok: true });
+    }
+    if (!userId || !["admin", "subadmin", "member", "captain", "scrim"].includes(role)) {
       return NextResponse.json({ error: "userId, role 필수" }, { status: 400 });
     }
     if (userId === auth.session.userId) {
@@ -51,7 +58,11 @@ export async function PUT(req: NextRequest) {
     }
     await ensureSchema();
     const pool = getPool();
-    await pool.query("UPDATE users SET role = ? WHERE id = ?", [role, Number(userId)]);
+    if (role === "scrim") {
+      await pool.query("UPDATE users SET role = 'member', scrim_only = 1 WHERE id = ?", [Number(userId)]);
+    } else {
+      await pool.query("UPDATE users SET role = ?, scrim_only = 0 WHERE id = ?", [role, Number(userId)]);
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error(err);

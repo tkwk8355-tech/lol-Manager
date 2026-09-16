@@ -101,6 +101,9 @@ export default function FriendsPage() {
       </div>
     </div>
   );
+  if (user.role === "captain" || user.scrimOnly) return (
+    <div className="scrim"><div className="party-login-notice">접근 권한이 없습니다.</div></div>
+  );
 
   return (
     <div className="scrim">

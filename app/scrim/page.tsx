@@ -854,6 +854,9 @@ export default function ScrimPage() {
       </div>
     </div>
   );
+  if (user.role === "captain" || (!user.scrimOnly && user.role !== "admin" && user.role !== "subadmin" && user.role !== "member" && !user.scrimOnly)) return (
+    <div className="scrim"><div className="party-login-notice">접근 권한이 없습니다.</div></div>
+  );
 
   function openEditModal(m: MatchRecord) {
     setEditMatch(m); setEditWinner((m.winnerTeam || 1) as 1 | 2); setEditErr("");

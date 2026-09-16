@@ -35,8 +35,8 @@ function fmtStart(startAt: string | null): string {
 
 const isAdmin = (role: string) => role === "admin" || role === "subadmin";
 
-function ParticipantInput({ value, onChange, onAddNext, autoFocusOnMount, isLast }: {
-  value: string; onChange: (v: string) => void; onAddNext: () => void; autoFocusOnMount?: boolean; isLast?: boolean;
+function ParticipantInput({ value, onChange, onAddNext, autoFocusOnMount, isLast, existingValues }: {
+  value: string; onChange: (v: string) => void; onAddNext: () => void; autoFocusOnMount?: boolean; isLast?: boolean; existingValues?: string[];
 }) {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [activeIdx, setActiveIdx] = useState(-1);
@@ -53,7 +53,8 @@ function ParticipantInput({ value, onChange, onAddNext, autoFocusOnMount, isLast
     try {
       const res = await fetch(`/api/party/members?q=${encodeURIComponent(v.trim())}`);
       const json = await res.json();
-      setSuggestions((json.members ?? []).map((m: any) => m.gameName));
+      const others = (existingValues ?? []).map(s => s.toLowerCase());
+      setSuggestions((json.members ?? []).map((m: any) => m.gameName).filter((n: string) => n.toLowerCase() !== value.toLowerCase() && !others.includes(n.toLowerCase())));
     } catch { setSuggestions([]); }
   }
 
@@ -318,6 +319,8 @@ export default function PartyPage() {
           파티 목록을 보거나 파티를 만들려면 로그인이 필요합니다.
           <button type="button" className="inline-login-btn" onClick={() => openAuthModal("login")}>로그인 / 회원가입</button>
         </div>
+      ) : (user.role === "captain" || user.scrimOnly) ? (
+        <div className="party-login-notice">접근 권한이 없습니다.</div>
       ) : (
         <>
           {isAdmin(user.role) && (
@@ -359,7 +362,7 @@ export default function PartyPage() {
                 <span className="party-participants-label">참가자</span>
                 {participants.map((nick, i) => (
                   <div key={i} className="party-participant-row">
-                    <ParticipantInput value={nick} onChange={(v) => updateParticipant(i, v)} onAddNext={addParticipant} autoFocusOnMount={i === participants.length - 1 && i > 0} isLast={i === participants.length - 1} />
+                    <ParticipantInput value={nick} onChange={(v) => updateParticipant(i, v)} onAddNext={addParticipant} autoFocusOnMount={i === participants.length - 1 && i > 0} isLast={i === participants.length - 1} existingValues={participants.filter((_, idx) => idx !== i)} />
                     <button type="button" className="party-participant-add-inline" onClick={addParticipant} title="인원 추가" disabled={participants.length >= createMaxSize}>+</button>
                     <button type="button" className="party-participant-remove" onClick={() => removeParticipant(i)}>✕</button>
                   </div>
@@ -399,6 +402,7 @@ export default function PartyPage() {
                             onAddNext={() => setEditParticipants((prev) => prev.length >= p.maxSize ? prev : [...prev, ""])}
                             autoFocusOnMount={i === editParticipants.length - 1 && i > 0}
                             isLast={i === editParticipants.length - 1}
+                            existingValues={editParticipants.filter((_, idx) => idx !== i)}
                           />
                           <button type="button" className="party-participant-add-inline"
                             onClick={() => setEditParticipants((prev) => prev.length >= p.maxSize ? prev : [...prev, ""])} disabled={editParticipants.length >= p.maxSize}>+</button>

@@ -12,7 +12,7 @@ interface AuctionBid {
   id:number;session_id:number;player_id:number;captain_id:number;points:number;captain_name:string;
 }
 interface AuctionSession{id:number;status:string;current_idx:number;timer_started:number;timer_started_at:number|null;}
-interface SessionListItem{id:number;status:string;current_idx:number;created_at:string;player_count:number;}
+interface SessionListItem{id:number;name:string|null;status:string;current_idx:number;created_at:string;player_count:number;}
 interface Member{id:number;nickname:string;}
 interface RosterEntry{member_id:number;nickname:string;main_line:string|null;sub_line:string|null;solo_tier:string|null;solo_rank:string|null;line:string|null;champ1:string|null;champ2:string|null;champ3:string|null;}
 
@@ -130,6 +130,7 @@ function AuctionTimer({onEnd,resetRef,startedAt,serverNow,onStart,isAdmin,nextBu
 
 function CreateSessionModal({members,roster,onClose,onCreated}:{members:Member[];roster:RosterEntry[];onClose:()=>void;onCreated:(id:number)=>void;}){
   const [captains,setCaptains]=useState<{memberId:number;nickname:string;points:number;captainUserId:number|null}[]>([]);
+  const [sessionName,setSessionName]=useState("");
   const [captainAccounts,setCaptainAccounts]=useState<{id:number;nickname:string}[]>([]);
   const [err,setErr]=useState("");
   const [loading,setLoading]=useState(false);
@@ -145,7 +146,7 @@ function CreateSessionModal({members,roster,onClose,onCreated}:{members:Member[]
     setLoading(true);setErr("");
     try{
       const res=await fetch("/api/auction",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({captains:captains.map(c=>({memberId:c.memberId,points:c.points,captainUserId:c.captainUserId}))})});
+        body:JSON.stringify({name:sessionName||null,captains:captains.map(c=>({memberId:c.memberId,points:c.points,captainUserId:c.captainUserId}))})});
       const json=await res.json();
       if(!res.ok){setErr(json.error||"생성 실패");return;}
       onCreated(json.sessionId);
@@ -157,6 +158,15 @@ function CreateSessionModal({members,roster,onClose,onCreated}:{members:Member[]
         <div className="modal-head" style={{fontSize:17}}>
           <span>📢 새 경매 생성</span>
           <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div style={{marginBottom:16}}>
+          <input
+            autoFocus
+            placeholder="경매 이름 (예: 9/13 내전 경매)"
+            value={sessionName}
+            onChange={e=>setSessionName(e.target.value)}
+            style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:14,boxSizing:"border-box"}}
+          />
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
           {/* 팀장 지정 */}
@@ -359,7 +369,7 @@ function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:bool
   const isWaiting=session?.status==="waiting";
   const remaining=nonCaptains.filter(p=>p.team_id===null).sort((a,b)=>a.sort_order-b.sort_order);
   return(
-    <div style={{display:"grid",gridTemplateColumns:"400px 780px 200px",gap:16,minHeight:700}}>
+    <div style={{display:"grid",gridTemplateColumns:isAdmin?"400px 1fr 200px":"400px 1fr",gap:16,minHeight:700}}>
       {/* 팀장 패널 - 라인별 슬롯 */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,overflowY:"auto",maxHeight:"80vh",alignContent:"start"}}>
         {captains.map(cap=>{
@@ -473,16 +483,21 @@ function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:bool
             {myCaptain&&(
               <AuctionTimer onEnd={onTimerEnd} resetRef={timerResetRef} startedAt={nexting?null:timerStartedAt} serverNow={serverNow} onStart={async()=>{}} isAdmin={false}/>
             )}
+            {!isAdmin&&!myCaptain&&(
+              <AuctionTimer onEnd={onTimerEnd} resetRef={timerResetRef} startedAt={nexting?null:timerStartedAt} serverNow={serverNow} onStart={async()=>{}} isAdmin={false}/>
+            )}
           </>
         )}
         {isRunning&&!currentPlayer&&<div style={{color:"var(--muted)"}}>모든 선수 경매 완료</div>}
-      </div>      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14,overflowY:"auto",maxHeight:"80vh"}}>
-        <div style={{fontWeight:800,fontSize:13,marginBottom:10,color:"var(--muted)"}}>경매 순서 ({remaining.length}명)</div>
-        <div style={{display:"flex",flexDirection:"column",gap:4}}>
-          {remaining.map((pl,i)=>(<div key={pl.id} style={{padding:"5px 8px",borderRadius:7,fontSize:13,fontWeight:700,background:currentPlayer?.id===pl.id?"rgba(83,131,232,0.18)":"var(--card-2)",border:currentPlayer?.id===pl.id?"1px solid var(--accent)":"1px solid transparent",color:currentPlayer?.id===pl.id?"var(--win-text)":"var(--text)"}}><span style={{color:"var(--muted)",fontSize:11,marginRight:5}}>{i+1}</span>{pl.nickname}</div>))}
-          {remaining.length===0&&<div style={{color:"var(--muted)",fontSize:13}}>없음</div>}
+      </div>      {isAdmin&&(
+        <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14,overflowY:"auto",maxHeight:"80vh"}}>
+          <div style={{fontWeight:800,fontSize:13,marginBottom:10,color:"var(--muted)"}}>경매 순서 ({remaining.length}명)</div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            {remaining.map((pl,i)=>(<div key={pl.id} style={{padding:"5px 8px",borderRadius:7,fontSize:13,fontWeight:700,background:currentPlayer?.id===pl.id?"rgba(83,131,232,0.18)":"var(--card-2)",border:currentPlayer?.id===pl.id?"1px solid var(--accent)":"1px solid transparent",color:currentPlayer?.id===pl.id?"var(--win-text)":"var(--text)"}}><span style={{color:"var(--muted)",fontSize:11,marginRight:5}}>{i+1}</span>{pl.nickname}</div>))}
+            {remaining.length===0&&<div style={{color:"var(--muted)",fontSize:13}}>없음</div>}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -705,6 +720,7 @@ export default function AuctionPage(){
   const [showCreate,setShowCreate]=useState(false);
   const [tab,setTab]=useState<"sessions"|"roster">("sessions");
   const [loadingData,setLoadingData]=useState(true);
+  const [showRoster,setShowRoster]=useState(false);
   const isAdmin=user?.role==="admin"||user?.role==="subadmin";
   const myUserId=user?.userId??null;
   const loadSessions=useCallback(async()=>{
@@ -723,6 +739,7 @@ export default function AuctionPage(){
       }),
       loadSessions(),
       loadRoster(),
+      fetch("/api/settings").then(r=>r.json()).then(j=>setShowRoster(j.settings?.auction_show_roster==="1")),
     ]).finally(()=>setLoadingData(false));
   },[user,authLoading,loadSessions,loadRoster]);
   if(authLoading||loadingData)return null;
@@ -733,7 +750,7 @@ export default function AuctionPage(){
       {!activeId&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
         <div style={{display:"flex",gap:0,background:"var(--card-2)",borderRadius:8,padding:3,border:"1px solid var(--border)"}}>
           <button onClick={()=>{setTab("sessions");}} style={{padding:"6px 18px",borderRadius:6,fontSize:13,fontWeight:700,border:"none",cursor:"pointer",background:tab==="sessions"?"var(--accent)":"transparent",color:tab==="sessions"?"#fff":"var(--muted)"}}>📢 경매</button>
-          <button onClick={()=>setTab("roster")} style={{padding:"6px 18px",borderRadius:6,fontSize:13,fontWeight:700,border:"none",cursor:"pointer",background:tab==="roster"?"var(--accent)":"transparent",color:tab==="roster"?"#fff":"var(--muted)"}}>👥 참여자 관리</button>
+          {(isAdmin||user?.showRoster)&&<button onClick={()=>setTab("roster")} style={{padding:"6px 18px",borderRadius:6,fontSize:13,fontWeight:700,border:"none",cursor:"pointer",background:tab==="roster"?"var(--accent)":"transparent",color:tab==="roster"?"#fff":"var(--muted)"}}>👥 참여자 관리</button>}
         </div>
         <div style={{display:"flex",gap:8}}>
           {tab==="sessions"&&isAdmin&&<button className="btn-primary" onClick={()=>setShowCreate(true)}>+ 새 경매 생성</button>}
@@ -745,7 +762,7 @@ export default function AuctionPage(){
           {!activeId&&(
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
               {sessions.length===0&&<p style={{color:"var(--muted)"}}>경매 세션이 없습니다.</p>}
-              {sessions.map(s=>(<div key={s.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"14px 18px",display:"flex",alignItems:"center",gap:12}}><span style={{fontWeight:800,fontSize:15}}>세션 #{s.id}</span><span style={{fontSize:12,padding:"2px 8px",borderRadius:6,fontWeight:700,background:s.status==="done"?"rgba(46,204,113,0.15)":s.status==="running"?"rgba(83,131,232,0.15)":"var(--card-2)",color:s.status==="done"?"#2ecc71":s.status==="running"?"var(--win-text)":"var(--muted)"}}>{STATUS_LABEL[s.status]??s.status}</span><span style={{color:"var(--muted)",fontSize:13}}>참가자 {s.player_count}명</span><span style={{color:"var(--muted)",fontSize:12,marginLeft:"auto"}}>{new Date(s.created_at).toLocaleDateString("ko-KR")}</span><button className="btn-secondary" style={{padding:"6px 14px",fontSize:12}} onClick={()=>setActiveId(s.id)}>입장</button>{isAdmin&&<button className="del-btn small" onClick={async()=>{if(!confirm("삭제하시겠습니까?"))return;await fetch("/api/auction?sessionId="+s.id,{method:"DELETE"});loadSessions();}}>삭제</button>}</div>))}
+              {sessions.map(s=>(<div key={s.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"14px 18px",display:"flex",alignItems:"center",gap:12}}><span style={{fontWeight:800,fontSize:15}}>{s.name||`세션 #${s.id}`}</span><span style={{fontSize:12,padding:"2px 8px",borderRadius:6,fontWeight:700,background:s.status==="done"?"rgba(46,204,113,0.15)":s.status==="running"?"rgba(83,131,232,0.15)":"var(--card-2)",color:s.status==="done"?"#2ecc71":s.status==="running"?"var(--win-text)":"var(--muted)"}}>{STATUS_LABEL[s.status]??s.status}</span><span style={{color:"var(--muted)",fontSize:13}}>참가자 {s.player_count}명</span><span style={{color:"var(--muted)",fontSize:12,marginLeft:"auto"}}>{new Date(s.created_at).toLocaleDateString("ko-KR")}</span><button className="btn-secondary" style={{padding:"6px 14px",fontSize:12}} onClick={()=>setActiveId(s.id)}>입장</button>{isAdmin&&<button className="del-btn small" onClick={async()=>{if(!confirm("삭제하시겠습니까?"))return;await fetch("/api/auction?sessionId="+s.id,{method:"DELETE"});loadSessions();}}>삭제</button>}</div>))}
             </div>
           )}
           {activeId&&<AuctionRoom sessionId={activeId} isAdmin={isAdmin} myUserId={myUserId} />}

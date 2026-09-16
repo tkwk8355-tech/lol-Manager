@@ -15,7 +15,9 @@ export async function GET(req: NextRequest) {
   const [rows] = await pool.query(
     `SELECT a.game_name, a.tag_line
      FROM accounts a
+     JOIN members m ON m.id = a.member_id
      WHERE a.is_main = 1
+       AND m.status = 'active'
        AND (? = '' OR a.game_name LIKE ?)
      ORDER BY a.game_name ASC
      LIMIT 20`,

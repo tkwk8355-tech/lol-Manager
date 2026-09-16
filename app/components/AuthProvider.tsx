@@ -14,6 +14,7 @@ export interface AuthUser {
   nickname: string;
   role: Role;
   scrimOnly: boolean;
+  showRoster: boolean;
 }
 
 interface AuthContextValue {
@@ -59,6 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/auth/me");
       const json = await res.json();
+      if (json.user) json.user.showRoster = json.user.showRoster ?? false;
       setUser(json.user ?? null);
     } catch {
       setUser(null);
@@ -78,6 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       const json = await res.json();
       if (!res.ok) return { ok: false, error: json.error || "로그인 실패" };
+      if (json.user) json.user.showRoster = json.user.showRoster ?? false;
       setUser(json.user);
       setAuthModalOpen(false);
       return { ok: true };

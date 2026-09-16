@@ -122,6 +122,8 @@ interface LinkedUser {
   username: string;
   nickname: string;
   role: string;
+  scrimOnly: boolean;
+  showRoster: boolean;
   status: string;
   createdAt?: string;
 }
@@ -825,6 +827,9 @@ export default function UserInfoPage() {
       </div>
     );
   }
+  if (user.role === "captain" || user.scrimOnly) return (
+    <div className="userinfo"><div className="party-login-notice">접근 권한이 없습니다.</div></div>
+  );
 
   return (
     <div className="userinfo">
@@ -1340,20 +1345,30 @@ export default function UserInfoPage() {
                   </td>
                   <td style={{ padding: "8px" }}>
                     {user?.role === "admin" ? (
-                      <select value={u.role} onChange={(e) => changeRole(u.id, e.target.value)}
+                      <select value={u.scrimOnly ? "scrim" : u.role} onChange={(e) => changeRole(u.id, e.target.value)}
                         style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}>
                         <option value="member">일반</option>
+                        <option value="captain">팀장</option>
+                        <option value="scrim">내전</option>
                         <option value="subadmin">부운영진</option>
                         <option value="admin">운영진</option>
                       </select>
                     ) : (
-                      <span className={`auth-role-badge ${u.role}`}>{u.role === "admin" ? "운영진" : u.role === "subadmin" ? "부운영진" : "일반"}</span>
+                      <span className={`auth-role-badge ${u.role}`}>{u.role === "admin" ? "운영진" : u.role === "subadmin" ? "부운영진" : u.role === "captain" ? "팀장" : u.scrimOnly ? "내전" : "일반"}</span>
                     )}
                   </td>
                   <td style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>
                     {u.status === "pending" && (
                       <><button className="sync-btn" style={{ fontSize: 11, padding: "3px 10px" }} onClick={() => approveUser(u.id, u.username)}>승인</button>{" "}</>
                     )}
+                    <button
+                      onClick={async () => {
+                        const res = await fetch("/api/userinfo/link", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: u.id, showRoster: !u.showRoster }) });
+                        if (res.ok) loadUsers();
+                      }}
+                      style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: `1px solid ${u.showRoster ? "rgba(46,204,113,0.5)" : "rgba(255,255,255,0.15)"}`, background: u.showRoster ? "rgba(46,204,113,0.15)" : "transparent", color: u.showRoster ? "#2ecc71" : "var(--muted)", cursor: "pointer", fontWeight: 700 }}
+                    >참여자{u.showRoster ? " ON" : " OFF"}</button>
+                    {" "}
                     <button className="reset-pw-btn" onClick={() => resetPassword(u.id, u.username)}>비밀번호 초기화</button>
                     {" "}
                     <button className="del-btn small" onClick={() => deleteUser(u.id, u.username)}>삭제</button>
@@ -1498,11 +1513,12 @@ export default function UserInfoPage() {
             <thead>
               <tr style={{ borderBottom: "2px solid var(--border)" }}>
                 <th style={{ textAlign: "left", padding: "6px 10px" }}>닉네임</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>칼바람</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>칼바람(2판=협곡1판)</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>협곡(일반+자랭+내전)</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>달성일</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>마감일</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>플레이 로그</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>갱신</th>
               </tr>
             </thead>
             <tbody>
@@ -1513,7 +1529,7 @@ export default function UserInfoPage() {
                     {m.warningCount > 0 && <span style={{ fontSize: 11, fontWeight: 800, marginLeft: 6, color: "#f1948a" }}>⚠️{m.warningCount}</span>}
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800,
-                    color: (m as any).aramGamesSince >= 4 ? "var(--win-text)" : "var(--loss-text)" }}>
+                    color: (m as any).aramGamesSince >= 6 ? "var(--win-text)" : "var(--loss-text)" }}>
                     {(m as any).aramGamesSince}판
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800,
@@ -1543,6 +1559,22 @@ export default function UserInfoPage() {
                       onClick={() => setInactiveLogModal({ memberId: m.id, nickname: m.nickname, logs: m.recentLogs ?? [] })}>
                       로그
                     </button>
+                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                    {(user?.role === "admin" || user?.role === "subadmin") && (
+                      <button className="sync-btn" style={{ fontSize: 11, padding: "2px 10px" }}
+                        onClick={async () => {
+                          const res = await fetch("/api/userinfo/achieve", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ memberId: m.id }),
+                          });
+                          if (res.ok) loadMembers();
+                          else alert("갱신 실패");
+                        }}>
+                        갱신
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

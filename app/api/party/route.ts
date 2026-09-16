@@ -3,7 +3,7 @@ import mysql from "mysql2/promise";
 import { getPool, ensureSchema } from "@/lib/db";
 import { requireAuth, requireAdmin } from "@/lib/auth";
 import { getMatchIds, getMatch } from "@/lib/riot";
-import { givePoints } from "@/lib/points";
+import { givePoints, updateLastAchieved } from "@/lib/points";
 
 export const dynamic = "force-dynamic";
 
@@ -285,6 +285,17 @@ export async function DELETE(req: NextRequest) {
         if (memberGames) await awardAramPoints(pool, id, party, memberGames, givenBy);
       } else {
         await awardPartyPoints(pool, id, party, givenBy);
+      }
+      // 참가자 전원 달성일 체크
+      const [histRows] = await pool.query(
+        `SELECT DISTINCT nickname FROM party_participant_history WHERE party_id = ?`, [id]
+      ) as [any[], any];
+      for (const h of histRows) {
+        const [mRows] = await pool.query(
+          `SELECT m.id FROM members m JOIN accounts a ON a.member_id=m.id AND a.is_main=1 AND a.game_name=?`,
+          [h.nickname]
+        ) as [any[], any];
+        if (mRows[0]) await updateLastAchieved(pool, mRows[0].id);
       }
     } catch (e) {
       console.error("[points] 전적 조회 실패 (점수 미지급):", e);

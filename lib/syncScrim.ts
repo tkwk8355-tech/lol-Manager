@@ -1,7 +1,7 @@
 import mysql from "mysql2/promise";
 import { getPool, ensureSchema } from "@/lib/db";
 import { getAccountByRiotId, getMatchIds, getMatch, RiotApiError } from "@/lib/riot";
-import { givePoints } from "@/lib/points";
+import { givePoints, updateLastAchieved } from "@/lib/points";
 import { pickMvpIds } from "@/lib/scrim";
 
 function kstDateTimeString(ms: number): string {
@@ -46,6 +46,7 @@ export async function syncScrimMatches(memberId: number, startAt: string, givenB
 
   const errors: string[] = [];
   let addedMatches = 0, skippedDuplicate = 0, skippedNoCustom = 0;
+  const seenMemberIds = new Set<number>();
 
   for (const acc of accounts) {
     let puuid = acc.puuid;
@@ -75,7 +76,13 @@ export async function syncScrimMatches(memberId: number, startAt: string, givenB
     for (const matchId of matchIds) {
       try {
         const [dupRows] = await pool.query("SELECT id FROM scrim_matches WHERE riot_match_id = ?", [matchId]) as [any[], any];
-        if (dupRows.length > 0) { skippedDuplicate++; continue; }
+        if (dupRows.length > 0) {
+          skippedDuplicate++;
+          // 이미 있는 매치도 참가자 추적
+          const [spRows] = await pool.query(`SELECT member_id FROM scrim_participants WHERE match_id = ?`, [dupRows[0].id]) as [any[], any];
+          for (const r of spRows) seenMemberIds.add(r.member_id);
+          continue;
+        }
 
         const match = await getMatch(matchId);
         const info = match.info;
@@ -142,6 +149,7 @@ export async function syncScrimMatches(memberId: number, startAt: string, givenB
 
           const { windowStart, windowEnd } = getDayWindow(info.gameCreation);
           const startLabel = kstDateTimeString(info.gameCreation).slice(5, 11);
+          const playedDate = kstDateTimeString(info.gameCreation).slice(0, 10);
           for (const { memberId: mId } of matched) {
             const isRookie = isRookieByMemberId.get(mId) === true;
             const withMembers = matched.filter((x: any) => x.memberId !== mId).map((x: any) => nicknameByMemberId.get(x.memberId)!).filter(Boolean).join(",") || null;
@@ -152,10 +160,11 @@ export async function syncScrimMatches(memberId: number, startAt: string, givenB
               await givePoints(pool, mId, 0, "rookie_session", 1, `내전 참여 (${startLabel})`, givenByUserId, newMatchId, partyCount, null, "scrim_match", withMembers);
             } else {
               const [dayDupRows] = await pool.query(`SELECT pl.id FROM point_logs pl JOIN scrim_matches sm ON sm.id = pl.ref_id AND pl.ref_table = 'scrim_match' WHERE pl.member_id = ? AND pl.type = 'scrim' AND sm.played_at >= ? AND sm.played_at < ?`, [mId, windowStart, windowEnd]) as [any[], any];
-              if (dayDupRows.length > 0) continue;
-              await givePoints(pool, mId, 30, "scrim", 1, `내전 참여 (${startLabel})`, givenByUserId, newMatchId, 0, null, "scrim_match", withMembers);
+              if (dayDupRows.length === 0) await givePoints(pool, mId, 30, "scrim", 1, `내전 참여 (${startLabel})`, givenByUserId, newMatchId, 0, null, "scrim_match", withMembers);
             }
           }
+
+          for (const { memberId: mId } of matched) seenMemberIds.add(mId);
         } catch (err) {
           await conn.rollback();
           throw err;
@@ -166,6 +175,11 @@ export async function syncScrimMatches(memberId: number, startAt: string, givenB
         errors.push(`매치 ${matchId} 처리 실패`);
       }
     }
+  }
+
+  // 등장한 멤버 전원 달성일 갱신 (새 매치 유무 무관)
+  for (const mId of seenMemberIds) {
+    if (!isRookieByMemberId.get(mId)) await updateLastAchieved(pool, mId);
   }
 
   return { ok: true, addedMatches, skippedDuplicate, skippedNoCustom, errors, memberNickname: nicknameByMemberId.get(memberId) ?? null };

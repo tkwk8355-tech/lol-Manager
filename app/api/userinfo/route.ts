@@ -104,62 +104,12 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // 멤버별 마지막 판수 달성 날짜
-    // 칼바람: 날짜별 4판 이상, 협곡(normal/flex/solo): 날짜별 3판 이상인 날 중 가장 최근
-    const [lastAchievedRows] = await pool.query(`
-      SELECT member_id,
-             MAX(COALESCE(p.start_at, pl.created_at)) AS last_achieved_at
-      FROM point_logs pl
-      LEFT JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
-      WHERE pl.type = 'aram'
-      GROUP BY member_id, DATE(COALESCE(p.start_at, pl.created_at))
-      HAVING SUM(pl.games) >= 4
-    `) as [any[], any];
-    // 날짜별 집계 후 멤버별 MAX
-    const lastAchievedAram = new Map<number, string>();
-    for (const r of lastAchievedRows) {
-      const existing = lastAchievedAram.get(r.member_id);
-      const val = r.last_achieved_at?.slice(0, 10);
-      if (val && (!existing || val > existing)) lastAchievedAram.set(r.member_id, val);
-    }
-
-    const [lastAchievedNormalRows] = await pool.query(`
-      SELECT member_id,
-             MAX(COALESCE(p.start_at, pl.created_at)) AS last_achieved_at
-      FROM point_logs pl
-      LEFT JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
-      WHERE pl.type IN ('normal','flex','solo')
-      GROUP BY member_id, DATE(COALESCE(p.start_at, pl.created_at))
-      HAVING SUM(pl.games) >= 3
-    `) as [any[], any];
-    const lastAchievedNormal = new Map<number, string>();
-    for (const r of lastAchievedNormalRows) {
-      const existing = lastAchievedNormal.get(r.member_id);
-      const val = r.last_achieved_at?.slice(0, 10);
-      if (val && (!existing || val > existing)) lastAchievedNormal.set(r.member_id, val);
-    }
-
+    // last_achieved_at DB 컬럼 직접 조회
+    const [achievedRows] = await pool.query(
+      `SELECT id, DATE(last_achieved_at) as last_achieved_at FROM members WHERE last_achieved_at IS NOT NULL`
+    ) as [any[], any];
     const lastAchieved = new Map<number, string>();
-    const allMemberIds = new Set([...lastAchievedAram.keys(), ...lastAchievedNormal.keys()]);
-    for (const mid of allMemberIds) {
-      const a = lastAchievedAram.get(mid) ?? null;
-      const n = lastAchievedNormal.get(mid) ?? null;
-      const best = a && n ? (a > n ? a : n) : (a ?? n)!;
-      lastAchieved.set(mid, best);
-    }
-
-    // 내전: 날짜별 3판 이상인 날 중 가장 최근 날짜
-    const [scrimAchievedRows] = await pool.query(`
-      SELECT sp.member_id, DATE(sm.played_at) AS play_date, COUNT(*) AS cnt
-      FROM scrim_participants sp
-      JOIN scrim_matches sm ON sm.id = sp.match_id AND sm.status = 'done'
-      GROUP BY sp.member_id, DATE(sm.played_at)
-      HAVING COUNT(*) >= 3
-    `) as [any[], any];
-    for (const r of scrimAchievedRows) {
-      const existing = lastAchieved.get(r.member_id);
-      if (!existing || r.play_date > existing) lastAchieved.set(r.member_id, r.play_date);
-    }
+    for (const r of achievedRows) lastAchieved.set(r.id, r.last_achieved_at);
 
     const [warnRows] = await pool.query(
       `SELECT member_id, COUNT(*) AS cnt FROM warnings GROUP BY member_id`
@@ -320,8 +270,7 @@ export async function GET(req: NextRequest) {
       m.aramGames2w = pg?.aram ?? 0;
       m.normalGames2w = (pg?.normal ?? 0) + (scrimGames.get(id) ?? 0);
       const achievedAt = lastAchieved.get(id) ?? null;
-      const promotedDate = m.promotedAt ? m.promotedAt.slice(0, 10) : null;
-      m.lastAchievedAt = promotedDate && (!achievedAt || promotedDate > achievedAt) ? promotedDate : achievedAt;
+      m.lastAchievedAt = achievedAt;
       // lastAchievedAt 이후 판수 계산
       const sinceBase = m.lastAchievedAt;
       if (sinceBase) {
@@ -335,9 +284,11 @@ export async function GET(req: NextRequest) {
         }
         m.aramGamesSince = aramSince;
         m.normalGamesSince = normalSince;
+        m.convertedSince = Math.floor(aramSince / 2) + normalSince;
       } else {
         m.aramGamesSince = 0;
         m.normalGamesSince = 0;
+        m.convertedSince = 0;
       }
       m.games2w = (pg?.aram ?? 0) + (pg?.normal ?? 0);
       // 본계정이 없으면 첫 번째 계정 이름 사용, 계정도 없으면 members.nickname 사용

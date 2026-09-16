@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool, ensureSchema } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
-import { givePoints } from "@/lib/points";
+import { givePoints, updateLastAchieved } from "@/lib/points";
 
 interface ParticipantInput { memberId: number; team: number; line?: string; }
 interface ResultInput { memberId: number; champion?: string; kills: number; deaths: number; assists: number; damage: number; }
@@ -223,6 +223,12 @@ export async function PATCH(req: NextRequest) {
         } else {
           await givePoints(pool, p.member_id, 30, "scrim", 1, `내전 참여 (${matchTimeLabel})${matchNote}`, auth.session.userId, id, 0, null, "scrim_match", withMembers);
         }
+      }
+
+      // 내전 참가자 달성일 업데이트
+      const playedDate = playedAt.slice(0, 10);
+      for (const p of partRows) {
+        if (p.position !== '수습') await updateLastAchieved(pool, p.member_id);
       }
 
       return NextResponse.json({ ok: true });
