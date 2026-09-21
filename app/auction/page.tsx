@@ -735,7 +735,7 @@ export default function AuctionPage(){
     if(authLoading||!user){setLoadingData(false);return;}
     Promise.all([
       fetch("/api/userinfo").then(r=>r.json()).then(j=>{
-        if(j.members)setMembers(j.members.filter((m:any)=>m.mainLine!=="ARAM").map((m:any)=>({id:m.id,nickname:m.nickname})));
+        if(j.members)setMembers(j.members.filter((m:any)=>m.mainLine!=="ARAM"&&m.status!=="withdraw"&&m.status!=="black").map((m:any)=>({id:m.id,nickname:m.nickname})));
       }),
       loadSessions(),
       loadRoster(),

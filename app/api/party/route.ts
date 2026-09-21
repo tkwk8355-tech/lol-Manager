@@ -320,11 +320,17 @@ async function checkHasRookie(pool: mysql.Pool, histRows: any[]): Promise<boolea
   return false;
 }
 
-// 어떤 파티 때문에 포인트를 받았는지 알 수 있도록, 파티 시작 시각(+메모)을 comment에 붙일 라벨을 만든다.
-// 새벽 6시 기준 날짜: 서버가 KST이므로 6시간만 빼면 됨
+// 새벽 6시 기준 날짜: 서버가 KST이므로 로컬 시각에서 6시간만 빼면 됨
+// toISOString()은 UTC 기준이므로 사용 불가 — 로컬 날짜 문자열로 직접 계산
 function toKstDateString(val: string | Date): string {
-  const ms = typeof val === 'string' ? new Date(val).getTime() : val.getTime();
-  return new Date(ms - 6 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const d = typeof val === 'string' ? new Date(val) : val;
+  // 로컬(KST) 기준 시각에서 6시간 빼기
+  const shifted = new Date(d.getTime() - 6 * 60 * 60 * 1000);
+  // 로컬 날짜 문자열 (YYYY-MM-DD) — 서버가 KST이므로 로컬 = KST
+  const y = shifted.getFullYear();
+  const m = String(shifted.getMonth() + 1).padStart(2, '0');
+  const day = String(shifted.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function partyLabel(party: PartyRow): string {

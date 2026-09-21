@@ -21,6 +21,7 @@ export async function GET() {
     const [members] = await pool.query(
       `SELECT m.id, m.nickname FROM members m
        WHERE (m.main_line != 'ARAM' OR m.main_line IS NULL)
+       AND m.status NOT IN ('withdraw', 'black')
        AND NOT EXISTS (SELECT 1 FROM users u WHERE u.member_id = m.id AND u.scrim_only = 1)
        ORDER BY m.nickname ASC`
     ) as [any[], any];

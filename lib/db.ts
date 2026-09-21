@@ -339,6 +339,20 @@ async function createSchema(): Promise<void> {
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'`);
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS status_note VARCHAR(255) NULL`);
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS promoted_at DATETIME NULL`);
+  await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS withdrew_at DATE NULL`);
+
+  // 블랙리스트 테이블
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS blacklist (
+      id         INT AUTO_INCREMENT PRIMARY KEY,
+      member_id  INT NOT NULL,
+      reason     VARCHAR(500),
+      added_at   DATE NOT NULL,
+      given_by   INT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_bl_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS scrim_only TINYINT NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'`);
   await seedScrimOnlyAccount(pool);

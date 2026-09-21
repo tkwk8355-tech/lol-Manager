@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
      FROM accounts a
      JOIN members m ON m.id = a.member_id
      WHERE a.is_main = 1
-       AND m.status = 'active'
+       AND m.status NOT IN ('withdraw', 'black')
        AND (? = '' OR a.game_name LIKE ?)
      ORDER BY a.game_name ASC
      LIMIT 20`,

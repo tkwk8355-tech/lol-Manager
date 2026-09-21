@@ -94,6 +94,7 @@ export default function PointsPage() {
       const json = await res.json();
       if (res.ok) {
         const sorted: MemberPoint[] = (json.members ?? [])
+          .filter((m: any) => m.status !== "withdraw" && m.status !== "black")
           .map((m: any) => ({ id: m.id, nickname: m.nickname, totalPoints: m.totalPoints ?? 0 }))
           .sort((a: MemberPoint, b: MemberPoint) => b.totalPoints - a.totalPoints);
         setMembers(sorted);

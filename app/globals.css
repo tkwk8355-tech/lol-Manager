@@ -3822,6 +3822,48 @@ a {
 .btn-danger:hover:not(:disabled) { background: var(--loss-bg); }
 .btn-danger:disabled { opacity: 0.5; cursor: default; }
 
+.warn-btn {
+  background: transparent;
+  border: 1px solid rgba(230,126,34,0.6);
+  color: #e67e22;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.warn-btn:hover { background: rgba(230,126,34,0.12); }
+
+.black-btn {
+  background: transparent;
+  border: 1px solid rgba(155,89,182,0.6);
+  color: #c39bd3;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.black-btn:hover { background: rgba(155,89,182,0.12); }
+.black-btn.on {
+  border-color: rgba(231,76,60,0.6);
+  color: #f1948a;
+  background: rgba(231,76,60,0.1);
+}
+.black-btn.on:hover { background: rgba(231,76,60,0.18); }
+
+.withdraw-btn {
+  background: transparent;
+  border: 1px solid rgba(230,126,34,0.6);
+  color: #e67e22;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.withdraw-btn:hover { background: rgba(230,126,34,0.12); }
+
 /* ====================== 파티 생성: 참가자 닉네임 입력 ====================== */
 .party-participants-input {
   display: flex;

@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
      FROM auction_roster r
      JOIN members m ON m.id = r.member_id
      LEFT JOIN accounts a ON a.member_id = m.id AND a.is_main = 1
+     WHERE m.status NOT IN ('withdraw', 'black')
      ORDER BY m.nickname ASC`
   ) as any[];
   return NextResponse.json({ roster: rows });

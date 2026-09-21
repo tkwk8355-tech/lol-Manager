@@ -218,7 +218,7 @@ export default function UserInfoPage() {
   const [showInactive, setShowInactive] = useState(false);
 
   
-  const [specialFilter, setSpecialFilter] = useState<"" | "rookie" | "leave" | "warn">("")
+  const [specialFilter, setSpecialFilter] = useState<"" | "rookie" | "leave" | "warn" | "withdraw">("");
   const [sortBy, setSortBy] = useState<"birth" | "activityTier">("birth");
 
 // ── 페이지네이션 state ──
@@ -276,6 +276,33 @@ export default function UserInfoPage() {
     scrimTier: "BRONZE",
     scrimMmr: 0,
   });
+
+// ── 탈퇴 모달 state ──
+  const [withdrawModal, setWithdrawModal] = useState<{ member: Member } | null>(null);
+  const [withdrawReason, setWithdrawReason] = useState("");
+  const [withdrawReasonModal, setWithdrawReasonModal] = useState<{ nickname: string; reason: string } | null>(null);
+
+  async function submitWithdraw() {
+    if (!withdrawModal) return;
+    const m = withdrawModal.member;
+    const res = await fetch("/api/userinfo/member", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: m.id, position: m.position, status: "withdraw", birthYear: m.birthYear, birthDate: m.birthDate, gender: m.gender, mainLine: m.mainLine, subLine: m.subLine, statusNote: withdrawReason || null }),
+    });
+    if (res.ok) { setWithdrawModal(null); setWithdrawReason(""); loadMembers(); }
+    else alert("탈퇴 처리 실패");
+  }
+
+// ── 블랙리스트 모달 state ──
+  const [blacklistModal, setBlacklistModal] = useState<{ memberId: number; nickname: string; entries: any[] } | null>(null);
+  const [blacklistForm, setBlacklistForm] = useState({ reason: "", addedAt: new Date(Date.now() + 9*60*60*1000).toISOString().slice(0, 10) });
+
+  async function openBlacklistModal(m: Member) {
+    const res = await fetch(`/api/userinfo/blacklist?memberId=${m.id}`);
+    const json = await res.json();
+    setBlacklistModal({ memberId: m.id, nickname: m.nickname, entries: res.ok ? json.blacklist : [] });
+  }
 
 // ── 경고 관리 모달 state ──
   
@@ -350,6 +377,8 @@ export default function UserInfoPage() {
     if (specialFilter === "rookie" && m.position !== "수습") return false;
     if (specialFilter === "leave" && m.status !== "leave") return false;
     if (specialFilter === "warn" && m.warningCount === 0) return false;
+    if (specialFilter === "withdraw") return m.status === "withdraw" || m.status === "black";
+    if (m.status === "withdraw" || m.status === "black") return false;
     
     if (lineFilter && m.mainLine !== lineFilter) return false;
 
@@ -591,21 +620,17 @@ export default function UserInfoPage() {
 // 클랜원 또는 계정 삭제
   async function remove(kind: "member" | "account", id: number, label?: string) {
     if (!confirm(label ? `"${label}"을(를) 삭제하시겠습니까?` : "삭제하시겠습니까?")) return;
-    console.log("[remove] 삭제 요청:", { kind, id });
     try {
       const res = await fetch("/api/userinfo/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind, id }),
       });
-      console.log("[remove] 응답:", res.status);
       if (!res.ok) {
         const json = await res.json();
-        console.error("[remove] 오류:", json);
         alert(json.error || "삭제 실패");
         return;
       }
-      console.log("[remove] 삭제 완료, 목록 새로고침");
       loadMembers();
     } catch (err) {
       console.error("[remove] 네트워크 오류:", err);
@@ -656,6 +681,9 @@ export default function UserInfoPage() {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
+      if (withdrawReasonModal) { setWithdrawReasonModal(null); return; }
+      if (withdrawModal) { setWithdrawModal(null); setWithdrawReason(""); return; }
+      if (blacklistModal) { setBlacklistModal(null); return; }
       if (warnModal) { setWarnModal(null); return; }
       if (editModal) { setEditModal(null); return; }
       if (rookieLogModal) { setRookieLogModal(null); setRookieEventForm(""); setRookieEventOpen(false); setRookieEventErr(""); return; }
@@ -665,7 +693,7 @@ export default function UserInfoPage() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [warnModal, editModal, rookieLogModal, inactiveLogModal, accModal, memberModal]);
+  }, [blacklistModal, warnModal, editModal, rookieLogModal, inactiveLogModal, accModal, memberModal]);
 
   async function submitRookieEvent() {
     if (!rookieLogModal) return;
@@ -833,6 +861,88 @@ export default function UserInfoPage() {
 
   return (
     <div className="userinfo">
+      {/* 탈퇴 사유 보기 모달 */}
+      {withdrawReasonModal && (
+        <div className="modal-backdrop">
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 360 }}>
+            <div className="modal-head">
+              <span>🚪 {withdrawReasonModal.nickname} 탈퇴 사유</span>
+              <button className="modal-close" onClick={() => setWithdrawReasonModal(null)}>×</button>
+            </div>
+            <p style={{ fontSize: 14, color: "var(--text)", margin: 0, lineHeight: 1.6 }}>{withdrawReasonModal.reason}</p>
+          </div>
+        </div>
+      )}
+      {/* 탈퇴 모달 */}
+      {withdrawModal && (
+        <div className="modal-backdrop">
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <div className="modal-head">
+              <span>🚪 {withdrawModal.member.nickname} 탈퇴 처리</span>
+              <button className="modal-close" onClick={() => { setWithdrawModal(null); setWithdrawReason(""); }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <textarea
+                autoFocus
+                placeholder="탈퇴 사유 (선택)"
+                value={withdrawReason}
+                onChange={(e) => setWithdrawReason(e.target.value)}
+                rows={3}
+                style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14, resize: "vertical" }}
+              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="withdraw-btn" style={{ flex: 1 }} onClick={submitWithdraw}>탈퇴 처리</button>
+                <button className="cancel-btn" style={{ flex: 1 }} onClick={() => { setWithdrawModal(null); setWithdrawReason(""); }}>취소</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 블랙리스트 모달 */}
+      {blacklistModal && (
+        <div className="modal-backdrop">
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+            <div className="modal-head">
+              <span>💀 {blacklistModal.nickname} 블랙리스트</span>
+              <button className="modal-close" onClick={() => setBlacklistModal(null)}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+              <input type="date" value={blacklistForm.addedAt} onChange={(e) => setBlacklistForm((p) => ({ ...p, addedAt: e.target.value }))}
+                style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14 }} />
+              <textarea value={blacklistForm.reason} onChange={(e) => setBlacklistForm((p) => ({ ...p, reason: e.target.value }))}
+                placeholder="사유 (선택)" rows={2}
+                style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14, resize: "vertical" }} />
+              <button className="sync-btn" onClick={async () => {
+                const res = await fetch("/api/userinfo/blacklist", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ memberId: blacklistModal.memberId, reason: blacklistForm.reason, addedAt: blacklistForm.addedAt }),
+                });
+                if (!res.ok) { alert("추가 실패"); return; }
+                const r2 = await fetch(`/api/userinfo/blacklist?memberId=${blacklistModal.memberId}`);
+                const j2 = await r2.json();
+                setBlacklistModal((p) => p ? { ...p, entries: j2.blacklist } : null);
+                loadMembers();
+              }}>블랙 추가</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {blacklistModal.entries.length === 0 && <p className="empty">블랙 내역이 없습니다.</p>}
+              {blacklistModal.entries.map((b) => (
+                <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--card-2)", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
+                  <span style={{ fontWeight: 800, color: "#f1948a", flexShrink: 0 }}>{b.added_at?.slice(0, 10)}</span>
+                  <span style={{ flex: 1, color: "var(--muted)" }}>{b.reason || "-"}</span>
+                  <button className="del-btn small" onClick={async () => {
+                    await fetch(`/api/userinfo/blacklist?id=${b.id}`, { method: "DELETE" });
+                    const r2 = await fetch(`/api/userinfo/blacklist?memberId=${blacklistModal.memberId}`);
+                    const j2 = await r2.json();
+                    setBlacklistModal((p) => p ? { ...p, entries: j2.blacklist } : null);
+                  }}>삭제</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {/* 클랜원 추가 모달 */}
       {memberModal && (
         <div className="modal-backdrop">
@@ -917,6 +1027,8 @@ export default function UserInfoPage() {
                   style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}>
                   <option value="active">활동</option>
                   <option value="leave">외출/예외</option>
+                  <option value="withdraw">탈퇴</option>
+                  <option value="black">블랙</option>
                 </select>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1273,6 +1385,9 @@ export default function UserInfoPage() {
           <button className={`filter-btn ${specialFilter === "warn" ? "on" : ""}`} onClick={() => { setSpecialFilter(specialFilter === "warn" ? "" : "warn"); setShowInactive(false); setPage(0); }}>
             경고
           </button>
+          <button className={`filter-btn ${specialFilter === "withdraw" ? "on" : ""}`} onClick={() => { setSpecialFilter(specialFilter === "withdraw" ? "" : "withdraw"); setShowInactive(false); setPage(0); }}>
+            탈퇴
+          </button>
         </div>
       )}
       {linkMsg && <div className="error">{linkMsg}</div>}
@@ -1427,21 +1542,28 @@ export default function UserInfoPage() {
       <div style={{ maxWidth: 1400, margin: "0 auto" }}>
       {isAdmin && !loading && members.length > 0 && (
         <div className="line-filter-bar" style={{ marginBottom: 18 }}>
-          <button
-            className={`line-filter-btn ${lineFilter === "" ? "on" : ""}`}
-            onClick={() => { setLineFilter(""); setPage(0); }}
-          >
-            전체 <em>{members.length}</em>
-          </button>
-          {LINE_KEYS.map((lk) => (
-            <button
-              key={lk}
-              className={`line-filter-btn ${lineFilter === lk ? "on" : ""}`}
-              onClick={() => { setLineFilter(lk); setPage(0); }}
-            >
-              {lk} <em>{members.filter((m) => m.mainLine === lk).length}</em>
-            </button>
-          ))}
+          {(() => {
+            const activeMembers = members.filter((m) => m.status !== "withdraw" && m.status !== "black");
+            return (
+              <>
+                <button
+                  className={`line-filter-btn ${lineFilter === "" ? "on" : ""}`}
+                  onClick={() => { setLineFilter(""); setPage(0); }}
+                >
+                  전체 <em>{activeMembers.length}</em>
+                </button>
+                {LINE_KEYS.map((lk) => (
+                  <button
+                    key={lk}
+                    className={`line-filter-btn ${lineFilter === lk ? "on" : ""}`}
+                    onClick={() => { setLineFilter(lk); setPage(0); }}
+                  >
+                    {lk} <em>{activeMembers.filter((m) => m.mainLine === lk).length}</em>
+                  </button>
+                ))}
+              </>
+            );
+          })()}
           <button
             style={{ marginLeft: "auto", padding: "4px 14px", borderRadius: 8, border: "1px solid #27ae60", background: sortBy === "activityTier" ? "#27ae60" : "transparent", color: sortBy === "activityTier" ? "#fff" : "#2ecc71", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
             onClick={() => { setSortBy(sortBy === "activityTier" ? "birth" : "activityTier"); setPage(0); }}
@@ -1525,8 +1647,10 @@ export default function UserInfoPage() {
               {pagedMembers.map((m) => (
                 <tr key={m.id} style={{ borderBottom: "1px solid var(--border)" }}>
                   <td style={{ padding: "8px 10px", fontWeight: 700 }}>
-                    {m.nickname}
-                    {m.warningCount > 0 && <span style={{ fontSize: 11, fontWeight: 800, marginLeft: 6, color: "#f1948a" }}>⚠️{m.warningCount}</span>}
+                    <span style={{ cursor: "pointer", color: "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="#7aa2f7")} onMouseLeave={e => (e.currentTarget.style.color="var(--text)")} onClick={() => openEditModal(m)}>
+                      {m.nickname}
+                      {m.warningCount > 0 && <span style={{ fontSize: 11, fontWeight: 800, marginLeft: 6, color: "#f1948a" }}>⚠️{m.warningCount}</span>}
+                    </span>
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800,
                     color: (m as any).aramGamesSince >= 6 ? "var(--win-text)" : "var(--loss-text)" }}>
@@ -1605,6 +1729,7 @@ export default function UserInfoPage() {
                 return (
                   <tr key={m.id} style={{ borderBottom: "1px solid var(--border)" }}>
                     <td style={{ padding: "8px 10px", fontWeight: 700 }}>
+                      <span style={{ cursor: "pointer", color: "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="#7aa2f7")} onMouseLeave={e => (e.currentTarget.style.color="var(--text)")} onClick={() => openEditModal(m)}>
                       {(() => {
                         const cnt = m.rookiePartyCount ?? 0;
                         const canPromote = cnt >= 3;
@@ -1618,6 +1743,7 @@ export default function UserInfoPage() {
                         ).size;
                         return <span style={{ color }}>{m.nickname}{cnt >= 3 && playedCount >= 10 && <span title="파티참여 OOO + 같이 플레이한 클랜원 10명 이상"> ✅</span>}</span>;
                       })()}
+                      </span>
                     </td>
                     <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)" }}>{m.createdAt ? m.createdAt.slice(0, 10) : "-"}</td>
                     <td style={{ padding: "8px 10px", textAlign: "center", fontSize: 15, letterSpacing: 4 }}>
@@ -1654,6 +1780,59 @@ export default function UserInfoPage() {
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </div>
+      ) : specialFilter === "withdraw" ? (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: "2px solid var(--border)" }}>
+                <th style={{ textAlign: "left", padding: "6px 10px" }}>닉네임</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>탈퇴일</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>탈퇴사유</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>블랙</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>관리</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedMembers.map((m) => (
+                <tr key={m.id} style={{ borderBottom: "1px solid var(--border)", background: (m as any).isBlacklisted ? "rgba(231,76,60,0.06)" : undefined }}>
+                  <td style={{ padding: "8px 10px", fontWeight: 700 }}>
+                    <span style={{ cursor: "pointer", color: (m as any).isBlacklisted ? "#f1948a" : "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="#7aa2f7")} onMouseLeave={e => (e.currentTarget.style.color=(m as any).isBlacklisted ? "#f1948a" : "var(--text)")} onClick={() => openEditModal(m)}>
+                      {m.nickname}
+                    </span>
+                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)", fontSize: 12 }}>
+                    {(m as any).withdrewAt ? (m as any).withdrewAt.slice(0, 10) : "-"}
+                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                    {m.statusNote
+                      ? <button className="withdraw-btn" onClick={() => setWithdrawReasonModal({ nickname: m.nickname, reason: m.statusNote! })}>+ 사유</button>
+                      : <span style={{ color: "var(--muted)", fontSize: 12 }}>-</span>}
+                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                    <button className={`black-btn${(m as any).isBlacklisted ? " on" : ""}`} onClick={() => openBlacklistModal(m)}>
+                      {(m as any).isBlacklisted ? "💀 블랙" : "+ 블랙"}
+                    </button>
+                  </td>
+                  <td style={{ padding: "8px 10px", textAlign: "center", whiteSpace: "nowrap" }}>
+                    {isAdmin && (
+                      <button className="sync-btn" style={{ fontSize: 11, padding: "2px 10px" }}
+                        onClick={async () => {
+                          if (!confirm(`"${m.nickname}"을(를) 클랜원으로 재가입 처리하시겠습니까?`)) return;
+                          const res = await fetch("/api/userinfo/member", {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ id: m.id, position: m.position === "수습" ? "수습" : "클랜원", status: "active", birthYear: m.birthYear, birthDate: m.birthDate, gender: m.gender, mainLine: m.mainLine, subLine: m.subLine, statusNote: null }),
+                          });
+                          if (res.ok) loadMembers();
+                          else alert("전환 실패");
+                        }}>클랜원 전환</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -1721,10 +1900,11 @@ export default function UserInfoPage() {
                     )}
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "right", whiteSpace: "nowrap" }}>
-                    <button style={{ background: "transparent", border: "1px solid rgba(231,76,60,0.5)", color: "#f1948a", borderRadius: 6, padding: "4px 8px", fontSize: 11, cursor: "pointer", fontWeight: 700 }}
-                      onClick={() => openWarnModal(m)}>경고</button>
+                    <button className="warn-btn" onClick={() => openWarnModal(m)}>경고</button>
                     {" "}
-                    <button className="edit-btn" style={{ fontSize: 11, padding: "4px 8px" }} onClick={() => openEditModal(m)}>수정</button>
+                    <button className="black-btn" onClick={() => openBlacklistModal(m)}>블랙</button>
+                    {" "}
+                    <button className="withdraw-btn" onClick={() => { setWithdrawReason(""); setWithdrawModal({ member: m }); }}>탈퇴</button>
                     {" "}
                     <button className="del-btn small" onClick={() => remove("member", m.id, m.nickname)}>삭제</button>
                   </td>

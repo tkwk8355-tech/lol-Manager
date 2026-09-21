@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
       `SELECT m.id, m.nickname, a.game_name
        FROM members m
        LEFT JOIN accounts a ON a.member_id = m.id AND a.is_main = 1
+       WHERE m.status NOT IN ('withdraw', 'black')
        ORDER BY COALESCE(a.game_name, m.nickname) ASC`
     ) as [any[], any];
 

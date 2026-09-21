@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
       SELECT m.id AS member_id, m.nickname AS member_nickname, m.memo, m.birth_date, m.birth_year, m.gender,
              m.main_line, m.sub_line, m.position, m.status, m.status_note,
              m.total_points, m.created_at AS member_created_at, m.promoted_at AS member_promoted_at,
+             m.withdrew_at AS member_withdrew_at,
              a.id AS account_id, a.game_name, a.tag_line, a.is_main,
              a.puuid, a.games_total, a.games_2w, a.last_synced_at,
              a.solo_tier, a.solo_rank, a.solo_lp,
@@ -117,6 +118,11 @@ export async function GET(req: NextRequest) {
     const warnCount = new Map<number, number>();
     for (const w of warnRows) warnCount.set(w.member_id, Number(w.cnt));
 
+    const [blackRows] = await pool.query(
+      `SELECT DISTINCT member_id FROM blacklist`
+    ) as [any[], any];
+    const blackSet = new Set<number>(blackRows.map((r: any) => r.member_id));
+
     // 수습 닉네임 Set (with_members 필터링용)
     const [rookieMemberRows] = await pool.query(
       `SELECT nickname FROM members WHERE position = '수습'`
@@ -216,6 +222,7 @@ export async function GET(req: NextRequest) {
           totalPoints: r.total_points ?? 0,
           createdAt: r.member_created_at ?? null,
           promotedAt: r.member_promoted_at ?? null,
+          withdrewAt: r.member_withdrew_at ?? null,
           scrimMmr: r.scrim_mmr ?? 0,
           warningCount: 0,
           rookiePartyCount: 0,
@@ -263,6 +270,7 @@ export async function GET(req: NextRequest) {
     for (const [id, m] of map) {
       m.tier = mainTier.get(id) ?? bestTier.get(id) ?? null;
       m.warningCount = warnCount.get(id) ?? 0;
+      m.isBlacklisted = blackSet.has(id);
       m.rookiePartyCount = rookiePartyCount.get(id) ?? 0;
       m.rookieSessionLogs = rookieSessionLogs.get(id) ?? [];
       m.recentLogs = recentLogs.get(id) ?? [];

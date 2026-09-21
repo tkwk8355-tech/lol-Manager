@@ -9,7 +9,7 @@ export async function GET() {
     await ensureSchema();
     const pool = getPool();
     const [[memberRow], [partyRow], [recentParties], [lineDist], [birthdays], [tomorrowBirthdays]] = await Promise.all([
-      pool.query("SELECT COUNT(*) AS c FROM members") as Promise<[any[], any]>,
+      pool.query("SELECT COUNT(*) AS c FROM members WHERE status NOT IN ('withdraw', 'black')") as Promise<[any[], any]>,
       pool.query("SELECT COUNT(*) AS c FROM parties WHERE status = 'open'") as Promise<[any[], any]>,
       pool.query(
         `SELECT p.id, p.mode, p.status, p.host_nickname, p.note, p.start_at, p.max_size,
@@ -21,17 +21,17 @@ export async function GET() {
          ORDER BY p.created_at DESC LIMIT 2`
       ) as Promise<[any[], any]>,
       pool.query(
-        `SELECT main_line, COUNT(*) AS c FROM members WHERE main_line IS NOT NULL GROUP BY main_line`
+        `SELECT main_line, COUNT(*) AS c FROM members WHERE main_line IS NOT NULL AND status NOT IN ('withdraw', 'black') GROUP BY main_line`
       ) as Promise<[any[], any]>,
       pool.query(
         `SELECT id, nickname, birth_date, birth_year FROM members
          WHERE DATE_FORMAT(birth_date, '%m-%d') = DATE_FORMAT(NOW(), '%m-%d')
-         AND birth_date IS NOT NULL`
+         AND birth_date IS NOT NULL AND status NOT IN ('withdraw', 'black')`
       ) as Promise<[any[], any]>,
       pool.query(
         `SELECT nickname, birth_year FROM members
          WHERE DATE_FORMAT(birth_date, '%m-%d') = DATE_FORMAT(DATE_ADD(NOW(), INTERVAL 1 DAY), '%m-%d')
-         AND birth_date IS NOT NULL`
+         AND birth_date IS NOT NULL AND status NOT IN ('withdraw', 'black')`
       ) as Promise<[any[], any]>,
     ]);
 

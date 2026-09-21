@@ -99,10 +99,12 @@ export async function PUT(req: NextRequest) {
     const [prevRows] = await pool.query(`SELECT position FROM members WHERE id = ?`, [Number(id)]) as [any[], any];
     const wasRookie = prevRows[0]?.position === '수습';
     const isPromoting = wasRookie && (position === '클랜원' || position === '부운영진' || position === '운영진');
+    const prevStatus = prevRows[0]?.status;
+    const isWithdrawing = (status === 'withdraw' || status === 'black') && prevStatus !== 'withdraw' && prevStatus !== 'black';
 
     await pool.query(
       `UPDATE members SET birth_year=?, birth_date=?, gender=?, main_line=?, sub_line=?,
-       position=?, status=?, status_note=?${isPromoting ? ', promoted_at=NOW()' : ''} WHERE id=?`,
+       position=?, status=?, status_note=?${isPromoting ? ', promoted_at=NOW()' : ''}${isWithdrawing ? ', withdrew_at=CURDATE()' : ''} WHERE id=?`,
       [birthYear || null, birthDate || null, gender || null, mainLine || null, subLine || null,
        position || "클랜원", status || "active", statusNote || null, Number(id)]
     );

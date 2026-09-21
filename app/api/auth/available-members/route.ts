@@ -14,6 +14,7 @@ export async function GET() {
        FROM members m
        LEFT JOIN users u ON u.member_id = m.id
        WHERE u.id IS NULL
+       AND m.status NOT IN ('withdraw', 'black')
        ORDER BY m.nickname ASC`
     ) as [any[], any];
     return NextResponse.json({ members: rows });
