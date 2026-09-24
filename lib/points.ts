@@ -73,7 +73,7 @@ export async function updateLastAchieved(pool: mysql.Pool, memberId: number) {
   }
   for (const s of scrims) {
     if (!dayMap.has(s.d)) dayMap.set(s.d, { aram: 0, normal: 0 });
-    dayMap.get(s.d)!.normal += 1;
+    dayMap.get(s.d)!.normal = Math.max(dayMap.get(s.d)!.normal, 1);
   }
 
   const days = [...dayMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
@@ -83,7 +83,9 @@ export async function updateLastAchieved(pool: mysql.Pool, memberId: number) {
     cumNormal += g.normal;
     if (Math.floor(cumAram / 2) + cumNormal >= 3) {
       achievedDay = day;
-      break;
+      // 달성 후 누적 초기화 (다음 주기 계산)
+      cumAram = 0;
+      cumNormal = 0;
     }
   }
 

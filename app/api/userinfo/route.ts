@@ -277,6 +277,8 @@ export async function GET(req: NextRequest) {
       const pg = partyGames.get(id);
       m.aramGames2w = pg?.aram ?? 0;
       m.normalGames2w = (pg?.normal ?? 0) + (scrimGames.get(id) ?? 0);
+      // 판수미달 여부: 칼바람 6판 이상 OR 협곡(일반+자랭+솔로+내전) 3판 이상이면 충족
+      m.isActive2w = m.aramGames2w >= 6 || m.normalGames2w >= 3;
       const achievedAt = lastAchieved.get(id) ?? null;
       m.lastAchievedAt = achievedAt;
       // lastAchievedAt 이후 판수 계산

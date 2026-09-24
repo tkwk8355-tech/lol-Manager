@@ -372,6 +372,7 @@ export default function UserInfoPage() {
       const today = new Date(); today.setHours(0,0,0,0);
       const daysSince = Math.floor((today.getTime() - lastDate.getTime()) / (24 * 60 * 60 * 1000));
       if (daysSince < 10) return false;
+      if ((m as any).isActive2w) return false;
     }
     
     if (specialFilter === "rookie" && m.position !== "수습") return false;

@@ -280,26 +280,29 @@ export async function DELETE(req: NextRequest) {
     await pool.query("UPDATE parties SET status = 'ended', ended_at = NOW(), ended_by = ? WHERE id = ?", [auth.session.userId, id]);
 
     const givenBy = auth.session.userId;
-    try {
-      if (party.mode === "aram") {
-        if (memberGames) await awardAramPoints(pool, id, party, memberGames, givenBy);
-      } else {
-        await awardPartyPoints(pool, id, party, givenBy);
-      }
-      // 참가자 전원 달성일 체크
-      const [histRows] = await pool.query(
-        `SELECT DISTINCT nickname FROM party_participant_history WHERE party_id = ?`, [id]
-      ) as [any[], any];
-      for (const h of histRows) {
-        const [mRows] = await pool.query(
-          `SELECT m.id FROM members m JOIN accounts a ON a.member_id=m.id AND a.is_main=1 AND a.game_name=?`,
-          [h.nickname]
+    // 포인트 지급은 백그라운드에서 처리 (Riot API 조회가 오래 걸리므로 응답 먼저 반환)
+    (async () => {
+      try {
+        if (party.mode === "aram") {
+          if (memberGames) await awardAramPoints(pool, id, party, memberGames, givenBy);
+        } else {
+          await awardPartyPoints(pool, id, party, givenBy);
+        }
+        // 참가자 전원 달성일 체크
+        const [histRows] = await pool.query(
+          `SELECT DISTINCT nickname FROM party_participant_history WHERE party_id = ?`, [id]
         ) as [any[], any];
-        if (mRows[0]) await updateLastAchieved(pool, mRows[0].id);
+        for (const h of histRows) {
+          const [mRows] = await pool.query(
+            `SELECT m.id FROM members m JOIN accounts a ON a.member_id=m.id AND a.is_main=1 AND a.game_name=?`,
+            [h.nickname]
+          ) as [any[], any];
+          if (mRows[0]) await updateLastAchieved(pool, mRows[0].id);
+        }
+      } catch (e) {
+        console.error("[points] 전적 조회 실패 (점수 미지급):", e);
       }
-    } catch (e) {
-      console.error("[points] 전적 조회 실패 (점수 미지급):", e);
-    }
+    })();
 
     return NextResponse.json({ ok: true });
   } catch (err) {
