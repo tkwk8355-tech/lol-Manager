@@ -495,6 +495,44 @@ async function createSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // 솔랭내기 세션
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS solorank_sessions (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      name        VARCHAR(100) NULL,
+      total_games INT NOT NULL DEFAULT 5,
+      status      VARCHAR(20) NOT NULL DEFAULT 'waiting',
+      created_by  INT NOT NULL,
+      created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_sr_session_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 솔랭내기 참여자 (team: 1 or 2)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS solorank_participants (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      session_id  INT NOT NULL,
+      member_id   INT NOT NULL,
+      team        TINYINT NOT NULL,
+      CONSTRAINT fk_srp_session FOREIGN KEY (session_id) REFERENCES solorank_sessions(id) ON DELETE CASCADE,
+      CONSTRAINT fk_srp_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 솔랭내기 판 결과
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS solorank_games (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      session_id  INT NOT NULL,
+      game_no     INT NOT NULL,
+      winner_team TINYINT NOT NULL,
+      created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_sg (session_id, game_no),
+      CONSTRAINT fk_sgg_session FOREIGN KEY (session_id) REFERENCES solorank_sessions(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   await seedDefaultAdmin(pool);
   await seedScrimRatings(pool);
 }

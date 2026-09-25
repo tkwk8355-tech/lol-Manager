@@ -47,6 +47,7 @@ const FEATURES = [
   { href: "/search", icon: "🔍", title: "전적 검색", desc: "소환사명으로 랭크 · 매치 기록 조회", color: "c-blue" },
   { href: "/userInfo", icon: "👥", title: "클랜원 관리", desc: "클랜원 명단 · 티어 · 라인 보기", color: "c-green" },
   { href: "/points", icon: "🏅", title: "포인트 관리", desc: "활동 포인트 현황 · 상점", color: "c-yellow" },
+  { href: "/event", icon: "🎉", title: "이벤트", desc: "경매 · 솔랭내기 이벤트", color: "c-pink" },
   { href: "/friends", icon: "🤝", title: "지인 관리", desc: "클랜원 지인 관계 조회", color: "c-pink" },
 ] as const;
 
@@ -108,6 +109,7 @@ export default function Home() {
           <Link href="/search" className="hero-btn c-blue">🔍 전적 검색</Link>
           <Link href="/userInfo" className="hero-btn c-green" onClick={(e) => { if (!user) { e.preventDefault(); openAuthModal("login"); } }}>👥 클랜원 관리</Link>
           <Link href="/points" className="hero-btn c-yellow" onClick={(e) => { if (!user) { e.preventDefault(); openAuthModal("login"); } }}>🏅 포인트 관리</Link>
+          <Link href="/event" className="hero-btn c-pink" onClick={(e) => { if (!user) { e.preventDefault(); openAuthModal("login"); } }}>🎉 이벤트</Link>
           <Link href="/friends" className="hero-btn c-pink" onClick={(e) => { if (!user) { e.preventDefault(); openAuthModal("login"); } }}>🤝 지인 관리</Link>
         </div>
       </section>

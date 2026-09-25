@@ -21,14 +21,14 @@ export default function SiteHeader() {
     { href: "/party",   icon: "🛡️", label: "파티모집",  scrimOnly: false },
     { href: "/scrim",   icon: "⚔️", label: "내전 관리", scrimOnly: true  },
     { href: "/points",  icon: "💰", label: "포인트",    scrimOnly: false },
-    { href: "/auction", icon: "📢", label: "경매",      scrimOnly: false  },
+    { href: "/event",   icon: "🎉", label: "이벤트",    scrimOnly: false  },
     { href: "/friends", icon: "🤝", label: "지인 관리",  scrimOnly: false },
     { href: "/userInfo",icon: "👥", label: user?.role === "admin" || user?.role === "subadmin" ? "클랜원 관리" : "클랜원", scrimOnly: false },
     // { href: "/search",  icon: "🔍", label: "전적 검색", scrimOnly: false },
   ];
   const nav = !user ? [] 
     : user.scrimOnly ? allNav.filter((i) => i.scrimOnly)
-    : user.role === "captain" ? allNav.filter((i) => i.href === "/auction")
+    : user.role === "captain" ? allNav.filter((i) => i.href === "/event")
     : allNav;
 
   return (
