@@ -897,9 +897,9 @@ function SRRoom({sessionId,isAdmin,onBack,members}:{sessionId:number;isAdmin:boo
 
 export default function EventPage(){const[eventTab,setEventTab]=useState<"auction"|"solorank">("auction");
   return(<div className="scrim" style={{paddingTop:0}}>
-    <div style={{display:"flex",gap:0,background:"var(--card-2)",borderRadius:8,padding:3,border:"1px solid var(--border)",marginBottom:20,width:"fit-content"}}>
-      <button onClick={()=>setEventTab("auction")} style={{padding:"7px 22px",borderRadius:6,fontSize:13,fontWeight:700,border:"none",cursor:"pointer",background:eventTab==="auction"?"var(--accent)":"transparent",color:eventTab==="auction"?"#fff":"var(--muted)"}}>📢 경매</button>
-      <button onClick={()=>setEventTab("solorank")} style={{padding:"7px 22px",borderRadius:6,fontSize:13,fontWeight:700,border:"none",cursor:"pointer",background:eventTab==="solorank"?"var(--accent)":"transparent",color:eventTab==="solorank"?"#fff":"var(--muted)"}}>🎮 솔랭내기</button>
+    <div className="scrim-tabs">
+      <button className={eventTab==="auction"?"on":""} onClick={()=>setEventTab("auction")}>📢 경매</button>
+      <button className={eventTab==="solorank"?"on":""} onClick={()=>setEventTab("solorank")}>🎮 솔랭내기</button>
     </div>
     {eventTab==="auction"&&<AuctionContent/>}
     {eventTab==="solorank"&&<SoloRankEvent/>}
