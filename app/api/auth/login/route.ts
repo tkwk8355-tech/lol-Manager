@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool, ensureSchema } from "@/lib/db";
-import { createSessionToken, verifyPassword, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SEC } from "@/lib/auth";
+import { createSessionToken, verifyPassword, SESSION_COOKIE_NAME, sessionCookieOptions } from "@/lib/auth";
 import { resolvePartyIdentity } from "@/lib/party";
 
 export async function POST(req: NextRequest) {
@@ -43,13 +43,7 @@ export async function POST(req: NextRequest) {
         linkedRiotId: identity?.displayName ?? null,
       },
     });
-    res.cookies.set(SESSION_COOKIE_NAME, token, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: false,
-      path: "/",
-      maxAge: SESSION_MAX_AGE_SEC,
-    });
+    res.cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions());
     return res;
   } catch (err) {
     console.error(err);

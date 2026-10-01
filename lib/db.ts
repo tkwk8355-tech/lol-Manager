@@ -581,9 +581,14 @@ async function seedScrimRatings(pool: mysql.Pool): Promise<void> {
 async function seedScrimOnlyAccount(pool: mysql.Pool): Promise<void> {
   const [rows] = await pool.query("SELECT COUNT(*) AS c FROM users WHERE username = '또간집'") as any[];
   if (rows[0].c > 0) return;
+  const scrimPassword = process.env.SCRIM_ONLY_PASSWORD;
+  if (!scrimPassword) {
+    console.warn("[db] SCRIM_ONLY_PASSWORD 환경변수가 설정되지 않았습니다. 내전 전용 계정을 생성하지 않습니다.");
+    return;
+  }
   await pool.query(
     "INSERT INTO users (username, password, nickname, role, scrim_only) VALUES (?, ?, ?, 'member', 1)",
-    ["또간집", hashPassword("0808"), "내전관람"]
+    ["또간집", hashPassword(scrimPassword), "내전관람"]
   );
-  console.log(`[db] 내전 전용 계정 생성됨. (아이디: 또간집 / 비밀번호: 0808)`);
+  console.log(`[db] 내전 전용 계정 생성됨. (아이디: 또간집)`);
 }

@@ -26,9 +26,26 @@ export interface SessionPayload {
 function getSecret(): string {
   const secret = process.env.SESSION_SECRET;
   if (!secret) {
+    // 프로덕션에서 SESSION_SECRET 없이 실행되면 즉시 종료
+    if (process.env.NODE_ENV === "production") {
+      console.error("[auth] FATAL: SESSION_SECRET 환경변수가 설정되지 않았습니다. 서버를 시작할 수 없습니다.");
+      process.exit(1);
+    }
+    console.warn("[auth] WARNING: SESSION_SECRET 미설정 — 개발용 기본값을 사용합니다. 절대 프로덕션에서 사용하지 마세요.");
     return "dev-only-insecure-secret-please-set-SESSION_SECRET";
   }
   return secret;
+}
+
+/** 세션 쿠키 옵션을 반환한다. 프로덕션에서는 secure: true 를 강제한다. */
+export function sessionCookieOptions(maxAge = SESSION_MAX_AGE_SEC): Parameters<typeof NextResponse.prototype.cookies.set>[2] {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge,
+  };
 }
 
 function sign(data: string): string {

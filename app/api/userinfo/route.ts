@@ -151,7 +151,7 @@ export async function GET(req: NextRequest) {
       const logMode = isScrimSync ? "scrim" : isEventLog ? "event" : (r.mode ?? "flex");
       if (!(["flex", "scrim", "event"].includes(logMode))) continue;
       const mid = r.member_id;
-      rookiePartyCount.set(mid, (rookiePartyCount.get(mid) ?? 0) + Number(r.party_count));
+      rookiePartyCount.set(mid, (rookiePartyCount.get(mid) ?? 0) + Number(isScrimSync ? r.games : r.party_count));
       const rawMembers: string[] = r.with_members
         ? r.with_members.split(",").map((s: string) => s.trim()).filter(Boolean)
         : [];
@@ -163,7 +163,7 @@ export async function GET(req: NextRequest) {
         const dayMap = scrimGroups.get(mid)!;
         if (!dayMap.has(date)) dayMap.set(date, { partyCount: 0, members: new Set() });
         const g = dayMap.get(date)!;
-        g.partyCount += Number(r.party_count);
+        g.partyCount += Number(r.games);
         filteredMembers.forEach((n) => g.members.add(n));
       } else {
         if (!rookieSessionLogs.has(mid)) rookieSessionLogs.set(mid, []);
@@ -186,7 +186,7 @@ export async function GET(req: NextRequest) {
       if (!rookieSessionLogs.has(mid)) rookieSessionLogs.set(mid, []);
       for (const [date, g] of dayMap) {
         rookieSessionLogs.get(mid)!.push({
-          games: 1,
+          games: g.partyCount,
           partyCount: g.partyCount,
           comment: null,
           date,

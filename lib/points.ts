@@ -45,24 +45,34 @@ export async function updateLastAchieved(pool: mysql.Pool, memberId: number) {
   const m = memberRows[0];
   const base = m?.last_achieved_at ?? null;
 
-  const [logs] = await pool.query(
-    `SELECT DATE_FORMAT(COALESCE(p.start_at, pl.created_at), '%Y-%m-%d') as d, pl.type, pl.games
-     FROM point_logs pl
-     LEFT JOIN parties p ON p.id=pl.ref_id AND pl.ref_table='party'
-     WHERE pl.member_id=? AND pl.type IN ('aram','normal','flex','solo')
-     ${base ? `AND DATE(COALESCE(p.start_at,pl.created_at)) > '${base}'` : ''}
-     ORDER BY d`,
-    [memberId]
-  ) as [any[], any];
+  // base가 있을 때와 없을 때 쿼리를 분리해 파라미터 바인딩을 유지합니다.
+  // (템플릿 리터럴 인터폴레이션으로 SQL을 조합하면 SQL Injection 위험이 있습니다)
+  const logsQuery = base
+    ? `SELECT DATE_FORMAT(COALESCE(p.start_at, pl.created_at), '%Y-%m-%d') as d, pl.type, pl.games
+       FROM point_logs pl
+       LEFT JOIN parties p ON p.id=pl.ref_id AND pl.ref_table='party'
+       WHERE pl.member_id=? AND pl.type IN ('aram','normal','flex','solo')
+       AND DATE(COALESCE(p.start_at,pl.created_at)) > ?
+       ORDER BY d`
+    : `SELECT DATE_FORMAT(COALESCE(p.start_at, pl.created_at), '%Y-%m-%d') as d, pl.type, pl.games
+       FROM point_logs pl
+       LEFT JOIN parties p ON p.id=pl.ref_id AND pl.ref_table='party'
+       WHERE pl.member_id=? AND pl.type IN ('aram','normal','flex','solo')
+       ORDER BY d`;
+  const [logs] = await pool.query(logsQuery, base ? [memberId, base] : [memberId]) as [any[], any];
 
-  const [scrims] = await pool.query(
-    `SELECT DATE_FORMAT(sm.played_at, '%Y-%m-%d') as d
-     FROM scrim_participants sp
-     JOIN scrim_matches sm ON sm.id=sp.match_id AND sm.status='done'
-     WHERE sp.member_id=? ${base ? `AND DATE(sm.played_at) > '${base}'` : ''}
-     ORDER BY d`,
-    [memberId]
-  ) as [any[], any];
+  const scrimsQuery = base
+    ? `SELECT DATE_FORMAT(sm.played_at, '%Y-%m-%d') as d
+       FROM scrim_participants sp
+       JOIN scrim_matches sm ON sm.id=sp.match_id AND sm.status='done'
+       WHERE sp.member_id=? AND DATE(sm.played_at) > ?
+       ORDER BY d`
+    : `SELECT DATE_FORMAT(sm.played_at, '%Y-%m-%d') as d
+       FROM scrim_participants sp
+       JOIN scrim_matches sm ON sm.id=sp.match_id AND sm.status='done'
+       WHERE sp.member_id=?
+       ORDER BY d`;
+  const [scrims] = await pool.query(scrimsQuery, base ? [memberId, base] : [memberId]) as [any[], any];
 
 
   const dayMap = new Map<string, { aram: number; normal: number }>();

@@ -300,7 +300,19 @@ export async function DELETE(req: NextRequest) {
           if (mRows[0]) await updateLastAchieved(pool, mRows[0].id);
         }
       } catch (e) {
-        console.error("[points] 전적 조회 실패 (점수 미지급):", e);
+        const errMsg = e instanceof Error ? e.message : String(e);
+        console.error("[points] 전적 조회 실패 (점수 미지급):", errMsg);
+        // 운영진이 나중에 확인할 수 있도록 point_logs에 실패 기록을 남깁니다.
+        // type='award_error', points=0으로 저장해 실제 포인트에는 영향 없음.
+        try {
+          await pool.query(
+            `INSERT INTO point_logs (member_id, points, type, games, comment, given_by, ref_id, ref_table)
+             VALUES (0, 0, 'award_error', 0, ?, ?, ?, 'party')`,
+            [`[자동지급 실패] partyId=${id} err=${errMsg.slice(0, 200)}`, givenBy, id]
+          );
+        } catch (logErr) {
+          console.error("[points] 실패 로그 기록도 실패:", logErr);
+        }
       }
     })();
 
@@ -518,10 +530,16 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
     }
 
     const myMatchIds = new Set<string>();
-    for (const puuid of puuids) {
-      const ids = await getMatchIds(puuid, 50, startTime, queueType).catch((e) => { console.log(`[award] getMatchIds err puuid=${puuid}`, e.message); return [] as string[]; });
-      ids.forEach((id) => myMatchIds.add(id));
-    }
+    // 모든 puuid에 대해 getMatchIds를 병렬로 호출합니다 (순차 호출 대비 시간 단축)
+    const idResults = await Promise.all(
+      puuids.map((puuid) =>
+        getMatchIds(puuid, 50, startTime, queueType).catch((e) => {
+          console.log(`[award] getMatchIds err puuid=${puuid}`, e.message);
+          return [] as string[];
+        })
+      )
+    );
+    for (const ids of idResults) ids.forEach((id) => myMatchIds.add(id));
     console.log(`[award] memberId=${memberId} matchIds=${myMatchIds.size}`);
 
     let validGames = 0;
