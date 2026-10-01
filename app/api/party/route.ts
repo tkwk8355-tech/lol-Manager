@@ -570,7 +570,7 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
       const snapCount = snapRows.length > 0 ? 1 : 0;
       if (snapCount > 0) {
         const countableMode = party.mode === 'flex' || party.mode === 'scrim';
-        const withMembers = memberData.filter(m => m.memberId !== memberId).map(m => m.nickname).join(",") || null;
+        const withMembers = histRows.filter((h: any) => h.nickname !== nickname).map((h: any) => h.nickname).join(",") || null;
         await givePoints(pool, memberId, 0, "rookie_session", validGames, `수습 파티 ${snapCount}회${partyLabel(party)}`, givenBy, partyId, countableMode ? snapCount : 0, null, "party", withMembers);
         console.log(`[award] rookie session recorded: memberId=${memberId} snapCount=${snapCount} countable=${countableMode}`);
       }
