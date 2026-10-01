@@ -1269,9 +1269,8 @@ export default function UserInfoPage() {
             )}
             {rookieEventErr && <div style={{ fontSize: 12, color: "var(--loss-text)", marginBottom: 6 }}>{rookieEventErr}</div>}
             {(() => {
-              const rookieNicknames = new Set(members.filter(m => m.position === "수습").map(m => m.nickname));
               const allPlayed = new Set(
-                rookieLogModal.logs.flatMap(log => log.members ?? []).filter((nick: string) => !rookieNicknames.has(nick))
+                rookieLogModal.logs.flatMap(log => log.members ?? [])
               );
               return (
                 <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>
