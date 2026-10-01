@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
     // 2주간 파티 참여 게임수 (party_participant_history + point_logs.games 기반)
     // aram: games 합산, normal/flex/solo: 파티 참여 횟수(games 합산)
     const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const [partyRows] = await pool.query(`
       SELECT pl.member_id,
              SUM(IF(pl.type = 'aram', pl.games, 0)) AS aram_games,
@@ -52,6 +53,7 @@ export async function GET(req: NextRequest) {
       WHERE DATE(sm.played_at) >= ? AND sm.status = 'done'
       GROUP BY sp.member_id
     `, [twoWeeksAgo]) as [any[], any];
+
     const scrimGames = new Map<number, number>();
     for (const r of scrimCountRows) scrimGames.set(r.member_id, Number(r.scrim_games));
 
@@ -61,9 +63,23 @@ export async function GET(req: NextRequest) {
              p.start_at, p.mode AS party_mode
       FROM point_logs pl
       LEFT JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party'
-      WHERE pl.type IN ('aram','normal','flex','solo','scrim') AND DATE(pl.created_at) >= ?
+      WHERE pl.type IN ('aram','normal','flex','solo') AND DATE(pl.created_at) >= ?
       ORDER BY pl.created_at DESC
-    `, [twoWeeksAgo]) as [any[], any];
+    `, [oneMonthAgo]) as [any[], any];
+
+    // 내전 로그: scrim_participants 기준으로 날짜별 묶기 + 같이 한 멤버
+    const [recentScrimRows] = await pool.query(`
+      SELECT sp.member_id, DATE(sm.played_at) AS game_date, COUNT(*) AS games,
+             MAX(sm.played_at) AS last_played_at,
+             GROUP_CONCAT(DISTINCT m2.nickname ORDER BY m2.nickname SEPARATOR ',') AS with_members
+      FROM scrim_participants sp
+      JOIN scrim_matches sm ON sm.id = sp.match_id AND sm.status = 'done'
+      JOIN scrim_participants sp2 ON sp2.match_id = sm.id AND sp2.member_id != sp.member_id
+      JOIN members m2 ON m2.id = sp2.member_id
+      WHERE DATE(sm.played_at) >= ?
+      GROUP BY sp.member_id, DATE(sm.played_at)
+      ORDER BY game_date DESC
+    `, [oneMonthAgo]) as [any[], any];
     // lastAchievedAt 이후 판수 계산용 전체 로그 (멤버별 기준일이 다르므로 넉넉히 조회)
     const sinceDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000 + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const [sinceLogRows] = await pool.query(`
@@ -103,6 +119,26 @@ export async function GET(req: NextRequest) {
         mode: r.party_mode ?? r.type,
         members: r.with_members ? r.with_members.split(",").map((s: string) => s.trim()).filter(Boolean) : [],
       });
+    }
+    // 내전 로그 병합 (scrim_participants 기준 날짜별 합산)
+    for (const r of recentScrimRows) {
+      const mid = r.member_id;
+      if (!recentLogs.has(mid)) recentLogs.set(mid, []);
+      recentLogs.get(mid)!.push({
+        id: null,
+        type: 'scrim',
+        games: Number(r.games),
+        points: 0,
+        comment: null,
+        date: r.game_date,
+        startAt: r.last_played_at?.slice(0, 16).replace('T', ' ') ?? r.game_date,
+        mode: 'scrim',
+        members: r.with_members ? r.with_members.split(',').map((s: string) => s.trim()).filter(Boolean) : [],
+      });
+    }
+    // 날짜 내림차순 정렬
+    for (const [, logs] of recentLogs) {
+      logs.sort((a, b) => b.date.localeCompare(a.date));
     }
 
     // last_achieved_at DB 컬럼 직접 조회
@@ -144,7 +180,7 @@ export async function GET(req: NextRequest) {
     const rookiePartyCount = new Map<number, number>();
     const rookieSessionLogs = new Map<number, any[]>();
     // scrim 로그는 날짜별로 묶기 위한 임시 Map: member_id -> date -> group
-    const scrimGroups = new Map<number, Map<string, { partyCount: number; members: Set<string> }>>();
+    const scrimGroups = new Map<number, Map<string, { partyCount: number; members: Set<string>; displayDate: string }>>();
     for (const r of rookieRows) {
       const isScrimSync = r.ref_table === "scrim_match";
       const isEventLog = !r.ref_table && !r.ref_id;
