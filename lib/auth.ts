@@ -42,7 +42,7 @@ export function sessionCookieOptions(maxAge = SESSION_MAX_AGE_SEC): Parameters<t
   return {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.HTTPS === "true",
     path: "/",
     maxAge,
   };
