@@ -372,7 +372,6 @@ export default function UserInfoPage() {
       const today = new Date(); today.setHours(0,0,0,0);
       const daysSince = Math.floor((today.getTime() - lastDate.getTime()) / (24 * 60 * 60 * 1000));
       if (daysSince < 10) return false;
-      if ((m as any).isActive2w) return false;
     }
     
     if (specialFilter === "rookie" && m.position !== "수습") return false;
@@ -1082,7 +1081,7 @@ export default function UserInfoPage() {
                     background: "var(--card-2)", borderRadius: 8, padding: "7px 10px", fontSize: 13 }}>
                     <span style={{ flex: 1, fontWeight: 700 }}>{a.gameName}<span style={{ color: "var(--muted)", fontWeight: 400 }}>#{a.tagLine}</span></span>
                     {a.isMain && (
-                      <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 6px", borderRadius: 4, background: "rgba(83,131,232,0.18)", color: "#7aa2f7" }}>본계정</span>
+                      <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 6px", borderRadius: 4, background: "rgba(83,131,232,0.18)", color: "var(--win-text)" }}>본계정</span>
 
                     )}
                     <span style={{ fontSize: 11, color: "var(--muted)" }}>{syncedTime(a.lastSyncedAt)}</span>
@@ -1237,7 +1236,7 @@ export default function UserInfoPage() {
                     <span>{log.startAt || log.date}</span>
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 4, background: "var(--card-2)", color: "var(--muted)" }}>{MODE_KO[log.mode] ?? log.mode}</span>
-                      <span style={{ fontWeight: 700, color: "#7aa2f7" }}>{log.mode === "scrim" ? `${log.games}판` : (log.partyCount ?? 0) > 0 ? `${log.partyCount}회 참여` : "참여"}</span>
+                      <span style={{ fontWeight: 700, color: "var(--win-text)" }}>{log.mode === "scrim" ? `${log.games}판` : (log.partyCount ?? 0) > 0 ? `${log.partyCount}회 참여` : "참여"}</span>
                       {isAdmin && log.id && (
                         <button className="del-btn small" style={{ fontSize: 10, padding: "1px 6px" }} onClick={async () => {
                           if (!confirm(`"${rookieLogModal.nickname}"의 ${log.startAt || log.date} 로그를 삭제하시겠습니까?`)) return;
@@ -1285,7 +1284,7 @@ export default function UserInfoPage() {
                       <span>{log.startAt}</span>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 4, background: "var(--card-2)", color: "var(--muted)" }}>{MODE_KO[log.mode] ?? log.mode}</span>
-                        <span style={{ fontWeight: 700, color: "#7aa2f7" }}>{log.games}판</span>
+                        <span style={{ fontWeight: 700, color: "var(--win-text)" }}>{log.games}판</span>
                         {isAdmin && log.id && (
                           <button className="del-btn small" style={{ fontSize: 10, padding: "1px 6px" }} onClick={async () => {
                             if (!confirm(`"${inactiveLogModal.nickname}"의 ${log.startAt} 로그를 삭제하시겠습니까?`)) return;
@@ -1482,7 +1481,7 @@ export default function UserInfoPage() {
                         const res = await fetch("/api/userinfo/link", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: u.id, showRoster: !u.showRoster }) });
                         if (res.ok) loadUsers();
                       }}
-                      style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: `1px solid ${u.showRoster ? "rgba(46,204,113,0.5)" : "rgba(255,255,255,0.15)"}`, background: u.showRoster ? "rgba(46,204,113,0.15)" : "transparent", color: u.showRoster ? "#2ecc71" : "var(--muted)", cursor: "pointer", fontWeight: 700 }}
+                      style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: `1px solid ${u.showRoster ? "rgba(46,204,113,0.5)" : "rgba(var(--fg-rgb),0.15)"}`, background: u.showRoster ? "rgba(46,204,113,0.15)" : "transparent", color: u.showRoster ? "#2ecc71" : "var(--muted)", cursor: "pointer", fontWeight: 700 }}
                     >참여자{u.showRoster ? " ON" : " OFF"}</button>
                     {" "}
                     <button className="reset-pw-btn" onClick={() => resetPassword(u.id, u.username)}>비밀번호 초기화</button>
@@ -1648,7 +1647,7 @@ export default function UserInfoPage() {
               {pagedMembers.map((m) => (
                 <tr key={m.id} style={{ borderBottom: "1px solid var(--border)" }}>
                   <td style={{ padding: "8px 10px", fontWeight: 700 }}>
-                    <span style={{ cursor: "pointer", color: "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="#7aa2f7")} onMouseLeave={e => (e.currentTarget.style.color="var(--text)")} onClick={() => openEditModal(m)}>
+                    <span style={{ cursor: "pointer", color: "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="var(--win-text)")} onMouseLeave={e => (e.currentTarget.style.color="var(--text)")} onClick={() => openEditModal(m)}>
                       {m.nickname}
                       {m.warningCount > 0 && <span style={{ fontSize: 11, fontWeight: 800, marginLeft: 6, color: "#f1948a" }}>⚠️{m.warningCount}</span>}
                     </span>
@@ -1730,7 +1729,7 @@ export default function UserInfoPage() {
                 return (
                   <tr key={m.id} style={{ borderBottom: "1px solid var(--border)" }}>
                     <td style={{ padding: "8px 10px", fontWeight: 700 }}>
-                      <span style={{ cursor: "pointer", color: "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="#7aa2f7")} onMouseLeave={e => (e.currentTarget.style.color="var(--text)")} onClick={() => openEditModal(m)}>
+                      <span style={{ cursor: "pointer", color: "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="var(--win-text)")} onMouseLeave={e => (e.currentTarget.style.color="var(--text)")} onClick={() => openEditModal(m)}>
                       {(() => {
                         const cnt = m.rookiePartyCount ?? 0;
                         const canPromote = cnt >= 3;
@@ -1800,7 +1799,7 @@ export default function UserInfoPage() {
               {pagedMembers.map((m) => (
                 <tr key={m.id} style={{ borderBottom: "1px solid var(--border)", background: (m as any).isBlacklisted ? "rgba(231,76,60,0.06)" : undefined }}>
                   <td style={{ padding: "8px 10px", fontWeight: 700 }}>
-                    <span style={{ cursor: "pointer", color: (m as any).isBlacklisted ? "#f1948a" : "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="#7aa2f7")} onMouseLeave={e => (e.currentTarget.style.color=(m as any).isBlacklisted ? "#f1948a" : "var(--text)")} onClick={() => openEditModal(m)}>
+                    <span style={{ cursor: "pointer", color: (m as any).isBlacklisted ? "#f1948a" : "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="var(--win-text)")} onMouseLeave={e => (e.currentTarget.style.color=(m as any).isBlacklisted ? "#f1948a" : "var(--text)")} onClick={() => openEditModal(m)}>
                       {m.nickname}
                     </span>
                   </td>
@@ -1857,7 +1856,7 @@ export default function UserInfoPage() {
               return (
                 <tr key={m.id} style={{ borderBottom: "1px solid var(--border)" }}>
                   <td style={{ padding: "8px 10px", fontWeight: 700 }}>
-                    <span style={{ cursor: "pointer", color: "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="#7aa2f7")} onMouseLeave={e => (e.currentTarget.style.color="var(--text)")} onClick={() => openEditModal(m)}>
+                    <span style={{ cursor: "pointer", color: "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="var(--win-text)")} onMouseLeave={e => (e.currentTarget.style.color="var(--text)")} onClick={() => openEditModal(m)}>
                       {m.nickname}
                       {m.birthYear && <span style={{ fontSize: 11, color: "var(--muted)", marginLeft: 5, fontWeight: 400 }}>{String(m.birthYear).slice(2)}년생</span>}
                       {m.warningCount > 0 && <span style={{ fontSize: 11, fontWeight: 800, marginLeft: 6, color: "#f1948a" }}>⚠️{m.warningCount}</span>}
@@ -1884,10 +1883,10 @@ export default function UserInfoPage() {
                     {m.position !== "일반" ? (
                       <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 6px", borderRadius: 5,
                         background: m.position === "수습" ? "rgba(230,126,34,0.18)" : m.position === "부운영진" ? "rgba(155,89,182,0.18)" : m.position === "운영진" ? "rgba(255,105,180,0.18)" : "rgba(83,131,232,0.18)",
-                        color: m.position === "수습" ? "#e67e22" : m.position === "부운영진" ? "#c39bd3" : m.position === "운영진" ? "#ff69b4" : "#7aa2f7" }}>
+                        color: m.position === "수습" ? "#e67e22" : m.position === "부운영진" ? "#c39bd3" : m.position === "운영진" ? "#ff69b4" : "var(--win-text)" }}>
                         {m.position}
                       </span>
-                    ) : <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 6px", borderRadius: 5, background: "rgba(83,131,232,0.18)", color: "#7aa2f7" }}>클랜원</span>}
+                    ) : <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 6px", borderRadius: 5, background: "rgba(83,131,232,0.18)", color: "var(--win-text)" }}>클랜원</span>}
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "center" }}>
                     {m.status === "leave" ? (
@@ -1897,7 +1896,7 @@ export default function UserInfoPage() {
                       </span>
                     ) : (
                       <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 6px", borderRadius: 5,
-                        background: "rgba(83,131,232,0.18)", color: "#7aa2f7" }}>활동</span>
+                        background: "rgba(83,131,232,0.18)", color: "var(--win-text)" }}>활동</span>
                     )}
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "right", whiteSpace: "nowrap" }}>
