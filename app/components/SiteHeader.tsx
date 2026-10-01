@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "./AuthProvider";
+import ThemeToggle from "./ThemeToggle";
 
 export default function SiteHeader() {
   const { user, loading, logout, openAuthModal } = useAuth();
@@ -47,6 +48,7 @@ export default function SiteHeader() {
       </nav>
 
       <div className="site-auth">
+        <ThemeToggle />
         {loading ? null : user ? (
           <div className="auth-user">
             <span className={`auth-role-badge ${user.role}`}>{user.role === "admin" ? "운영진" : user.role === "subadmin" ? "부운영진" : user.role === "captain" ? "팀장" : "클랜원"}</span>
