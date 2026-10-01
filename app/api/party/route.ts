@@ -433,9 +433,9 @@ async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRo
       await givePoints(pool, memberId, cfg.points, "aram", games, `칼바람 ${totalGames}판 달성${partyLabel(party)}`, givenBy, partyId, 0, null, "party", withMembersAram);
     } else if (totalGames < cfg.min_games && games > 0) {
       await givePoints(pool, memberId, 0, "aram", games, `칼바람 ${totalGames}판 누적 (미달)${partyLabel(party)}`, givenBy, partyId, 0, null, "party", withMembersAram);
-    } else if (alreadyGotPoints && rookieBonus === 0) {
-      console.log(`[award] skip memberId=${memberId}: already got aram on ${partyDate}`);
-      continue;
+    } else if (alreadyGotPoints && games > 0 && rookieBonus === 0) {
+      // 이미 포인트 받은 날 추가 파티 — 판수만 기록 (points=0)
+      await givePoints(pool, memberId, 0, "aram", games, `칼바람 ${totalGames}판 누적 (추가)${partyLabel(party)}`, givenBy, partyId, 0, null, "party", withMembersAram);
     }
 
     if (rookieBonus > 0) {

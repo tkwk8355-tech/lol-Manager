@@ -280,7 +280,8 @@ export default function UserInfoPage() {
 // ── 탈퇴 모달 state ──
   const [withdrawModal, setWithdrawModal] = useState<{ member: Member } | null>(null);
   const [withdrawReason, setWithdrawReason] = useState("");
-  const [withdrawReasonModal, setWithdrawReasonModal] = useState<{ nickname: string; reason: string } | null>(null);
+  const [withdrawReasonModal, setWithdrawReasonModal] = useState<{ nickname: string; reason: string; memberId: number; withdrewAt: string } | null>(null);
+  const [withdrawReasonEdit, setWithdrawReasonEdit] = useState("");
 
   async function submitWithdraw() {
     if (!withdrawModal) return;
@@ -310,6 +311,10 @@ export default function UserInfoPage() {
   const [warnings, setWarnings] = useState<any[]>([]);
   const [warnForm, setWarnForm] = useState({ type: "운영 방침 위반", reason: "", warnedAt: new Date(Date.now() + 9*60*60*1000).toISOString().slice(0, 10) });
   const [warnLoading, setWarnLoading] = useState(false);
+  const [editingWarnId, setEditingWarnId] = useState<number | null>(null);
+  const [editingWarnForm, setEditingWarnForm] = useState({ type: "운영 방침 위반", reason: "", warnedAt: "" });
+  const [editingBlackId, setEditingBlackId] = useState<number | null>(null);
+  const [editingBlackForm, setEditingBlackForm] = useState({ reason: "", addedAt: "" });
 
 // 경고 모달 열기 + 해당 클랜원의 경고 내역 불러오기
   async function openWarnModal(m: Member) {
@@ -340,6 +345,19 @@ export default function UserInfoPage() {
     }
   }
 
+// 경고 수정 저장
+  async function saveWarning(id: number, memberId: number) {
+    await fetch("/api/userinfo/warning", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, ...editingWarnForm }),
+    });
+    setEditingWarnId(null);
+    const r = await fetch(`/api/userinfo/warning?memberId=${memberId}`);
+    const j = await r.json();
+    if (r.ok) setWarnings(j.warnings);
+  }
+
 // 경고 삭제 후 목록 갱신
   async function deleteWarning(id: number) {
     const target = warnModal?.nickname ?? editModal?.nickname ?? "";
@@ -360,7 +378,7 @@ export default function UserInfoPage() {
   const filteredMembers = members.filter((m) => {
     
     if (showInactive && m.position === "수습") return false;
-    if (showInactive && m.status === "leave") return false;
+    if (showInactive && (m.status === "leave" || m.status === "withdraw" || m.status === "black")) return false;
     if (showInactive && (m.position === "운영진" || m.position === "부운영진")) return false;
     const fourDaysMs = 4 * 24 * 60 * 60 * 1000;
     if (showInactive && m.promotedAt && Date.now() - new Date(m.promotedAt).getTime() < fourDaysMs) return false;
@@ -869,7 +887,17 @@ export default function UserInfoPage() {
               <span>🚪 {withdrawReasonModal.nickname} 탈퇴 사유</span>
               <button className="modal-close" onClick={() => setWithdrawReasonModal(null)}>×</button>
             </div>
-            <p style={{ fontSize: 14, color: "var(--text)", margin: 0, lineHeight: 1.6 }}>{withdrawReasonModal.reason}</p>
+            <textarea value={withdrawReasonEdit} onChange={e => setWithdrawReasonEdit(e.target.value)} rows={3}
+              style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14, resize: "vertical", boxSizing: "border-box" }} />
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button className="sync-btn" style={{ flex: 1 }} onClick={async () => {
+                await fetch("/api/userinfo/member", { method: "PUT", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ id: withdrawReasonModal.memberId, status: "withdraw", statusNote: withdrawReasonEdit || null,
+                    withdrewAt: withdrawReasonModal.withdrewAt }) });
+                setWithdrawReasonModal(null); loadMembers();
+              }}>저장</button>
+              <button className="cancel-btn" style={{ flex: 1 }} onClick={() => setWithdrawReasonModal(null)}>취소</button>
+            </div>
           </div>
         </div>
       )}
@@ -929,14 +957,36 @@ export default function UserInfoPage() {
               {blacklistModal.entries.length === 0 && <p className="empty">블랙 내역이 없습니다.</p>}
               {blacklistModal.entries.map((b) => (
                 <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--card-2)", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
-                  <span style={{ fontWeight: 800, color: "#f1948a", flexShrink: 0 }}>{b.added_at?.slice(0, 10)}</span>
-                  <span style={{ flex: 1, color: "var(--muted)" }}>{b.reason || "-"}</span>
-                  <button className="del-btn small" onClick={async () => {
-                    await fetch(`/api/userinfo/blacklist?id=${b.id}`, { method: "DELETE" });
-                    const r2 = await fetch(`/api/userinfo/blacklist?memberId=${blacklistModal.memberId}`);
-                    const j2 = await r2.json();
-                    setBlacklistModal((p) => p ? { ...p, entries: j2.blacklist } : null);
-                  }}>삭제</button>
+                  {editingBlackId === b.id ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
+                      <input type="date" value={editingBlackForm.addedAt} onChange={e => setEditingBlackForm(p => ({ ...p, addedAt: e.target.value }))}
+                        style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 12 }} />
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <input value={editingBlackForm.reason} onChange={e => setEditingBlackForm(p => ({ ...p, reason: e.target.value }))} placeholder="사유"
+                          style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 12 }} />
+                        <button className="sync-btn" style={{ fontSize: 11, padding: "2px 12px", whiteSpace: "nowrap" }} onClick={async () => {
+                          await fetch("/api/userinfo/blacklist", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: b.id, ...editingBlackForm }) });
+                          setEditingBlackId(null);
+                          const r2 = await fetch(`/api/userinfo/blacklist?memberId=${blacklistModal.memberId}`);
+                          const j2 = await r2.json();
+                          setBlacklistModal(p => p ? { ...p, entries: j2.blacklist } : null);
+                        }}>저장</button>
+                        <button className="cancel-btn" style={{ fontSize: 11, padding: "2px 10px", whiteSpace: "nowrap" }} onClick={() => setEditingBlackId(null)}>취소</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <span style={{ fontWeight: 800, color: "#f1948a", flexShrink: 0 }}>{b.added_at?.slice(0, 10)}</span>
+                      <span style={{ flex: 1, color: "var(--muted)" }}>{b.reason || "-"}</span>
+                      <button className="sync-btn" style={{ fontSize: 11, padding: "2px 10px" }} onClick={() => { setEditingBlackId(b.id); setEditingBlackForm({ reason: b.reason || "", addedAt: b.added_at?.slice(0, 10) ?? "" }); }}>수정</button>
+                      <button className="del-btn small" onClick={async () => {
+                        await fetch(`/api/userinfo/blacklist?id=${b.id}`, { method: "DELETE" });
+                        const r2 = await fetch(`/api/userinfo/blacklist?memberId=${blacklistModal.memberId}`);
+                        const j2 = await r2.json();
+                        setBlacklistModal((p) => p ? { ...p, entries: j2.blacklist } : null);
+                      }}>삭제</button>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
@@ -1271,17 +1321,27 @@ export default function UserInfoPage() {
         <div className="modal-backdrop">
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
             <div className="modal-head">
-              <span>{inactiveLogModal.nickname} 최근 2주 플레이</span>
+              <span>{inactiveLogModal.nickname} 최근 1달 플레이</span>
               <button className="modal-close" onClick={() => setInactiveLogModal(null)}>✕</button>
             </div>
             {inactiveLogModal.logs.length === 0 ? (
-              <p style={{ color: "var(--muted)", fontSize: 13 }}>최근 2주 플레이 내역이 없습니다.</p>
+              <p style={{ color: "var(--muted)", fontSize: 13 }}>최근 1달 플레이 내역이 없습니다.</p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {inactiveLogModal.logs.map((log, i) => (
+                {(() => {
+                  const member = members.find(m => m.id === inactiveLogModal.memberId);
+                  const achievedAt = (member as any)?.lastAchievedAt;
+                  let achievedMarked = false;
+                  return inactiveLogModal.logs.map((log, i) => {
+                  const isAchieved = !achievedMarked && achievedAt && log.date === achievedAt;
+                  if (isAchieved) achievedMarked = true;
+                  return (
                   <div key={i} style={{ borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>
-                      <span>{log.startAt}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span>{log.startAt}</span>
+                        {isAchieved && <span style={{ fontSize: 10, fontWeight: 800, padding: "1px 6px", borderRadius: 4, background: "rgba(46,204,113,0.2)", color: "#2ecc71", border: "1px solid rgba(46,204,113,0.4)" }}>✅ 달성일 갱신</span>}
+                      </div>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 4, background: "var(--card-2)", color: "var(--muted)" }}>{MODE_KO[log.mode] ?? log.mode}</span>
                         <span style={{ fontWeight: 700, color: "var(--win-text)" }}>{log.games}판</span>
@@ -1308,7 +1368,9 @@ export default function UserInfoPage() {
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                  });
+                })()}
               </div>
             )}
           </div>
@@ -1349,11 +1411,32 @@ export default function UserInfoPage() {
                 {warnings.length === 0 && <p className="empty">경고 내역이 없습니다.</p>}
                 {warnings.map((w) => (
                   <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--card-2)", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
-                    <span style={{ fontWeight: 800, color: "#f1948a", flexShrink: 0 }}>{w.warned_at?.slice(0, 10)}</span>
-                    <span style={{ fontWeight: 700, flexShrink: 0,
-                      background: "rgba(231,76,60,0.18)", color: "#f1948a", padding: "2px 7px", borderRadius: 5, fontSize: 11 }}>{w.type}</span>
-                    <span style={{ flex: 1, color: "var(--muted)", minWidth: 0 }}>{w.reason || "-"}</span>
-                    <button className="del-btn small" onClick={() => deleteWarning(w.id)}>삭제</button>
+                    {editingWarnId === w.id ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <select value={editingWarnForm.type} onChange={e => setEditingWarnForm(p => ({ ...p, type: e.target.value }))}
+                            style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 12 }}>
+                            <option>운영 방침 위반</option><option>지각 및 노쇼</option><option>판수 미달</option><option>불화 조장</option>
+                          </select>
+                          <input type="date" value={editingWarnForm.warnedAt} onChange={e => setEditingWarnForm(p => ({ ...p, warnedAt: e.target.value }))}
+                            style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 12 }} />
+                        </div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <input value={editingWarnForm.reason} onChange={e => setEditingWarnForm(p => ({ ...p, reason: e.target.value }))} placeholder="사유"
+                            style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 12 }} />
+                          <button className="sync-btn" style={{ fontSize: 11, padding: "2px 12px", whiteSpace: "nowrap" }} onClick={() => saveWarning(w.id, warnModal!.memberId)}>저장</button>
+                          <button className="cancel-btn" style={{ fontSize: 11, padding: "2px 10px", whiteSpace: "nowrap" }} onClick={() => setEditingWarnId(null)}>취소</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <span style={{ fontWeight: 800, color: "#f1948a", flexShrink: 0 }}>{w.warned_at?.slice(0, 10)}</span>
+                        <span style={{ fontWeight: 700, flexShrink: 0, background: "rgba(231,76,60,0.18)", color: "#f1948a", padding: "2px 7px", borderRadius: 5, fontSize: 11 }}>{w.type}</span>
+                        <span style={{ flex: 1, color: "var(--muted)", minWidth: 0 }}>{w.reason || "-"}</span>
+                        <button className="sync-btn" style={{ fontSize: 11, padding: "2px 10px" }} onClick={() => { setEditingWarnId(w.id); setEditingWarnForm({ type: w.type, reason: w.reason || "", warnedAt: w.warned_at?.slice(0, 10) ?? "" }); }}>수정</button>
+                        <button className="del-btn small" onClick={() => deleteWarning(w.id)}>삭제</button>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1808,7 +1891,7 @@ export default function UserInfoPage() {
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "center" }}>
                     {m.statusNote
-                      ? <button className="withdraw-btn" onClick={() => setWithdrawReasonModal({ nickname: m.nickname, reason: m.statusNote! })}>+ 사유</button>
+                      ? <button className="withdraw-btn" onClick={() => { setWithdrawReasonEdit(m.statusNote!); setWithdrawReasonModal({ nickname: m.nickname, reason: m.statusNote!, memberId: m.id, withdrewAt: (m as any).withdrewAt ?? "" }); }}>+ 사유</button>
                       : <span style={{ color: "var(--muted)", fontSize: 12 }}>-</span>}
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "center" }}>

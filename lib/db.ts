@@ -533,6 +533,8 @@ async function createSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  await pool.query(`ALTER TABLE solorank_sessions ADD COLUMN IF NOT EXISTS start_at DATETIME NULL`);
+
   await seedDefaultAdmin(pool);
   await seedScrimRatings(pool);
 }

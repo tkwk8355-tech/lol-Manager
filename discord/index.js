@@ -1,12 +1,19 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
 const { handleTicket } = require('./tickets');
+const { handlePlay, handleSkip, handleStop, handleQueue } = require('./music');
+
+process.on('uncaughtException', e => {
+  if (e.code === 'EPIPE') return;
+  console.error('[uncaughtException]', e);
+});
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildVoiceStates,
   ]
 });
 
@@ -15,7 +22,21 @@ client.once('clientReady', () => {
 });
 
 client.on('interactionCreate', async interaction => {
-  await handleTicket(interaction);
+  try {
+    if (interaction.isChatInputCommand()) {
+      const cmd = interaction.commandName;
+      console.log(`[cmd] /${cmd}`);
+      if (cmd === '재생') await handlePlay(interaction);
+      else if (cmd === '스킵') await handleSkip(interaction);
+      else if (cmd === '정지') await handleStop(interaction);
+      else if (cmd === '큐') await handleQueue(interaction);
+      else await handleTicket(interaction);
+    } else {
+      await handleTicket(interaction);
+    }
+  } catch (e) {
+    console.error('[interactionCreate 오류]', e);
+  }
 });
 
 client.login(process.env.TOKEN);

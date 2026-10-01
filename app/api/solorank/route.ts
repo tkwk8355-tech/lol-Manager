@@ -37,20 +37,20 @@ export async function POST(req: NextRequest) {
   const auth = requireAdmin(req);
   if (!auth.ok) return auth.response;
 
-  const { name, totalGames, team1, team2 } = await req.json();
-  if (!team1?.length || !team2?.length) return NextResponse.json({ error: "팀 인원을 입력하세요" }, { status: 400 });
+  const { name, totalGames, teams, startAt } = await req.json();
+  if (!teams || teams.length < 2) return NextResponse.json({ error: "팀을 2개 이상 만드세요" }, { status: 400 });
+  if (teams.some((t: number[]) => !t.length)) return NextResponse.json({ error: "각 팀에 최소 1명씩 추가하세요" }, { status: 400 });
 
   const [result] = await pool.query(
-    `INSERT INTO solorank_sessions (name, total_games, status, created_by) VALUES (?, ?, 'playing', ?)`,
-    [name || null, totalGames || 5, auth.session.userId]
+    `INSERT INTO solorank_sessions (name, total_games, status, created_by, start_at) VALUES (?, ?, 'playing', ?, ?)`,
+    [name || null, totalGames || 5, auth.session.userId, startAt || null]
   ) as [any, any];
   const sessionId = result.insertId;
 
-  for (const memberId of team1) {
-    await pool.query(`INSERT INTO solorank_participants (session_id, member_id, team) VALUES (?, ?, 1)`, [sessionId, memberId]);
-  }
-  for (const memberId of team2) {
-    await pool.query(`INSERT INTO solorank_participants (session_id, member_id, team) VALUES (?, ?, 2)`, [sessionId, memberId]);
+  for (let teamNo = 0; teamNo < teams.length; teamNo++) {
+    for (const memberId of teams[teamNo]) {
+      await pool.query(`INSERT INTO solorank_participants (session_id, member_id, team) VALUES (?, ?, ?)`, [sessionId, memberId, teamNo + 1]);
+    }
   }
 
   return NextResponse.json({ sessionId });

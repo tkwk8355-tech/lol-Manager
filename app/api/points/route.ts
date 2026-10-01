@@ -36,9 +36,10 @@ export async function GET(req: NextRequest) {
   const sp = new URL(req.url).searchParams;
   const offset = Math.max(0, Number(sp.get("offset") ?? 0));
   const search = (sp.get("search") ?? "").trim();
+  const baseWhere = `(pl.points != 0 OR pl.type = 'rookie_session')`;
   const whereClause = search
-    ? `WHERE (SELECT a.game_name FROM accounts a WHERE a.member_id = pl.member_id AND a.is_main = 1 LIMIT 1) LIKE ?`
-    : "";
+    ? `WHERE ${baseWhere} AND (SELECT a.game_name FROM accounts a WHERE a.member_id = pl.member_id AND a.is_main = 1 LIMIT 1) LIKE ?`
+    : `WHERE ${baseWhere}`;
   const searchParam = search ? [`%${search}%`] : [];
   const [totalRows] = await pool.query(
     `SELECT COUNT(*) AS cnt FROM point_logs pl ${whereClause}`,

@@ -51,6 +51,30 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+// PATCH /api/userinfo/warning - 경고 수정
+export async function PATCH(req: NextRequest) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) return auth.response;
+
+  const body = await req.json().catch(() => ({}));
+  const id = Number(body.id);
+  const type = String(body.type ?? "");
+  const reason = String(body.reason ?? "").trim().slice(0, 500);
+  const warnedAt = String(body.warnedAt ?? "").trim();
+
+  if (!id || !WARNING_TYPES.includes(type as any) || !warnedAt) {
+    return NextResponse.json({ error: "id, type, warnedAt 필수" }, { status: 400 });
+  }
+
+  await ensureSchema();
+  const pool = getPool();
+  await pool.query(
+    `UPDATE warnings SET type=?, reason=?, warned_at=? WHERE id=?`,
+    [type, reason || null, warnedAt, id]
+  );
+  return NextResponse.json({ ok: true });
+}
+
 // DELETE /api/userinfo/warning?id=1
 export async function DELETE(req: NextRequest) {
   const auth = requireAdmin(req);

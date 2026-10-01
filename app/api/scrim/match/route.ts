@@ -194,12 +194,10 @@ export async function PATCH(req: NextRequest) {
         const isRookie = p.position === "수습";
         const playedDate = playedAt.slice(0, 10);
         const checkType = isRookie ? "rookie_session" : "scrim";
+        // 같은 경기 중복 지급 방지
         const [alreadyRows] = await pool.query(
-          `SELECT pl.id FROM point_logs pl
-           JOIN scrim_matches sm ON sm.id = pl.ref_id AND pl.ref_table = 'scrim_match'
-           WHERE pl.member_id = ? AND pl.type = ?
-           AND DATE(sm.played_at) = ?`,
-          [p.member_id, checkType, playedDate]
+          `SELECT id FROM point_logs WHERE member_id = ? AND type = ? AND ref_id = ? AND ref_table = 'scrim_match'`,
+          [p.member_id, checkType, id]
         ) as [any[], any];
         if (alreadyRows.length > 0) continue;
         const withMembers = allMemberIds
@@ -207,7 +205,6 @@ export async function PATCH(req: NextRequest) {
           .map((mid: number) => nicknameById.get(mid))
           .filter(Boolean).join(",") || null;
         if (isRookie) {
-          // 내전 3판당 카운트 1개: 같은 날짜(played_at) 내 누적 판수 기준
           const dayStart = playedDate + " 00:00:00";
           const dayEnd = playedDate + " 23:59:59";
           const [scrimCountRows] = await pool.query(
@@ -221,7 +218,16 @@ export async function PATCH(req: NextRequest) {
           const partyCount = (prevCount + 1) % 3 === 0 ? 1 : 0;
           await givePoints(pool, p.member_id, 0, "rookie_session", 1, `내전참여 (${matchTimeLabel})${matchNote}`, auth.session.userId, id, partyCount, null, "scrim_match", withMembers);
         } else {
-          await givePoints(pool, p.member_id, 30, "scrim", 1, `내전 참여 (${matchTimeLabel})${matchNote}`, auth.session.userId, id, 0, null, "scrim_match", withMembers);
+          // 같은 날 이미 포인트 지급된 경기가 있으면 포인트 0, 판수만 기록
+          const [sameDayRows] = await pool.query(
+            `SELECT pl.id FROM point_logs pl
+             JOIN scrim_matches sm ON sm.id = pl.ref_id AND pl.ref_table = 'scrim_match'
+             WHERE pl.member_id = ? AND pl.type = 'scrim' AND pl.points > 0
+             AND DATE(sm.played_at) = ?`,
+            [p.member_id, playedDate]
+          ) as [any[], any];
+          const points = sameDayRows.length > 0 ? 0 : 30;
+          await givePoints(pool, p.member_id, points, "scrim", 1, `내전 참여 (${matchTimeLabel})${matchNote}`, auth.session.userId, id, 0, null, "scrim_match", withMembers);
         }
       }
 

@@ -116,8 +116,8 @@ function AuctionTimer({onEnd,resetRef,startedAt,serverNow,onStart,isAdmin,nextBu
     <div style={{textAlign:"center",width:"100%"}}>
       {!startedAt
         ?<div style={{display:"flex",gap:8,justifyContent:"center",alignItems:"center"}}>
-          {isAdmin&&<button style={{fontSize:13,padding:"8px 20px",borderRadius:8,border:"1px solid rgba(83,131,232,0.6)",background:"transparent",color:"var(--win-text)",fontWeight:700,cursor:"pointer"}} onClick={onStart}>시작</button>}
-          {!isAdmin&&<div style={{fontSize:17,color:"var(--text)",padding:"12px 0",fontWeight:700}}>경매 대기 중...</div>}
+          {isAdmin&&<button style={{fontSize:13,padding:"8px 20px",borderRadius:8,border:"1px solid rgba(83,131,232,0.6)",background:"transparent",color:"#7aa2f7",fontWeight:700,cursor:"pointer"}} onClick={onStart}>시작</button>}
+          {!isAdmin&&<div style={{fontSize:17,color:"#fff",padding:"12px 0",fontWeight:700}}>경매 대기 중...</div>}
           {nextButton}
         </div>
         :<>
@@ -355,7 +355,7 @@ function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:bool
       },0);
   }
   const CAPTAIN_COLORS=[
-    {main:"var(--win-text)",bg:"rgba(83,131,232,0.15)",border:"rgba(83,131,232,0.6)"},
+    {main:"#7aa2f7",bg:"rgba(83,131,232,0.15)",border:"rgba(83,131,232,0.6)"},
     {main:"#f7768e",bg:"rgba(247,118,142,0.15)",border:"rgba(247,118,142,0.6)"},
     {main:"#9ece6a",bg:"rgba(158,206,106,0.15)",border:"rgba(158,206,106,0.6)"},
     {main:"#e0af68",bg:"rgba(224,175,104,0.15)",border:"rgba(224,175,104,0.6)"},
@@ -386,11 +386,11 @@ function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:bool
                   const member=isCaptainLine?cap:team.find(pl=>pl.roster_line===line)??null;
                   const wonPts=member&&!isCaptainLine?bids.filter(b=>b.player_id===member.id&&b.captain_id===cap.id).reduce((m,b)=>Math.max(m,b.points),0):null;
                   return(
-                    <div key={line} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 6px",borderRadius:6,background:member?"var(--card-2)":"rgba(var(--fg-rgb),0.03)",border:"1px solid "+(member?"var(--border)":"rgba(var(--fg-rgb),0.06)")}}>
+                    <div key={line} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 6px",borderRadius:6,background:member?"var(--card-2)":"rgba(255,255,255,0.03)",border:"1px solid "+(member?"var(--border)":"rgba(255,255,255,0.06)")}}>
                       <img src={LINE_ICON[line]} alt={line} width={20} height={20} style={{filter:"brightness(0) invert(1)",opacity:member?1:0.3,flexShrink:0}}/>
                       {member
                         ?<span style={{fontSize:12,fontWeight:700,flex:1}}>{member.nickname}{wonPts!==null&&<span style={{fontSize:10,color:"var(--muted)",marginLeft:4}}>({wonPts}pt)</span>}{isCaptainLine&&<span style={{fontSize:10,color:"var(--accent)",marginLeft:4}}>팀장</span>}</span>
-                        :<span style={{fontSize:11,color:"rgba(var(--fg-rgb),0.2)",flex:1}}>-</span>
+                        :<span style={{fontSize:11,color:"rgba(255,255,255,0.2)",flex:1}}>-</span>
                       }
                     </div>
                   );
@@ -405,7 +405,7 @@ function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:bool
         {isDone&&(<div style={{textAlign:"center"}}><div style={{fontSize:28,fontWeight:900,color:"var(--win-text)",marginBottom:8}}>경매 완료!</div>{isAdmin&&<button className="btn-secondary" onClick={async()=>{await fetch("/api/auction",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"reset",sessionId})});load();}}>재경매</button>}</div>)}
         {isRunning&&activePlayer&&(
           <>
-            <div style={{fontSize:15,color:"var(--text)",fontWeight:600}}>현재 경매 중 ({nonCaptains.filter(p=>p.team_id!==null).length+1} / {nonCaptains.length})</div>
+            <div style={{fontSize:15,color:"#fff",fontWeight:600}}>현재 경매 중 ({nonCaptains.filter(p=>p.team_id!==null).length+1} / {nonCaptains.length})</div>
             <div style={{fontSize:36,fontWeight:900,color:"var(--text)"}}>{activePlayer.nickname}</div>
             <div style={{display:"flex",gap:10,alignItems:"center",fontSize:13,color:"var(--muted)"}}>
               {(activePlayer.roster_line&&LINE_ICON[activePlayer.roster_line])&&<img src={LINE_ICON[activePlayer.roster_line]} alt={activePlayer.roster_line} width={32} height={32} style={{filter:"brightness(0) invert(1)",opacity:0.85}}/>}
@@ -433,7 +433,7 @@ function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:bool
             {isAdmin&&!myCaptain&&(
               <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:"center",width:"100%"}}>
                 <div style={{display:"flex",gap:8,justifyContent:"center"}}>
-                  {!timerStartedAt&&!awarded&&<button style={{fontSize:13,padding:"8px 20px",borderRadius:8,border:"1px solid rgba(83,131,232,0.6)",background:"transparent",color:"var(--win-text)",fontWeight:700,cursor:"pointer"}} onClick={async()=>{await fetch("/api/auction",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"timer_start",sessionId})});load();}}>시작</button>}
+                  {!timerStartedAt&&!awarded&&<button style={{fontSize:13,padding:"8px 20px",borderRadius:8,border:"1px solid rgba(83,131,232,0.6)",background:"transparent",color:"#7aa2f7",fontWeight:700,cursor:"pointer"}} onClick={async()=>{await fetch("/api/auction",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"timer_start",sessionId})});load();}}>시작</button>}
                   {awarded&&<button style={{fontSize:13,padding:"8px 20px",whiteSpace:"nowrap",borderRadius:8,border:"1px solid rgba(158,206,106,0.6)",background:"transparent",color:"#9ece6a",fontWeight:700,cursor:"pointer"}} onClick={handleNext}>다음</button>}
                 </div>
                 <AuctionTimer onEnd={onTimerEnd} resetRef={timerResetRef} startedAt={nexting?null:timerStartedAt} serverNow={serverNow} onStart={async()=>{}} isAdmin={false}/>
@@ -455,15 +455,15 @@ function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:bool
                     const lineBlocked=!!cpLine&&(myCaptain.roster_line===cpLine||getTeam(myCaptain.id).some(p=>p.roster_line===cpLine));
                     const dis=bidLoading||lineBlocked||next>remain+myCurrentBid||awarded||!timerStartedAt;
                     const colors=[
-                      {border:"rgba(var(--fg-rgb),0.12)",text:"#9aa5b8",hover:"rgba(var(--fg-rgb),0.06)"},
-                      {border:"rgba(83,131,232,0.4)",text:"var(--win-text)",hover:"rgba(83,131,232,0.1)"},
+                      {border:"rgba(255,255,255,0.12)",text:"#9aa5b8",hover:"rgba(255,255,255,0.06)"},
+                      {border:"rgba(83,131,232,0.4)",text:"#7aa2f7",hover:"rgba(83,131,232,0.1)"},
                       {border:"rgba(155,89,182,0.5)",text:"#c39bd3",hover:"rgba(155,89,182,0.12)"},
                       {border:"rgba(230,126,34,0.6)",text:"#e67e22",hover:"rgba(230,126,34,0.12)"},
                     ][i];
                     return(
                       <button key={n} onClick={()=>handleBid(next)} disabled={dis} style={{
-                        padding:"10px 0",borderRadius:8,border:"1px solid "+(dis?"rgba(var(--fg-rgb),0.06)":colors.border),
-                        background:"transparent",color:dis?"rgba(var(--fg-rgb),0.2)":colors.text,
+                        padding:"10px 0",borderRadius:8,border:"1px solid "+(dis?"rgba(255,255,255,0.06)":colors.border),
+                        background:"transparent",color:dis?"rgba(255,255,255,0.2)":colors.text,
                         fontSize:13,fontWeight:700,cursor:dis?"default":"pointer",
                         transition:"background 0.15s,border-color 0.15s",letterSpacing:0.2,
                       }}
@@ -476,7 +476,7 @@ function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:bool
                   })}
                 </div>
                 {bidErr&&<div style={{color:"var(--loss-text)",fontSize:12,marginTop:6,textAlign:"center"}}>{bidErr}</div>}
-                <div style={{fontSize:13,color:"var(--text)",marginTop:4,textAlign:"center"}}>잔여: {myCaptain.points-getUsed(myCaptain.id)}pt{topBid&&" · 현재 최고: "+topBid.points+"pt ("+topBid.captain_name+")"}</div>
+                <div style={{fontSize:13,color:"#fff",marginTop:4,textAlign:"center"}}>잔여: {myCaptain.points-getUsed(myCaptain.id)}pt{topBid&&" · 현재 최고: "+topBid.points+"pt ("+topBid.captain_name+")"}</div>
               </div>
             )}
 
@@ -663,7 +663,7 @@ function RosterManager({members,roster,isAdmin,onSaved}:{members:Member[];roster
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:0}}>
               {roster.filter(r=>r.line===line).map(r=>(
-                <div key={r.member_id} style={{padding:"10px 12px",borderBottom:"1px solid rgba(var(--fg-rgb),0.04)",display:"flex",flexDirection:"column",gap:6}}>
+                <div key={r.member_id} style={{padding:"10px 12px",borderBottom:"1px solid rgba(255,255,255,0.04)",display:"flex",flexDirection:"column",gap:6}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:4}}>
                     <div>
                       <div style={{fontWeight:700,fontSize:15}}>{r.nickname}</div>
@@ -682,7 +682,7 @@ function RosterManager({members,roster,isAdmin,onSaved}:{members:Member[];roster
                 </div>
               ))}
               {roster.filter(r=>r.line===line).length===0&&(
-                <div style={{padding:"12px 10px",fontSize:12,color:"rgba(var(--fg-rgb),0.15)",textAlign:"center"}}>-</div>
+                <div style={{padding:"12px 10px",fontSize:12,color:"rgba(255,255,255,0.15)",textAlign:"center"}}>-</div>
               )}
             </div>
           </div>
@@ -750,46 +750,69 @@ function SoloRankEvent(){const{user}=useAuth();
     {showCreate&&<SRCreateModal members={members} onClose={()=>setShowCreate(false)} onCreated={id=>{setShowCreate(false);setActiveId(id);reload();}}/>}
   </div>);}
 
+const TEAM_COLORS=[{main:"#7aa2f7",bg:"rgba(83,131,232,0.15)",border:"rgba(83,131,232,0.4)",label:"🔵"},{main:"#f7768e",bg:"rgba(247,118,142,0.15)",border:"rgba(247,118,142,0.4)",label:"🔴"},{main:"#9ece6a",bg:"rgba(158,206,106,0.15)",border:"rgba(158,206,106,0.4)",label:"🟢"},{main:"#e0af68",bg:"rgba(224,175,104,0.15)",border:"rgba(224,175,104,0.4)",label:"🟡"},{main:"#bb9af7",bg:"rgba(187,154,247,0.15)",border:"rgba(187,154,247,0.4)",label:"🟣"}];
+
 function SRCreateModal({members,onClose,onCreated}:{members:Member[];onClose:()=>void;onCreated:(id:number)=>void;}){
   const[name,setName]=useState("");
   const[totalGames,setTotalGames]=useState(5);
-  const[team1,setTeam1]=useState<Member[]>([]);
-  const[team2,setTeam2]=useState<Member[]>([]);
+  const[startDate,setStartDate]=useState(()=>new Date(Date.now()+9*60*60*1000).toISOString().slice(0,10));
+  const[startTime,setStartTime]=useState("");
+  const[teams,setTeams]=useState<Member[][]>([[],[]]);
   const[err,setErr]=useState("");
   const[loading,setLoading]=useState(false);
-  const usedIds=[...team1,...team2].map(m=>m.id);
+  const usedIds=teams.flat().map(m=>m.id);
+  function addTeam(){if(teams.length>=5)return;setTeams(prev=>[...prev,[]]);}
+  function removeTeam(ti:number){if(teams.length<=2)return;setTeams(prev=>prev.filter((_,i)=>i!==ti));}
+  function addMember(ti:number,m:Member){setTeams(prev=>prev.map((t,i)=>i===ti?[...t,m]:t));}
+  function removeMember(ti:number,mid:number){setTeams(prev=>prev.map((t,i)=>i===ti?t.filter(m=>m.id!==mid):t));}
   async function submit(){
-    if(!team1.length||!team2.length){setErr("양 팀에 최소 1명씩 추가하세요.");return;}
+    if(teams.some(t=>!t.length)){setErr("각 팀에 최소 1명씩 추가하세요.");return;}
+    if(!startTime){setErr("시작 시간을 입력하세요.");return;}
     setLoading(true);setErr("");
+    const startAt=`${startDate}T${startTime}:00`;
     try{
       const res=await fetch("/api/solorank",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({name:name||null,totalGames,team1:team1.map(m=>m.id),team2:team2.map(m=>m.id)})});
+        body:JSON.stringify({name:name||null,totalGames,teams:teams.map(t=>t.map(m=>m.id)),startAt})});
       const json=await res.json();
       if(!res.ok){setErr(json.error||"생성 실패");return;}
       onCreated(json.sessionId);
     }catch{setErr("네트워크 오류");}finally{setLoading(false);}
   }
-  return(<div className="modal-backdrop"><div className="modal" style={{maxWidth:600}}>
+  return(<div className="modal-backdrop"><div className="modal" style={{maxWidth:900,width:"95vw"}}>
     <div className="modal-head"><span>🎮 새 솔랭내기</span><button className="modal-close" onClick={onClose}>×</button></div>
     <div style={{display:"flex",flexDirection:"column",gap:12}}>
       <input autoFocus placeholder="이름 (예: 9/20 솔랭내기)" value={name} onChange={e=>setName(e.target.value)}
         style={{padding:"9px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text)",fontSize:14}}/>
-      <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
         <span style={{fontSize:13,color:"var(--muted)",whiteSpace:"nowrap"}}>총 판수</span>
         {[3,5,7,9].map(n=>(
           <button key={n} onClick={()=>setTotalGames(n)} style={{padding:"5px 14px",borderRadius:6,fontSize:13,fontWeight:700,cursor:"pointer",border:"1px solid "+(totalGames===n?"var(--accent)":"var(--border)"),background:totalGames===n?"var(--accent)":"var(--card-2)",color:totalGames===n?"#fff":"var(--text)"}}>{n}판</button>
         ))}
+        <span style={{fontSize:13,color:"var(--muted)",marginLeft:8,whiteSpace:"nowrap"}}>시작 시간</span>
+        <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)}
+          style={{padding:"5px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card-2)",color:"var(--text)",fontSize:13}}/>
+        <input placeholder="HH:MM" value={startTime} onChange={e=>setStartTime(e.target.value)} maxLength={5}
+          style={{width:80,padding:"5px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card-2)",color:"var(--text)",fontSize:13}}/>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-        {([{label:"🔵 팀1",team:team1,setTeam:setTeam1},{label:"🔴 팀2",team:team2,setTeam:setTeam2}] as const).map(({label,team,setTeam})=>(
-          <div key={label} style={{background:"var(--card-2)",borderRadius:10,padding:12,border:"1px solid var(--border)"}}>
-            <div style={{fontWeight:800,fontSize:13,marginBottom:8}}>{label} <span style={{fontWeight:400,color:"var(--muted)",fontSize:12}}>({team.length}명)</span></div>
-            <MemberSearchInput members={members} usedIds={usedIds} onSelect={m=>setTeam(prev=>[...prev,m])} placeholder="클랜원 검색"/>
-            <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:4}}>
-              {team.map(m=>(<span key={m.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:6,padding:"3px 8px",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:4}}>{m.nickname}<button onClick={()=>setTeam(prev=>prev.filter(x=>x.id!==m.id))} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:14,padding:0}}>×</button></span>))}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
+        {teams.map((team,ti)=>{
+          const c=TEAM_COLORS[ti%TEAM_COLORS.length];
+          return(
+            <div key={ti} style={{background:"var(--card-2)",borderRadius:10,padding:12,border:"1px solid var(--border)"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                <span style={{fontWeight:800,fontSize:13,color:c.main}}>{c.label} 팀{ti+1} <span style={{fontWeight:400,color:"var(--muted)",fontSize:12}}>({team.length}명)</span></span>
+                {teams.length>2&&<button onClick={()=>removeTeam(ti)} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:16,padding:0}}>×</button>}
+              </div>
+              <MemberSearchInput members={members} usedIds={usedIds} onSelect={m=>addMember(ti,m)} placeholder="클랜원 검색"/>
+              <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:4}}>
+                {team.map(m=>(<span key={m.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:6,padding:"3px 8px",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:4}}>{m.nickname}<button onClick={()=>removeMember(ti,m.id)} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:14,padding:0}}>×</button></span>))}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
+        {teams.length<5&&(
+          <button onClick={addTeam} style={{minHeight:80,borderRadius:10,border:"2px dashed var(--border)",background:"transparent",color:"var(--muted)",fontSize:24,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
+        )}
       </div>
       {err&&<div className="error">{err}</div>}
       <div style={{display:"flex",gap:8}}>
@@ -805,6 +828,8 @@ function SRRoom({sessionId,isAdmin,onBack,members}:{sessionId:number;isAdmin:boo
   const[games,setGames]=useState<SRGame[]>([]);
   const[finishPts,setFinishPts]=useState(10);
   const[finishing,setFinishing]=useState(false);
+  const[syncResults,setSyncResults]=useState<Record<number,any[]>>({});
+  const[syncing,setSyncing]=useState<Record<number,boolean>>({});
   const load=useCallback(async()=>{
     const res=await fetch("/api/solorank?sessionId="+sessionId);
     if(!res.ok)return;
@@ -813,24 +838,15 @@ function SRRoom({sessionId,isAdmin,onBack,members}:{sessionId:number;isAdmin:boo
   },[sessionId]);
   useEffect(()=>{load();},[load]);
   if(!session)return null;
-  const team1=participants.filter(p=>p.team===1);
-  const team2=participants.filter(p=>p.team===2);
-  const score1=games.filter(g=>g.winner_team===1).length;
-  const score2=games.filter(g=>g.winner_team===2).length;
+  const teamNos=[...new Set(participants.map(p=>p.team))].sort();
   const total=session.total_games;
-  const needed=Math.ceil(total/2);
-  const isDone=session.status==="done"||score1>=needed||score2>=needed;
-  const winner=score1>=needed?1:score2>=needed?2:0;
-  async function record(team:number){
-    const gameNo=games.length+1;
-    await fetch("/api/solorank",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"record",sessionId,gameNo,winnerTeam:team})});
-    load();
-  }
-  async function undoLast(){
-    if(!games.length)return;
-    const last=games[games.length-1];
-    await fetch("/api/solorank",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete_game",sessionId,gameNo:last.game_no})});
-    load();
+  async function sync(teamNo:number){
+    setSyncing(prev=>({...prev,[teamNo]:true}));
+    try{
+      const res=await fetch("/api/solorank/sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId,teamNo})});
+      const json=await res.json();
+      if(res.ok)setSyncResults(prev=>({...prev,[teamNo]:json.results}));
+    }finally{setSyncing(prev=>({...prev,[teamNo]:false}));}
   }
   async function finish(){
     if(!confirm(`참여자 전원에게 ${finishPts}포인트를 지급하고 종료하시겠습니까?`))return;
@@ -840,51 +856,56 @@ function SRRoom({sessionId,isAdmin,onBack,members}:{sessionId:number;isAdmin:boo
   }
   return(<div>
     <div style={{marginBottom:12}}><button className="btn-secondary" onClick={onBack}>← 목록으로</button></div>
-    <div style={{fontWeight:800,fontSize:18,marginBottom:16}}>{session.name||`솔랭내기 #${sessionId}`}</div>
-    {/* 스코어보드 */}
-    <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:16,alignItems:"center",marginBottom:24,background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"20px 24px"}}>
-      <div style={{textAlign:"center"}}>
-        <div style={{fontSize:13,fontWeight:700,color:"var(--win-text)",marginBottom:6}}>🔵 팀1</div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:4,justifyContent:"center",marginBottom:10}}>
-          {team1.map(p=>(<span key={p.id} style={{fontSize:12,fontWeight:700,background:"rgba(83,131,232,0.15)",border:"1px solid rgba(83,131,232,0.4)",borderRadius:6,padding:"2px 8px"}}>{p.nickname}</span>))}
-        </div>
-        <div style={{fontSize:64,fontWeight:900,color:winner===1?"var(--win-text)":"var(--text)",lineHeight:1}}>{score1}</div>
-        {winner===1&&<div style={{fontSize:14,fontWeight:800,color:"var(--win-text)",marginTop:4}}>🏆 승리!</div>}
-      </div>
-      <div style={{textAlign:"center",color:"var(--muted)",fontSize:18,fontWeight:700}}>
-        <div style={{fontSize:13,marginBottom:4}}>{total}판</div>
-        <div>VS</div>
-        <div style={{fontSize:12,marginTop:4,color:"var(--muted)"}}>{score1+score2}/{total}</div>
-      </div>
-      <div style={{textAlign:"center"}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#f7768e",marginBottom:6}}>🔴 팀2</div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:4,justifyContent:"center",marginBottom:10}}>
-          {team2.map(p=>(<span key={p.id} style={{fontSize:12,fontWeight:700,background:"rgba(247,118,142,0.15)",border:"1px solid rgba(247,118,142,0.4)",borderRadius:6,padding:"2px 8px"}}>{p.nickname}</span>))}
-        </div>
-        <div style={{fontSize:64,fontWeight:900,color:winner===2?"var(--win-text)":"var(--text)",lineHeight:1}}>{score2}</div>
-        {winner===2&&<div style={{fontSize:14,fontWeight:800,color:"var(--win-text)",marginTop:4}}>🏆 승리!</div>}
-      </div>
-    </div>
-    {/* 판 기록 */}
-    {games.length>0&&(
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:16}}>
-        {games.map((g,i)=>(
-          <div key={g.id} style={{padding:"4px 12px",borderRadius:6,fontSize:12,fontWeight:700,background:g.winner_team===1?"rgba(83,131,232,0.2)":"rgba(247,118,142,0.2)",border:"1px solid "+(g.winner_team===1?"rgba(83,131,232,0.5)":"rgba(247,118,142,0.5)"),color:g.winner_team===1?"var(--win-text)":"#f7768e"}}>
-            {i+1}판 {g.winner_team===1?"팀1":"팀2"} 승
+    <div style={{fontWeight:800,fontSize:18,marginBottom:4}}>{session.name||`솔랭내기 #${sessionId}`}</div>
+    {session.start_at&&<div style={{fontSize:12,color:"var(--muted)",marginBottom:16}}>시작 시간: {new Date(session.start_at).toLocaleString("ko-KR")} 이후 솔로랭크 기준</div>}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:16}}>
+      {teamNos.map(teamNo=>{
+        const c=TEAM_COLORS[(teamNo-1)%TEAM_COLORS.length];
+        const teamMembers=participants.filter(p=>p.team===teamNo);
+        const results=syncResults[teamNo]??[];
+        const teamTotal=results.reduce((s:number,r:any)=>s+(r.score??0),0);
+        return(
+          <div key={teamNo} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+              <span style={{fontWeight:800,fontSize:15,color:c.main}}>{c.label} 팀{teamNo}</span>
+              {results.length>0&&<span style={{fontSize:13,fontWeight:700,color:"var(--win-text)"}}>(팀 점수: {teamTotal}점)</span>}
+              {isAdmin&&session.status!=="done"&&(
+                <button onClick={()=>sync(teamNo)} disabled={syncing[teamNo]} style={{marginLeft:"auto",padding:"5px 14px",borderRadius:7,fontSize:12,fontWeight:700,cursor:"pointer",border:"1px solid "+c.border,background:c.bg,color:c.main}}>
+                  {syncing[teamNo]?"조회 중..":"🔄 동기화"}
+                </button>
+              )}
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {teamMembers.map(p=>{
+                const r=results.find((x:any)=>x.memberId===p.member_id);
+                return(
+                  <div key={p.id} style={{background:"var(--card-2)",borderRadius:8,padding:"10px 14px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:r?.games?.length?6:0}}>
+                      <span style={{fontWeight:700,fontSize:14}}>{p.nickname}</span>
+                      {r&&!r.error&&<span style={{fontSize:13,fontWeight:800,color:r.score>=0?"var(--win-text)":"var(--loss-text)"}}>{r.score>=0?"+":""}{r.score}점</span>}
+                      {r?.error&&<span style={{fontSize:12,color:"var(--loss-text)"}}>{r.error}</span>}
+                      {!r&&<span style={{fontSize:12,color:"var(--muted)"}}>-</span>}
+                    </div>
+                    {r?.games?.length>0&&(
+                      <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                        {r.games.map((g:any,i:number)=>(
+                          <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                            <div style={{width:28,height:28,borderRadius:6,fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",background:g.win?"rgba(46,204,113,0.2)":"rgba(231,76,60,0.2)",border:"1px solid "+(g.win?"rgba(46,204,113,0.5)":"rgba(231,76,60,0.5)"),color:g.win?"#2ecc71":"#e74c3c"}}>{g.win?"W":"L"}</div>
+                            {g.bonus>0&&<div style={{fontSize:9,color:"#e0af68",fontWeight:800}}>+{g.bonus}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        ))}
-      </div>
-    )}
-    {/* 어드민 컨트롤 */}
-    {isAdmin&&!isDone&&(
-      <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
-        <button onClick={()=>record(1)} style={{padding:"10px 28px",borderRadius:8,fontSize:14,fontWeight:800,cursor:"pointer",border:"1px solid rgba(83,131,232,0.6)",background:"rgba(83,131,232,0.15)",color:"var(--win-text)"}}>🔵 팀1 승</button>
-        <button onClick={()=>record(2)} style={{padding:"10px 28px",borderRadius:8,fontSize:14,fontWeight:800,cursor:"pointer",border:"1px solid rgba(247,118,142,0.6)",background:"rgba(247,118,142,0.15)",color:"#f7768e"}}>🔴 팀2 승</button>
-        {games.length>0&&<button onClick={undoLast} style={{padding:"10px 16px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",border:"1px solid var(--border)",background:"var(--card-2)",color:"var(--muted)"}}>↩ 되돌리기</button>}
-      </div>
-    )}
-    {isAdmin&&(isDone||winner>0)&&session.status!=="done"&&(
-      <div style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"14px 18px"}}>
+        );
+      })}
+    </div>
+    {isAdmin&&session.status!=="done"&&(
+      <div style={{display:"flex",alignItems:"center",gap:10,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"14px 18px",marginTop:16}}>
         <span style={{fontSize:13,color:"var(--muted)"}}>참여 포인트</span>
         <input type="number" min={1} value={finishPts} onChange={e=>setFinishPts(Number(e.target.value))}
           style={{width:70,padding:"5px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card-2)",color:"var(--text)",fontSize:13,textAlign:"center"}}/>
@@ -892,7 +913,7 @@ function SRRoom({sessionId,isAdmin,onBack,members}:{sessionId:number;isAdmin:boo
         <button className="btn-primary" onClick={finish} disabled={finishing} style={{marginLeft:"auto"}}>{finishing?"지급 중..":"이벤트 종료 & 포인트 지급"}</button>
       </div>
     )}
-    {session.status==="done"&&<div style={{color:"var(--win-text)",fontWeight:700,fontSize:15,marginTop:8}}>✅ 이벤트 종료 (포인트 지급 완료)</div>}
+    {session.status==="done"&&<div style={{color:"var(--win-text)",fontWeight:700,fontSize:15,marginTop:16}}>✅ 이벤트 종료 (포인트 지급 완료)</div>}
   </div>);}
 
 export default function EventPage(){const[eventTab,setEventTab]=useState<"auction"|"solorank">("auction");

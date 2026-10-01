@@ -41,6 +41,21 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+// PATCH /api/userinfo/blacklist - 블랙 수정
+export async function PATCH(req: NextRequest) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) return auth.response;
+  const body = await req.json().catch(() => ({}));
+  const id = Number(body.id);
+  const reason = String(body.reason ?? "").trim().slice(0, 500);
+  const addedAt = String(body.addedAt ?? "").trim();
+  if (!id || !addedAt) return NextResponse.json({ error: "id, addedAt 필수" }, { status: 400 });
+  await ensureSchema();
+  const pool = getPool();
+  await pool.query(`UPDATE blacklist SET reason=?, added_at=? WHERE id=?`, [reason || null, addedAt, id]);
+  return NextResponse.json({ ok: true });
+}
+
 // DELETE /api/userinfo/blacklist?id=1
 export async function DELETE(req: NextRequest) {
   const auth = requireAdmin(req);

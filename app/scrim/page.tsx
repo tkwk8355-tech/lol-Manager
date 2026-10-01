@@ -1293,7 +1293,7 @@ export default function ScrimPage() {
                 const lineMembers = members
                   .filter((m) => m.mainLine === line)
                   .map((m) => players.find((p) => p.memberId === m.id))
-                  .filter((p): p is Player => !!p && p.scrimMmr !== null)
+                  .filter((p): p is Player => !!p && p.scrimMmr !== null && p.games >= 5)
                   .sort((a, b) => (b.scrimMmr ?? 0) - (a.scrimMmr ?? 0));
                 return (
                   <div key={line} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
