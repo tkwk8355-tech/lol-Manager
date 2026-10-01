@@ -151,19 +151,29 @@ export async function GET(req: NextRequest) {
       const logMode = isScrimSync ? "scrim" : isEventLog ? "event" : (r.mode ?? "flex");
       if (!(["flex", "scrim", "event"].includes(logMode))) continue;
       const mid = r.member_id;
-      rookiePartyCount.set(mid, (rookiePartyCount.get(mid) ?? 0) + Number(isScrimSync ? r.games : r.party_count));
+      if (!isScrimSync) rookiePartyCount.set(mid, (rookiePartyCount.get(mid) ?? 0) + Number(r.party_count));
       const rawMembers: string[] = r.with_members
         ? r.with_members.split(",").map((s: string) => s.trim()).filter(Boolean)
         : [];
       const filteredMembers = rawMembers.filter((n) => !rookieNicknames.has(n));
       if (isScrimSync) {
-        // 내전: played_at 날짜 기준으로 그룹핑
-        const date = (r.played_at ?? r.created_at ?? "").slice(0, 10);
+        // 새벽 6시 초기화 기준: HH < 06이면 전날로 취급 (그룹핑 키만)
+        const rawAt = (r.played_at ?? r.created_at ?? "");
+        const displayDate = rawAt.slice(0, 10); // 표시용은 실제 날짜 그대로
+        const hour = parseInt(rawAt.slice(11, 13), 10);
+        let groupDate = displayDate;
+        if (hour < 6) {
+          const d = new Date(displayDate + "T12:00:00");
+          d.setDate(d.getDate() - 1);
+          groupDate = d.toISOString().slice(0, 10);
+        }
+        const date = groupDate;
         if (!scrimGroups.has(mid)) scrimGroups.set(mid, new Map());
         const dayMap = scrimGroups.get(mid)!;
-        if (!dayMap.has(date)) dayMap.set(date, { partyCount: 0, members: new Set() });
+        if (!dayMap.has(date)) dayMap.set(date, { partyCount: 0, members: new Set(), displayDate });
         const g = dayMap.get(date)!;
         g.partyCount += Number(r.games);
+        g.displayDate = displayDate; // 그룹 내 마지막 경기 날짜로 갱신
         filteredMembers.forEach((n) => g.members.add(n));
       } else {
         if (!rookieSessionLogs.has(mid)) rookieSessionLogs.set(mid, []);
@@ -181,16 +191,18 @@ export async function GET(req: NextRequest) {
         });
       }
     }
-    // scrim 그룹을 rookieSessionLogs에 병합
+    // scrim 그룹을 rookieSessionLogs에 병합 (내전 3판 = 파티 1회 환산은 그룹핑 후에)
     for (const [mid, dayMap] of scrimGroups) {
       if (!rookieSessionLogs.has(mid)) rookieSessionLogs.set(mid, []);
       for (const [date, g] of dayMap) {
+        // 날짜별 합산 후 환산
+        rookiePartyCount.set(mid, (rookiePartyCount.get(mid) ?? 0) + Math.floor(g.partyCount / 3));
         rookieSessionLogs.get(mid)!.push({
           games: g.partyCount,
-          partyCount: g.partyCount,
+          partyCount: Math.floor(g.partyCount / 3),  // 내전 3판 = 파티 1회
           comment: null,
           date,
-          startAt: `${date} - 내전참여`,
+          startAt: `${g.displayDate} - 내전참여`,
           mode: "scrim",
           members: [...g.members],
         });

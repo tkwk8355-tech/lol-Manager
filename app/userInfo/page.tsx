@@ -1237,7 +1237,7 @@ export default function UserInfoPage() {
                     <span>{log.startAt || log.date}</span>
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 4, background: "var(--card-2)", color: "var(--muted)" }}>{MODE_KO[log.mode] ?? log.mode}</span>
-                      <span style={{ fontWeight: 700, color: "#7aa2f7" }}>{(log.partyCount ?? 0) > 0 ? `${log.partyCount}회 참여` : "참여"}</span>
+                      <span style={{ fontWeight: 700, color: "#7aa2f7" }}>{log.mode === "scrim" ? `${log.games}판` : (log.partyCount ?? 0) > 0 ? `${log.partyCount}회 참여` : "참여"}</span>
                       {isAdmin && log.id && (
                         <button className="del-btn small" style={{ fontSize: 10, padding: "1px 6px" }} onClick={async () => {
                           if (!confirm(`"${rookieLogModal.nickname}"의 ${log.startAt || log.date} 로그를 삭제하시겠습니까?`)) return;
