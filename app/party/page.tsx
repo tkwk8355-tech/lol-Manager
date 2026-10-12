@@ -390,6 +390,16 @@ export default function PartyPage() {
                     <span className="party-card-title">{p.note || ""}</span>
                     <span className="party-start">{fmtStart(p.startAt)}</span>
                     <span className="party-count">{p.participants.length}명</span>
+                    {isAdmin(user.role) && !isEditing && (
+                      <button className="party-cancel-btn" title="파티 삭제" disabled={busyId === p.id}
+                        onClick={() => {
+                          if (!confirm("파티를 삭제할까요? (포인트 지급 없음)")) return;
+                          setBusyId(p.id);
+                          fetch(`/api/party?id=${p.id}&cancel=true`, { method: "DELETE" })
+                            .then(() => load(tab))
+                            .finally(() => setBusyId(null));
+                        }}>✕</button>
+                    )}
                   </div>
 
                   {isEditing ? (

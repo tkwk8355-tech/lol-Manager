@@ -18,8 +18,8 @@
 /* ===== 라이트 모드 ===== */
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f4f5f7;
-  --card: #ffffff;
+  --bg: #ffffff;
+  --card: #f4f5f7;
   --card-2: #eef0f4;
   --border: #d9dee6;
   --text: #1f2328;
@@ -32,6 +32,18 @@
   --loss-accent: #d93650;
   --loss-text: #c42d45;
   --fg-rgb: 0, 0, 0;
+  --header-bg: #eef0f4;
+  --header-text: #1f2328;
+  --header-muted: #5f6b7a;
+  --header-border: #d9dee6;
+  --header-active-border: #4171d6;
+}
+:root {
+  --header-bg: var(--card);
+  --header-text: var(--text);
+  --header-muted: var(--muted);
+  --header-border: var(--border);
+  --header-active-border: var(--accent);
 }
 
 /* 테마 토글 버튼 */
@@ -43,14 +55,14 @@
   height: 32px;
   margin-right: 10px;
   border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--card-2);
-  color: var(--text);
+  border: 1px solid var(--header-border);
+  background: transparent;
+  color: var(--header-text);
   font-size: 15px;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
-.theme-toggle-btn:hover { border-color: var(--accent); }
+.theme-toggle-btn:hover { border-color: var(--header-active-border); }
 
 
 * {
@@ -79,9 +91,9 @@ a {
 }
 
 .site-header {
-  background: var(--card);
+  background: var(--header-bg);
   padding: 0 24px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--header-border);
   display: flex;
   align-items: stretch;
   justify-content: space-between;
@@ -102,18 +114,18 @@ a {
   padding: 0 14px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--header-muted);
   border-bottom: 2px solid transparent;
   transition: color 0.15s, border-color 0.15s;
   white-space: nowrap;
   height: 48px;
 }
 .site-nav-item:hover {
-  color: var(--text);
+  color: var(--header-text);
 }
 .site-nav-item.active {
-  color: var(--text);
-  border-bottom-color: var(--accent);
+  color: var(--header-text);
+  border-bottom-color: var(--header-active-border);
   font-weight: 700;
 }
 .sni-icon { font-size: 14px; }
@@ -125,9 +137,10 @@ a {
   letter-spacing: 0.3px;
   display: flex;
   align-items: center;
+  color: var(--header-text);
 }
 .brand span {
-  color: var(--accent);
+  color: var(--header-active-border);
 }
 /* ?�더 로고 ?��?지 (가로형 2400x1331 비율, ?�더 ?�이??맞춤) */
 .brand-logo {
@@ -3096,24 +3109,25 @@ a {
 .auth-nickname {
   font-size: 14px;
   font-weight: 700;
+  color: var(--header-text);
 }
 .auth-nickname-btn {
   font-size: 14px;
   font-weight: 700;
   background: transparent;
   border: none;
-  color: var(--text);
+  color: var(--header-text);
   cursor: pointer;
   padding: 0;
 }
 .auth-nickname-btn:hover {
-  color: var(--accent);
+  color: var(--header-active-border);
   text-decoration: underline;
 }
 .auth-logout-btn {
   background: transparent;
-  border: 1px solid var(--border);
-  color: var(--muted);
+  border: 1px solid var(--header-border);
+  color: var(--header-muted);
   border-radius: 6px;
   padding: 6px 12px;
   font-size: 12px;
@@ -3124,9 +3138,9 @@ a {
   color: var(--loss-text);
 }
 .auth-login-btn {
-  background: var(--accent);
-  color: #fff;
-  border: none;
+  background: var(--header-active-border);
+  color: var(--header-bg);
+  border: 1px solid var(--header-border);
   border-radius: 8px;
   padding: 8px 18px;
   font-size: 13px;
@@ -3134,7 +3148,7 @@ a {
   cursor: pointer;
 }
 .auth-login-btn:hover {
-  background: #6b97f0;
+  opacity: 0.85;
 }
 
 /* ?�역 로그???�원가??모달 (?�면 ?�디?�든 openAuthModal()�??�운?? */
@@ -3515,6 +3529,20 @@ a {
   gap: 8px;
 }
 .party-delete-btn,
+.party-cancel-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.party-cancel-btn { color: #e74c3c; }
+.party-cancel-btn:hover:not(:disabled) { background: rgba(231,76,60,0.1); }
+
 .party-boom-btn {
   background: transparent;
   border: 1px solid var(--loss-accent);

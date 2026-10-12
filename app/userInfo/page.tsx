@@ -277,6 +277,9 @@ export default function UserInfoPage() {
     scrimMmr: 0,
   });
 
+  const [achievePickerId, setAchievePickerId] = useState<number | null>(null);
+  const [achieveDate, setAchieveDate] = useState("");
+
 // ── 탈퇴 모달 state ──
   const [withdrawModal, setWithdrawModal] = useState<{ member: Member } | null>(null);
   const [withdrawReason, setWithdrawReason] = useState("");
@@ -879,6 +882,36 @@ export default function UserInfoPage() {
 
   return (
     <div className="userinfo">
+      {/* 달성일 갱신 팝업 */}
+      {achievePickerId !== null && (
+        <div className="modal-backdrop" onClick={() => { setAchievePickerId(null); setAchieveDate(""); }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 300 }}>
+            <div className="modal-head">
+              <span>📅 달성일 갱신</span>
+              <button className="modal-close" onClick={() => { setAchievePickerId(null); setAchieveDate(""); }}>×</button>
+            </div>
+            <input
+              type="date"
+              value={achieveDate}
+              onChange={(e) => setAchieveDate(e.target.value)}
+              autoFocus
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 15, boxSizing: "border-box", marginBottom: 12 }}
+            />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="sync-btn" style={{ flex: 1 }} onClick={async () => {
+                const res = await fetch("/api/userinfo/achieve", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ memberId: achievePickerId, achievedAt: achieveDate || undefined }),
+                });
+                if (res.ok) { setAchievePickerId(null); setAchieveDate(""); loadMembers(); }
+                else alert("갱신 실패");
+              }}>확인</button>
+              <button className="cancel-btn" style={{ flex: 1 }} onClick={() => { setAchievePickerId(null); setAchieveDate(""); }}>취소</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* 탈퇴 사유 보기 모달 */}
       {withdrawReasonModal && (
         <div className="modal-backdrop">
@@ -1769,14 +1802,10 @@ export default function UserInfoPage() {
                   <td style={{ padding: "8px 10px", textAlign: "center" }}>
                     {(user?.role === "admin" || user?.role === "subadmin") && (
                       <button className="sync-btn" style={{ fontSize: 11, padding: "2px 10px" }}
-                        onClick={async () => {
-                          const res = await fetch("/api/userinfo/achieve", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ memberId: m.id }),
-                          });
-                          if (res.ok) loadMembers();
-                          else alert("갱신 실패");
+                        onClick={() => {
+                          const today = new Date(Date.now() + 9*60*60*1000).toISOString().slice(0, 10);
+                          setAchieveDate(today);
+                          setAchievePickerId(m.id);
                         }}>
                         갱신
                       </button>

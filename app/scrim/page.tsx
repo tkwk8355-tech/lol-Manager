@@ -320,7 +320,10 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
   const [loading, setLoading] = useState(false);
   interface BPlayer { id: number; name: string; score: number; line: string; lineAdjust: number; }
   interface BResult { team1: BPlayer[]; team2: BPlayer[]; sum1: number; sum2: number; diff: number; }
-  const [result, setResult] = useState<BResult | null>(null);
+  const [results, setResults] = useState<BResult[]>([]);
+  const [selectedIdx, setSelectedIdx] = useState(-1);
+  const [savedResult, setSavedResult] = useState<BResult | null>(null);
+  const result = selectedIdx === -2 ? savedResult : selectedIdx >= 0 ? (results[selectedIdx] ?? null) : null;
   const [tournamentCode, setTournamentCode] = useState("");
   const [codeLoading, setCodeLoading] = useState(false);
   const [codeErr, setCodeErr] = useState("");
@@ -356,7 +359,7 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
     });
     setSlots(newSlots);
     setOverrideAll(new Set());
-    setResult(null);
+    setResults([]); setSelectedIdx(-1); setSavedResult(null);
     setPresetOpen(false);
   }
 
@@ -379,17 +382,34 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
     finally { setCodeLoading(false); }
   }
 
-  async function generate(ids: number[]) {
+  async function generate(ids: number[], keepSaved = false) {
     setErr(""); setLoading(true); setTournamentCode(""); setCodeErr("");
     try {
-      const res = await fetch("/api/scrim/balance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memberIds: ids, overrideAll: [...overrideAll], overrideMain: [...overrideMain] }),
-      });
-      const json = await res.json();
-      if (!res.ok) { setErr(json.error || "팀 생성 실패"); return; }
-      setResult(json);
+      const count = 3;
+      const responses = await Promise.all(
+        Array.from({ length: count }, () =>
+          fetch("/api/scrim/balance", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ memberIds: ids, overrideAll: [...overrideAll], overrideMain: [...overrideMain] }),
+          }).then((r) => r.json())
+        )
+      );
+      const valid = responses.filter((j) => j.team1);
+      if (valid.length === 0) { setErr(responses[0]?.error || "팀 생성 실패"); return; }
+      if (!keepSaved) setSavedResult(null);
+      // 저장된 결과와 팀 구성이 동일한 중복 제거
+      const savedIds = keepSaved && savedResult
+        ? new Set([...savedResult.team1, ...savedResult.team2].map((p) => p.id))
+        : null;
+      const deduped = savedIds
+        ? valid.filter((j) => {
+            const ids = new Set([...j.team1, ...j.team2].map((p: { id: number }) => p.id));
+            return ![...savedIds].every((id) => ids.has(id)) || ids.size !== savedIds.size;
+          })
+        : valid;
+      setResults(deduped.length > 0 ? deduped : valid);
+      setSelectedIdx(-1);
     } catch { setErr("네트워크 오류"); }
     finally { setLoading(false); }
   }
@@ -407,13 +427,13 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
 
   return (
     <div className="modal-backdrop">
-      <div className="modal" style={{ maxWidth: 640, width: "95vw" }}>
+      <div className="modal" style={{ maxWidth: result !== null ? 640 : savedResult ? 1400 : 1100, width: "95vw" }}>
         <div className="modal-head">
           <span>팀 생성</span>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
 
-        {!result ? (
+        {!results.length ? (
           <>
             <p style={{ fontSize: 13, color: "var(--muted)", margin: "0 0 12px" }}>
               참가할 클랜원 10명을 입력하세요. ({filledIds.length}/10)
@@ -504,40 +524,131 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
           </>
         ) : (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-              {([1, 2] as const).map((t) => {
-                const team = t === 1 ? result.team1 : result.team2;
-                const sum = t === 1 ? result.sum1 : result.sum2;
-                const color = t === 1 ? "var(--win-text)" : "var(--loss-text)";
-                return (
-                  <div key={t} style={{ border: `2px solid ${color}`, borderRadius: 10, padding: 14 }}>
-                    <div style={{ fontWeight: 800, fontSize: 14, color, marginBottom: 10 }}>
-                      {t === 1 ? "블루팀" : "레드팀"}
-                      <span style={{ fontSize: 12, fontWeight: 400, color: "var(--muted)", marginLeft: 8 }}>점수합 {sum}</span>
-                    </div>
-                    {["TOP","JG","MID","ADC","SUP"].map((line) => {
-                      const p = team.find((x) => x.line === line);
-                      if (!p) return null;
-                      return (
-                        <div key={line} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, fontSize: 13 }}>
-                          <span style={{ width: 32, color: "var(--muted)", fontSize: 12 }}>{LINE_LBL[line]}</span>
-                          <span style={{ fontWeight: 700 }}>{p.name}</span>
-                          {isAdmin && (
-                            <span style={{ marginLeft: "auto", color: "var(--muted)", fontSize: 12 }}>
-                              {p.score}{p.lineAdjust !== 0 && <span style={{ color: "var(--loss-text)" }}>{p.lineAdjust}</span>}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
+            {/* 카드 목록 - 선택 전 */}
+            {result === null ? (
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${savedResult ? 4 : 3}, 1fr)`, gap: 10, marginBottom: 16 }}>
+                {/* 저장된 카드 - 항상 첫 번째 */}
+                {savedResult && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <button
+                      onClick={() => setSelectedIdx(-2)}
+                      style={{
+                        flex: 1, background: "var(--card-2)", border: "2px solid #4ade80", borderRadius: 12,
+                        padding: 14, cursor: "pointer", textAlign: "left",
+                      }}
+                    >
+                      <div style={{ fontWeight: 800, fontSize: 13, color: "var(--accent)", marginBottom: 8 }}>
+                        📌 저장됨<span style={{ fontSize: 11, fontWeight: 400, marginLeft: 6, color: "var(--muted)" }}>점수차 {savedResult.diff}</span>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                        {([1, 2] as const).map((t) => {
+                          const team = t === 1 ? savedResult.team1 : savedResult.team2;
+                          const color = t === 1 ? "var(--win-text)" : "var(--loss-text)";
+                          return (
+                            <div key={t}>
+                              <div style={{ fontSize: 11, fontWeight: 800, color, marginBottom: 4 }}>{t === 1 ? "🔵 블루" : "🔴 레드"}</div>
+                              {["TOP","JG","MID","ADC","SUP"].map((line) => {
+                                const p = team.find((x) => x.line === line);
+                                if (!p) return null;
+                                return (
+                                  <div key={line} style={{ display: "flex", gap: 6, fontSize: 12, marginBottom: 3, minWidth: 0 }}>
+                                    <span style={{ color: "var(--muted)", width: 26, flexShrink: 0 }}>{LINE_LBL[line]}</span>
+                                    <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setSavedResult(null)}
+                      style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, color: "#e74c3c", cursor: "pointer", fontSize: 12, padding: "5px 0", fontWeight: 700 }}
+                    >저장 해제</button>
                   </div>
-                );
-              })}
-            </div>
-            {isAdmin && (
-              <div style={{ textAlign: "center", fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>
-                점수 차이: <strong style={{ color: result.diff <= 5 ? "var(--win-text)" : "var(--loss-text)" }}>{result.diff}</strong>
+                )}
+                {results.slice(0, 3).map((r, i) => (
+                  <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <button
+                      onClick={() => setSelectedIdx(i)}
+                      style={{
+                        flex: 1, background: "var(--card-2)", border: "2px solid var(--border)", borderRadius: 12,
+                        padding: 14, cursor: "pointer", textAlign: "left", transition: "border-color 0.15s, transform 0.1s",
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--accent)"; (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border)"; (e.currentTarget as HTMLElement).style.transform = "none"; }}
+                    >
+                      <div style={{ fontWeight: 800, fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>
+                        {i + 1}팀<span style={{ fontSize: 11, fontWeight: 400, marginLeft: 6 }}>점수차 {r.diff}</span>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                        {([1, 2] as const).map((t) => {
+                          const team = t === 1 ? r.team1 : r.team2;
+                          const color = t === 1 ? "var(--win-text)" : "var(--loss-text)";
+                          return (
+                            <div key={t}>
+                              <div style={{ fontSize: 11, fontWeight: 800, color, marginBottom: 4 }}>{t === 1 ? "🔵 블루" : "🔴 레드"}</div>
+                              {["TOP","JG","MID","ADC","SUP"].map((line) => {
+                                const p = team.find((x) => x.line === line);
+                                if (!p) return null;
+                                return (
+                                  <div key={line} style={{ display: "flex", gap: 6, fontSize: 12, marginBottom: 3, minWidth: 0 }}>
+                                    <span style={{ color: "var(--muted)", width: 26, flexShrink: 0 }}>{LINE_LBL[line]}</span>
+                                    <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => { setSavedResult(r); generate(filledIds, true); }}
+                      style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, color: "var(--muted)", cursor: "pointer", fontSize: 12, padding: "5px 0", fontWeight: 700 }}
+                    >📌 저장 후 다시 돌리기</button>
+                  </div>
+                ))}
               </div>
+            ) : (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                  {([1, 2] as const).map((t) => {
+                    const team = t === 1 ? result.team1 : result.team2;
+                    const sum = t === 1 ? result.sum1 : result.sum2;
+                    const color = t === 1 ? "var(--win-text)" : "var(--loss-text)";
+                    return (
+                      <div key={t} style={{ border: `2px solid ${color}`, borderRadius: 10, padding: 14 }}>
+                        <div style={{ fontWeight: 800, fontSize: 14, color, marginBottom: 10 }}>
+                          {t === 1 ? "블루팀" : "레드팀"}
+                          <span style={{ fontSize: 12, fontWeight: 400, color: "var(--muted)", marginLeft: 8 }}>점수합 {sum}</span>
+                        </div>
+                        {["TOP","JG","MID","ADC","SUP"].map((line) => {
+                          const p = team.find((x) => x.line === line);
+                          if (!p) return null;
+                          return (
+                            <div key={line} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, fontSize: 13 }}>
+                              <span style={{ width: 32, color: "var(--muted)", fontSize: 12 }}>{LINE_LBL[line]}</span>
+                              <span style={{ fontWeight: 700 }}>{p.name}</span>
+                              {isAdmin && (
+                                <span style={{ marginLeft: "auto", color: "var(--muted)", fontSize: 12 }}>
+                                  {p.score ?? 0}{p.lineAdjust !== 0 && <span style={{ color: "var(--loss-text)" }}>{p.lineAdjust > 0 ? `+${p.lineAdjust}` : p.lineAdjust}</span>}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+                {isAdmin && (
+                  <div style={{ textAlign: "center", fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>
+                    점수 차이: <strong style={{ color: result.diff <= 5 ? "var(--win-text)" : "var(--loss-text)" }}>{result.diff}</strong>
+                  </div>
+                )}
+              </>
             )}
             {codeErr && <div className="error" style={{ marginBottom: 10 }}>{codeErr}</div>}
             {tournamentCode && (
@@ -553,22 +664,24 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
             )}
             {notifyMsg && <div style={{ fontSize: 13, color: notifyMsg.startsWith("✅") ? "var(--win-text)" : "var(--loss-text)", marginBottom: 8 }}>{notifyMsg}</div>}
             <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn-primary" onClick={() => { setResult(null); setTournamentCode(""); setCodeErr(""); setNotifyMsg(""); }}>다시 선택</button>
-              <button className="btn-secondary" disabled={loading} onClick={() => generate(filledIds)}>다시 생성</button>
+              <button className="btn-primary" onClick={() => { setResults([]); setSelectedIdx(-1); setTournamentCode(""); setCodeErr(""); setNotifyMsg(""); }}>다시 선택</button>
+              <button className="btn-secondary" disabled={loading} onClick={() => { if (result !== null) { setSavedResult(null); generate(filledIds, false); } else { generate(filledIds, true); } }}>다시 생성</button>
               <button className="btn-secondary" disabled={codeLoading || !!tournamentCode} onClick={generateCode}>{codeLoading ? "생성 중..." : "🎮 코드 생성"}</button>
-              <button className="btn-secondary" disabled={notifyLoading} onClick={async () => {
-                setNotifyLoading(true); setNotifyMsg("");
-                try {
-                  const res = await fetch("/api/scrim/notify", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ team1: result!.team1, team2: result!.team2, sum1: result!.sum1, sum2: result!.sum2, diff: result!.diff, slotMemberIds: slots.slice(0, 5).map(s => s.memberId).filter(id => id > 0) }),
-                  });
-                  const json = await res.json();
-                  setNotifyMsg(res.ok ? "✅ 디스코드 전송 완료" : `❌ ${json.error}`);
-                } catch { setNotifyMsg("❌ 네트워크 오류"); }
-                finally { setNotifyLoading(false); }
-              }}>{notifyLoading ? "전송 중..." : "📢 디스코드 전송"}</button>
+              {result !== null && (
+                <button className="btn-secondary" disabled={notifyLoading} onClick={async () => {
+                  setNotifyLoading(true); setNotifyMsg("");
+                  try {
+                    const res = await fetch("/api/scrim/notify", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ team1: result!.team1, team2: result!.team2, sum1: result!.sum1, sum2: result!.sum2, diff: result!.diff, slotMemberIds: slots.slice(0, 5).map(s => s.memberId).filter(id => id > 0) }),
+                    });
+                    const json = await res.json();
+                    setNotifyMsg(res.ok ? "✅ 디스코드 전송 완료" : `❌ ${json.error}`);
+                  } catch { setNotifyMsg("❌ 네트워크 오류"); }
+                  finally { setNotifyLoading(false); }
+                }}>{notifyLoading ? "전송 중..." : "📢 디스코드 전송"}</button>
+              )}
               <button className="btn-secondary" onClick={onClose}>닫기</button>
             </div>
           </>

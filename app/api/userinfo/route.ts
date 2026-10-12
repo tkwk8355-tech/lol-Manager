@@ -144,7 +144,7 @@ export async function GET(req: NextRequest) {
     const rookiePartyCount = new Map<number, number>();
     const rookieSessionLogs = new Map<number, any[]>();
     // scrim 로그는 날짜별로 묶기 위한 임시 Map: member_id -> date -> group
-    const scrimGroups = new Map<number, Map<string, { partyCount: number; members: Set<string> }>>();
+    const scrimGroups = new Map<number, Map<string, { partyCount: number; members: Set<string>; displayDate: string }>>();
     for (const r of rookieRows) {
       const isScrimSync = r.ref_table === "scrim_match";
       const isEventLog = !r.ref_table && !r.ref_id;
@@ -170,10 +170,10 @@ export async function GET(req: NextRequest) {
         const date = groupDate;
         if (!scrimGroups.has(mid)) scrimGroups.set(mid, new Map());
         const dayMap = scrimGroups.get(mid)!;
-        if (!dayMap.has(date)) dayMap.set(date, { partyCount: 0, members: new Set(), displayDate });
+        if (!dayMap.has(date)) dayMap.set(date, { partyCount: 0, members: new Set<string>(), displayDate });
         const g = dayMap.get(date)!;
         g.partyCount += Number(r.games);
-        g.displayDate = displayDate; // 그룹 내 마지막 경기 날짜로 갱신
+        g.displayDate = displayDate;
         filteredMembers.forEach((n) => g.members.add(n));
       } else {
         if (!rookieSessionLogs.has(mid)) rookieSessionLogs.set(mid, []);
@@ -195,11 +195,12 @@ export async function GET(req: NextRequest) {
     for (const [mid, dayMap] of scrimGroups) {
       if (!rookieSessionLogs.has(mid)) rookieSessionLogs.set(mid, []);
       for (const [date, g] of dayMap) {
-        // 날짜별 합산 후 환산
-        rookiePartyCount.set(mid, (rookiePartyCount.get(mid) ?? 0) + Math.floor(g.partyCount / 3));
+        // 첫 참여 1 + 이후 3판마다 1
+        const scrimPartyCount = g.partyCount >= 1 ? 1 + Math.floor((g.partyCount - 1) / 3) : 0;
+        rookiePartyCount.set(mid, (rookiePartyCount.get(mid) ?? 0) + scrimPartyCount);
         rookieSessionLogs.get(mid)!.push({
           games: g.partyCount,
-          partyCount: Math.floor(g.partyCount / 3),  // 내전 3판 = 파티 1회
+          partyCount: scrimPartyCount,  // 첫 참여 1 + 이후 3판마다 1
           comment: null,
           date,
           startAt: `${g.displayDate} - 내전참여`,

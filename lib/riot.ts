@@ -18,7 +18,7 @@ export class RiotApiError extends Error {
 }
 
 // Riot API GET 요청 공통 함수
-async function riotFetch<T>(url: string): Promise<T> {
+async function riotFetch<T>(url: string, retries = 3): Promise<T> {
   if (!API_KEY) {
     throw new RiotApiError(500, "RIOT_API_KEY is not set. Add it to your .env.local file.");
   }
@@ -29,6 +29,11 @@ async function riotFetch<T>(url: string): Promise<T> {
   });
 
   if (!res.ok) {
+    if (res.status === 429 && retries > 0) {
+      const retryAfter = Number(res.headers.get("Retry-After") ?? 1);
+      await new Promise(r => setTimeout(r, retryAfter * 1000));
+      return riotFetch<T>(url, retries - 1);
+    }
     let message = res.statusText;
     if (res.status === 404) message = "소환사를 찾을 수 없습니다.";
     if (res.status === 401 || res.status === 403) message = "API 키가 유효하지 않거나 만료되었습니다.";
