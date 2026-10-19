@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     const matchIds = matches.map((m: any) => m.id);
     const ph = matchIds.map(() => "?").join(",");
     const [parts] = await pool.query(
-      `SELECT match_id, member_id, team, line, kills, deaths, assists, damage, cs
+      `SELECT match_id, member_id, team, line, kills, deaths, assists, damage, cs, vision_score
        FROM scrim_participants WHERE match_id IN (${ph})`,
       matchIds
     ) as [any[], any];
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
       const participants: MvpParticipant[] = ps.map((p: any) => ({
         memberId: p.member_id, team: p.team, line: p.line,
         kills: p.kills, deaths: p.deaths, assists: p.assists,
-        damage: p.damage, cs: p.cs ?? 0,
+        damage: p.damage, cs: p.cs ?? 0, visionScore: p.vision_score ?? 0,
       }));
 
       const { mvp1, mvp2 } = pickMvpIds(participants, m.winner_team);

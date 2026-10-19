@@ -149,11 +149,12 @@ export function computeModeStats(baseScore: number, games: ScrimGameLine[]): Mod
 }
 
 // MVP 계산 (라인 구분 없이 단일 가중치 사용)
-// KDA=0.25, 딜=0.40, CS=0.05, KP=0.30
+// KDA=0.25, 딜=0.20, CS=0.05, KP=0.35, 비전=0.15
 const MVP_W_KDA = 0.25;
-const MVP_W_DMG = 0.40;
+const MVP_W_DMG = 0.20;
 const MVP_W_CS  = 0.05;
-const MVP_W_KP  = 0.30;
+const MVP_W_KP  = 0.35;
+const MVP_W_VIS = 0.15;
 
 export interface MvpParticipant {
   memberId: number;
@@ -164,6 +165,7 @@ export interface MvpParticipant {
   assists: number;
   damage: number;
   cs?: number;
+  visionScore?: number;
 }
 
 function calcMvpScore(p: MvpParticipant, team: MvpParticipant[], isWin: boolean): number {
@@ -171,12 +173,14 @@ function calcMvpScore(p: MvpParticipant, team: MvpParticipant[], isWin: boolean)
   const maxKda = Math.max(...team.map((x) => (x.kills + x.assists) / Math.max(x.deaths, 1)), 1);
   const maxDmg = Math.max(...team.map((x) => x.damage), 1);
   const maxCs  = Math.max(...team.map((x) => x.cs ?? 0), 1);
+  const maxVis = Math.max(...team.map((x) => x.visionScore ?? 0), 1);
   const teamKills = Math.max(team.reduce((s, x) => s + x.kills, 0), 1);
   const kp = (p.kills + p.assists) / teamKills;
   return (kda / maxKda) * MVP_W_KDA
        + (p.damage / maxDmg) * MVP_W_DMG
        + ((p.cs ?? 0) / maxCs) * MVP_W_CS
-       + kp * MVP_W_KP;
+       + kp * MVP_W_KP
+       + ((p.visionScore ?? 0) / maxVis) * MVP_W_VIS;
 }
 
 // MMR 변동: 팀 내 순위(1~5) → +10/+5/0/-5/-10
