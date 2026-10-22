@@ -1476,72 +1476,59 @@ export default function UserInfoPage() {
           </div>
         </div>
       )}
-      <div className="ui-head">
-        <h2>{isAdmin ? "클랜원 목록" : "클랜원 목록"}</h2>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <div className="scrim-tabs" style={{ margin: 0, borderBottom: "none" }}>
-            {user?.role === "admin" && <button className={tab === "accounts" ? "on" : ""} onClick={() => setTab("accounts")}>로그인 계정</button>}
-            <button className={tab === "members" ? "on" : ""} onClick={() => setTab("members")}>클랜원</button>
-            <button className={tab === "party-history" ? "on" : ""} onClick={() => setTab("party-history")}>파티 내역</button>
+      <div className="ui-page-head">
+        <div>
+          <h2>{isAdmin ? "클랜원 관리" : "클랜원"}</h2>
+          <p>클랜원 명단 · 티어 · 활동 상태{isAdmin ? " · 경고 / 탈퇴 관리" : ""}</p>
+        </div>
+        {isAdmin && tab === "members" && (
+          <div className="ui-page-actions">
+            <button className="btn-secondary" onClick={downloadTemplate}>양식 다운로드</button>
+            <label htmlFor="excel-file" className="btn-secondary" style={{ cursor: "pointer" }}>엑셀 업로드</label>
+            <input type="file" id="excel-file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={handleFileUpload} />
+            <button className="btn-primary" onClick={() => { setMemberModal(true); setMemberInput(""); setMemberModalErr(""); }}>+ 클랜원 추가</button>
           </div>
-        </div>
+        )}
       </div>
-      {tab === "members" && (
-        <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
-          <button className={`filter-btn ${showInactive ? "on" : ""}`} onClick={() => { setShowInactive(!showInactive); setSpecialFilter(""); setPage(0); }}>
-            판수미달
-          </button>
-          <button className={`filter-btn ${specialFilter === "rookie" ? "on" : ""}`} onClick={() => { setSpecialFilter(specialFilter === "rookie" ? "" : "rookie"); setShowInactive(false); setPage(0); }}>
-            수습
-          </button>
-          <button className={`filter-btn ${specialFilter === "leave" ? "on" : ""}`} onClick={() => { setSpecialFilter(specialFilter === "leave" ? "" : "leave"); setShowInactive(false); setPage(0); }}>
-            외출
-          </button>
-          <button className={`filter-btn ${specialFilter === "warn" ? "on" : ""}`} onClick={() => { setSpecialFilter(specialFilter === "warn" ? "" : "warn"); setShowInactive(false); setPage(0); }}>
-            경고
-          </button>
-          <button className={`filter-btn ${specialFilter === "withdraw" ? "on" : ""}`} onClick={() => { setSpecialFilter(specialFilter === "withdraw" ? "" : "withdraw"); setShowInactive(false); setPage(0); }}>
-            탈퇴
-          </button>
-        </div>
-      )}
+      <div className="ui-tabs">
+        {user?.role === "admin" && <button className={tab === "accounts" ? "on" : ""} onClick={() => setTab("accounts")}>로그인 계정</button>}
+        <button className={tab === "members" ? "on" : ""} onClick={() => setTab("members")}>클랜원</button>
+        <button className={tab === "party-history" ? "on" : ""} onClick={() => setTab("party-history")}>파티 내역</button>
+      </div>
       {linkMsg && <div className="error">{linkMsg}</div>}
       {error && <div className="error">{error}</div>}
       {/* 검색창 (클랜원 탭에서만 표시) */}
       {/* 검색창 */}
       {tab === "members" && (
-      <div className="search-box">
-        <input
-          type="text"
-          placeholder="클랜원 이름 또는 출생연도 검색..."
-          value={searchQuery}
-          onChange={(e) => {
-            setSearchQuery(e.target.value);
-            setPage(0);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-          }}
-        />
-        {searchQuery && (
-          <button className="search-clear" onClick={() => setSearchQuery("")}>
-            ✕
+      <div className="ui-toolbar">
+        <div className="ui-search">
+          <span className="ic">⌕</span>
+          <input
+            type="text"
+            placeholder="이름 또는 출생연도 검색"
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+          />
+          {searchQuery && <button className="clr" onClick={() => setSearchQuery("")}>✕</button>}
+        </div>
+        <div className="ui-filter-chips">
+          <button className={`ui-chip ${showInactive ? "on" : ""}`} onClick={() => { setShowInactive(!showInactive); setSpecialFilter(""); setPage(0); }}>
+            판수미달
           </button>
-        )}
-        <button className="search-btn" onClick={() => {}}>
-          🔍
-        </button>
-        {isAdmin && (
-          <div className="search-actions">
-            <button className="excel-btn-small" onClick={downloadTemplate}>
-              📥 양식 다운로드
-            </button>
-            <label htmlFor="excel-file" className="excel-btn-small">
-              📤 엑셀 업로드
-            </label>
-            <input type="file" id="excel-file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={handleFileUpload} />
-          </div>
-        )}
+          <button className={`ui-chip ${specialFilter === "rookie" ? "on" : ""}`} onClick={() => { setSpecialFilter(specialFilter === "rookie" ? "" : "rookie"); setShowInactive(false); setPage(0); }}>
+            수습
+          </button>
+          <button className={`ui-chip ${specialFilter === "leave" ? "on" : ""}`} onClick={() => { setSpecialFilter(specialFilter === "leave" ? "" : "leave"); setShowInactive(false); setPage(0); }}>
+            외출
+          </button>
+          <button className={`ui-chip ${specialFilter === "warn" ? "on" : ""}`} onClick={() => { setSpecialFilter(specialFilter === "warn" ? "" : "warn"); setShowInactive(false); setPage(0); }}>
+            경고
+          </button>
+          <button className={`ui-chip ${specialFilter === "withdraw" ? "on" : ""}`} onClick={() => { setSpecialFilter(specialFilter === "withdraw" ? "" : "withdraw"); setShowInactive(false); setPage(0); }}>
+            탈퇴
+          </button>
+        </div>
       </div>
       )}
       {tab === "members" && uploading && <div className="sync-msg">엑셀 업로드 중...</div>}
@@ -1551,9 +1538,9 @@ export default function UserInfoPage() {
       {isAdmin && user?.role === "admin" && tab === "accounts" && (
         <div className="home-panel">
           <div className="home-panel-head"><h3>계정 목록</h3></div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <table className="ui-table">
             <thead>
-              <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
+              <tr>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>아이디</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>닉네임</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>상태</th>
@@ -1689,13 +1676,7 @@ export default function UserInfoPage() {
       )}
       {/* 클랜원 추가 + 전체 티어 동기화 버튼 */}
       {/* 클랜원 추가 + 전체 티어 동기화 */}
-      {isAdmin && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
-          <button className="sync-btn" onClick={() => { setMemberModal(true); setMemberInput(""); setMemberModalErr(""); }}>
-            + 클랜원 추가
-          </button>
-        </div>
-      )}
+
       {/* 페이지네이션 */}
       {/* 페이지네이션 */}
       {members.length > 0 && (
@@ -1745,10 +1726,10 @@ export default function UserInfoPage() {
       )}
 
       {showInactive ? (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <div className="ui-table-wrap">
+          <table className="ui-table">
             <thead>
-              <tr style={{ borderBottom: "2px solid var(--border)" }}>
+              <tr>
                 <th style={{ textAlign: "left", padding: "6px 10px" }}>닉네임</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>칼바람(2판=협곡1판)</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>협곡(일반+자랭+내전)</th>
@@ -1760,7 +1741,7 @@ export default function UserInfoPage() {
             </thead>
             <tbody>
               {pagedMembers.map((m) => (
-                <tr key={m.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                <tr key={m.id}>
                   <td style={{ padding: "8px 10px", fontWeight: 700 }}>
                     <span style={{ cursor: "pointer", color: "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="var(--win-text)")} onMouseLeave={e => (e.currentTarget.style.color="var(--text)")} onClick={() => openEditModal(m)}>
                       {m.nickname}
@@ -1817,10 +1798,10 @@ export default function UserInfoPage() {
           </table>
         </div>
       ) : specialFilter === "rookie" ? (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <div className="ui-table-wrap">
+          <table className="ui-table">
             <thead>
-              <tr style={{ borderBottom: "2px solid var(--border)" }}>
+              <tr>
                 <th style={{ textAlign: "left", padding: "6px 10px" }}>닉네임</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>가입일자</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>파티참여 (자유/내전)</th>
@@ -1838,7 +1819,7 @@ export default function UserInfoPage() {
                 ).size;
                 const canPromote = cnt >= 3 && playedUnique >= 3;
                 return (
-                  <tr key={m.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                  <tr key={m.id}>
                     <td style={{ padding: "8px 10px", fontWeight: 700 }}>
                       <span style={{ cursor: "pointer", color: "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="var(--win-text)")} onMouseLeave={e => (e.currentTarget.style.color="var(--text)")} onClick={() => openEditModal(m)}>
                       {(() => {
@@ -1895,10 +1876,10 @@ export default function UserInfoPage() {
           </table>
         </div>
       ) : specialFilter === "withdraw" ? (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <div className="ui-table-wrap">
+          <table className="ui-table">
             <thead>
-              <tr style={{ borderBottom: "2px solid var(--border)" }}>
+              <tr>
                 <th style={{ textAlign: "left", padding: "6px 10px" }}>닉네임</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>탈퇴일</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>탈퇴사유</th>
@@ -1948,10 +1929,10 @@ export default function UserInfoPage() {
           </table>
         </div>
       ) : (
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+      <div className="ui-table-wrap">
+        <table className="ui-table">
           <thead>
-            <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
+            <tr>
                 <th style={{ textAlign: "left", padding: "6px 10px" }}>닉네임</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>활동티어</th>
                 <th style={{ textAlign: "right", padding: "6px 10px" }}>포인트</th>
@@ -1965,7 +1946,7 @@ export default function UserInfoPage() {
             {pagedMembers.map((m) => {
               const at = activityTier(m.totalPoints);
               return (
-                <tr key={m.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                <tr key={m.id}>
                   <td style={{ padding: "8px 10px", fontWeight: 700 }}>
                     <span style={{ cursor: "pointer", color: "var(--text)" }} onMouseEnter={e => (e.currentTarget.style.color="var(--win-text)")} onMouseLeave={e => (e.currentTarget.style.color="var(--text)")} onClick={() => openEditModal(m)}>
                       {m.nickname}

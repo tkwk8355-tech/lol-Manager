@@ -34,6 +34,7 @@ export default function SiteHeader() {
 
   return (
     <header className="site-header">
+      <a href="/" className="site-brand"><span className="logo">또</span><span className="name">또간집</span></a>
       <nav className="site-nav">
         {nav.map((item) => (
           <a

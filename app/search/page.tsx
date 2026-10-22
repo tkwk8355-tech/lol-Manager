@@ -310,6 +310,12 @@ export default function SearchPage() {
 
   return (
     <>
+      <div className="ui-page-head">
+        <div>
+          <h2>전적 검색</h2>
+          <p>Riot ID(소환사명#태그)로 랭크와 최근 매치를 조회해요.</p>
+        </div>
+      </div>
       <form className="search-form" onSubmit={handleSearch}>
         <div className="riot-id-input">
           <input className="name-input" value={gameName} onChange={(e) => setGameName(e.target.value)} onKeyDown={onNameKeyDown} placeholder="소환사명" aria-label="소환사명" />

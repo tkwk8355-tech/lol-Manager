@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../components/AuthProvider";
 import { lineIconUrl, LINE_MAP } from "@/lib/lines";
 
@@ -22,7 +22,16 @@ function tierLabel(tier: string | null, rank: string | null, lp: number) {
 const LINES = ["TOP", "JG", "MID", "ADC", "SUP"] as const;
 const LINE_LABEL: Record<string, string> = { TOP: "탑", JG: "정글", MID: "미드", ADC: "원딜", SUP: "서폿" };
 
-interface LineStat { games: number; kills: number; deaths: number; assists: number; }
+// 내전 티어(한글) → tier-badge 색상 클래스
+const SCRIM_TIER_CLASS: Record<string, string> = {
+  브론즈: "bronze", 실버: "silver", 골드: "gold", 플래티넘: "platinum", 에메랄드: "emerald", 다이아: "diamond",
+};
+const tierClass = (t: string) => `tier-badge tier-${SCRIM_TIER_CLASS[t] ?? "master"}`;
+
+type StatsSortKey = "nickname" | "mmr" | "games" | "winRate" | "kda";
+
+interface LineStat { games: number; wins: number; kills: number; deaths: number; assists: number; }
+interface ChampStat { id: string; games: number; wins: number; kills: number; deaths: number; assists: number; winRate: number; kda: string; }
 interface LineChamp { id: string; count: number; }
 interface Player {
   memberId: number; nickname: string;
@@ -30,6 +39,7 @@ interface Player {
   lineCounts: Record<string, number>;
   lineStats: Record<string, LineStat>;
   lineChamps: Record<string, LineChamp[]>;
+  champStats: ChampStat[];
   kills: number; deaths: number; assists: number; games: number; wins: number; kda: string | null; winRate: number | null;
   mvpCount: number; scrimScore: number; scrimMmr: number | null; scrimTier: string | null;
 }
@@ -80,6 +90,115 @@ function filterMembers(members: Member[], q: string): Member[] {
     .sort((a, b) => b.score - a.score)
     .map((x) => x.m)
     .slice(0, 8);
+}
+
+// ===== 내전 신청 명단 붙여넣기 파서 =====
+// 예) "3. 나 욤 원딜, 미드" / "2. 멜 로 서폿(고정)(주최자)" / "8. 범 남는 곳"
+// (고정) → 주라인 고정 버튼, 남는 곳 → ALL 버튼. 나머지는 회원 정보 라인 그대로.
+interface RosterEntry { raw: string; name: string; fixed: boolean; any: boolean; }
+
+const LINE_TOKEN: Record<string, string> = {
+  "탑": "TOP", "top": "TOP",
+  "정글": "JG", "jg": "JG", "jungle": "JG", "jug": "JG",
+  "미드": "MID", "mid": "MID",
+  "원딜": "ADC", "ad": "ADC", "adc": "ADC", "바텀": "ADC", "bot": "ADC",
+  "서폿": "SUP", "서포터": "SUP", "서포트": "SUP", "sup": "SUP", "support": "SUP",
+};
+const ANY_LINE_RE = /(남는\s*(곳|데|라인|자리)|아무\s*(거나|데나|곳|라인|자리)|상관\s*(없음|x)|노상관|올\s*라인|\ball\b)/gi;
+
+function parseRoster(text: string): RosterEntry[] {
+  const out: RosterEntry[] = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const raw = rawLine.trim();
+    if (!raw) continue;
+    let s = raw.replace(/^\d+\s*[.)\]:\-]?\s*/, "");      // 앞 번호 "1." 제거
+    const fixed = /고정/.test(s);
+    s = s.replace(/[(\[（][^)\]）]*[)\]）]/g, " ");         // (고정)(주최자) 등 괄호 제거
+    const any = ANY_LINE_RE.test(s);
+    ANY_LINE_RE.lastIndex = 0;
+    s = s.replace(ANY_LINE_RE, " ");
+    const tokens = s.split(/[\s,/·|+]+/).map((t) => t.replace(/[.~!]+$/, "")).filter(Boolean);
+    const firstLine = tokens.findIndex((t) => LINE_TOKEN[t.toLowerCase()]);
+    const name = (firstLine === -1 ? tokens : tokens.slice(0, firstLine)).join(" ").trim();
+    if (!name) continue;
+    out.push({ raw, name, fixed, any: any && !fixed });
+  }
+  return out;
+}
+
+// ===== 명단 이름 → 클랜원 매칭 (오타/띄어쓰기/일부만 적은 경우도 비슷한 사람으로) =====
+const JUNG = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ";
+const JONG = ["", "ㄱ","ㄲ","ㄳ","ㄴ","ㄵ","ㄶ","ㄷ","ㄹ","ㄺ","ㄻ","ㄼ","ㄽ","ㄾ","ㄿ","ㅀ","ㅁ","ㅂ","ㅄ","ㅅ","ㅆ","ㅇ","ㅈ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
+const normName = (x: string) => x.replace(/[\s_.\-]+/g, "").toLowerCase();
+// 한글을 자모 단위로 분해 → "꼬"/"코", "죽"/"쭉" 같은 오타도 거리 1로 계산된다
+function toJamo(x: string): string {
+  let out = "";
+  for (const ch of x) {
+    const c = ch.charCodeAt(0) - 0xAC00;
+    if (c < 0 || c > 11171) { out += ch; continue; }
+    out += CHOSUNG[Math.floor(c / 588)] + JUNG[Math.floor((c % 588) / 28)] + JONG[c % 28];
+  }
+  return out;
+}
+function editDistance(a: string, b: string): number {
+  const dp = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = dp[0]; dp[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = dp[j];
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[b.length];
+}
+function isSubsequence(short: string, long: string): boolean {
+  let i = 0;
+  for (const ch of long) if (ch === short[i]) i++;
+  return i === short.length;
+}
+// 0~1 유사도. 1 = 같은 이름
+function nameSimilarity(written: string, nickname: string): number {
+  const a = normName(written), b = normName(nickname);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  let best = 0;
+  // 일부만 적은 경우 ("범" ↔ "범고래")
+  if (b.includes(a) || a.includes(b)) {
+    const ratio = Math.min(a.length, b.length) / Math.max(a.length, b.length);
+    best = Math.max(best, 0.7 + 0.25 * ratio);
+  }
+  // 줄임말: 적은 글자가 닉네임 안에 순서대로 들어있는 경우 ("숟 도" ↔ "숟가락과도구")
+  if (isSubsequence(a, b)) {
+    const ratio = a.length / b.length;
+    best = Math.max(best, a[0] === b[0] ? 0.72 + 0.23 * ratio : 0.62 + 0.2 * ratio);
+  }
+  // 초성으로 적은 경우 ("ㄱㄲㅈ" ↔ "귤꺼죽")
+  if (/^[ㄱ-ㅎ]+$/.test(a) && getChosung(b).startsWith(a)) best = Math.max(best, 0.8);
+  // 오타: 자모 단위 편집거리
+  const ja = toJamo(a), jb = toJamo(b);
+  best = Math.max(best, 1 - editDistance(ja, jb) / Math.max(ja.length, jb.length));
+  return best;
+}
+const ROSTER_MATCH_MIN = 0.6; // 이 값보다 낮으면 "못 찾음" 처리
+
+// 명단 전체를 한 번에 매칭: 유사도가 높은 쌍부터 배정해서 한 사람이 엉뚱한 줄에 먼저 뺏기지 않게 한다
+function matchRoster(names: string[], members: Member[]): (Member | null)[] {
+  const pairs: { i: number; m: Member; sim: number }[] = [];
+  names.forEach((name, i) => {
+    for (const m of members) {
+      const sim = nameSimilarity(name, m.nickname);
+      if (sim >= ROSTER_MATCH_MIN) pairs.push({ i, m, sim });
+    }
+  });
+  pairs.sort((x, y) => y.sim - x.sim);
+  const result: (Member | null)[] = names.map(() => null);
+  const used = new Set<number>();
+  for (const p of pairs) {
+    if (result[p.i] || used.has(p.m.id)) continue;
+    result[p.i] = p.m; used.add(p.m.id);
+  }
+  return result;
 }
 
 function filterChampions(champions: ChampionInfo[], q: string): ChampionInfo[] {
@@ -252,6 +371,10 @@ interface MatchRecord {
   team1: MatchParticipant[]; team2: MatchParticipant[];
 }
 
+const LINE_ORDER = ["TOP", "JG", "MID", "ADC", "SUP"];
+const sortTeamByLine = (team: MatchParticipant[]) =>
+  [...team].sort((a, b) => (LINE_ORDER.indexOf(a.line ?? "") + 1 || 99) - (LINE_ORDER.indexOf(b.line ?? "") + 1 || 99));
+
 // 전적 조회용 클랜원 검색 입력. 선택하면 onSelect(memberId)로 필터를 건다.
 function HistorySearch({ members, onSelect }: { members: Member[]; onSelect: (id: number) => void }) {
   const [q, setQ] = useState("");
@@ -316,6 +439,9 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
   const [slots, setSlots] = useState<Slot[]>(emptySlots);
   const [overrideAll, setOverrideAll] = useState<Set<number>>(new Set());
   const [overrideMain, setOverrideMain] = useState<Set<number>>(new Set());
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [pasteReport, setPasteReport] = useState<{ raw: string; name: string; matched: string | null }[]>([]);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   interface BPlayer { id: number; name: string; score: number; line: string; lineAdjust: number; }
@@ -371,6 +497,32 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
 
   const usedIds = slots.map((s) => s.memberId).filter((id) => id > 0);
 
+  function applyPaste() {
+    const entries = parseRoster(pasteText).slice(0, SLOT_COUNT);
+    const matched = matchRoster(entries.map((e) => e.name), members);
+    const newSlots = emptySlots();
+    const allSet = new Set<number>();
+    const mainSet = new Set<number>();
+    const report: typeof pasteReport = [];
+    entries.forEach((e, i) => {
+      const m = matched[i];
+      if (m) {
+        newSlots[i] = { memberId: m.id, memberName: m.nickname };
+        if (e.fixed) mainSet.add(m.id);      // (고정) → 주라인 버튼
+        else if (e.any) allSet.add(m.id);    // 남는 곳 → ALL 버튼
+      } else {
+        // 못 찾은 사람은 이름만 채워두고 직접 선택하게 한다
+        newSlots[i] = { memberId: 0, memberName: e.name };
+      }
+      report.push({ raw: e.raw, name: e.name, matched: m?.nickname ?? null });
+    });
+    setSlots(newSlots);
+    setOverrideAll(allSet); setOverrideMain(mainSet);
+    setResults([]); setSelectedIdx(-1); setSavedResult(null);
+    setPasteReport(report);
+    setPasteOpen(false);
+  }
+
   async function generateCode() {
     setCodeErr(""); setCodeLoading(true);
     try {
@@ -425,59 +577,142 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
+  const LINE_KEYS = ["TOP", "JG", "MID", "ADC", "SUP"] as const;
+  const resetResults = () => { setResults([]); setSelectedIdx(-1); setTournamentCode(""); setCodeErr(""); setNotifyMsg(""); };
+  const fuzzyNotes = pasteReport.filter((r) => r.matched && r.matched.replace(/\s+/g, "").toLowerCase() !== r.name.replace(/\s+/g, "").toLowerCase());
+  const notFound = pasteReport.filter((r) => !r.matched);
+
+  // 후보 카드: 라인별로 블루/레드를 한 줄에 나란히
+  const bestDiff = Math.min(...results.slice(0, 3).map((r) => r.diff), savedResult?.diff ?? Infinity);
+  const renderCandidate = (r: BResult, title: React.ReactNode, onPick: () => void, footer: React.ReactNode, saved = false) => (
+    <div className={`sc-cand ${saved ? "saved" : ""}`}>
+      <button className="sc-cand-body" onClick={onPick}>
+        <div className="sc-cand-head">
+          {title}
+          {r.diff === bestDiff && !saved && <span className="sc-cand-best">최소 점수차</span>}
+          <span className="sc-cand-diff">점수차 <b>{r.diff}</b></span>
+        </div>
+        <div className="sc-cand-teams">
+          <span className="blue">블루</span>
+          <span />
+          <span className="red">레드</span>
+        </div>
+        <div className="sc-cand-rows">
+          {LINE_KEYS.map((line) => {
+            const b = r.team1.find((x) => x.line === line);
+            const rd = r.team2.find((x) => x.line === line);
+            return (
+              <div key={line} className="sc-cand-row">
+                <span className="nm blue">{b?.name ?? "-"}</span>
+                <span className="ln">{LINE_LBL[line]}</span>
+                <span className="nm red">{rd?.name ?? "-"}</span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="sc-cand-pick">이 구성 선택 →</div>
+      </button>
+      {footer}
+    </div>
+  );
+
   return (
     <div className="modal-backdrop">
-      <div className="modal" style={{ maxWidth: result !== null ? 640 : savedResult ? 1400 : 1100, width: "95vw" }}>
-        <div className="modal-head">
-          <span>팀 생성</span>
-          <button className="modal-close" onClick={onClose}>×</button>
+      <div className={`modal sc-bm ${results.length ? (result !== null ? "w-result" : "w-cands") : ""}`}>
+        <div className="sc-bm-head">
+          <div>
+            <h3>팀 생성</h3>
+            {!results.length ? (
+              <div className="sc-bm-progress">
+                <span>참가 클랜원 <b>{filledIds.length}</b>/10</span>
+                <span className="sc-bm-bar"><i style={{ width: `${filledIds.length * 10}%` }} /></span>
+              </div>
+            ) : (
+              <div className="sc-bm-sub">{result !== null ? "선택한 팀 구성" : "마음에 드는 구성을 골라주세요"}</div>
+            )}
+          </div>
+          <button className="sc-d-close" onClick={onClose}>✕</button>
         </div>
 
         {!results.length ? (
           <>
-            <p style={{ fontSize: 13, color: "var(--muted)", margin: "0 0 12px" }}>
-              참가할 클랜원 10명을 입력하세요. ({filledIds.length}/10)
-            </p>
-            {/* 프리셋 */}
-            <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
-              <input
-                placeholder="프리셋 이름"
-                value={presetName}
-                onChange={(e) => setPresetName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") savePreset(); }}
-                style={{ flex: 1, minWidth: 100, padding: "5px 10px", borderRadius: 7, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
-              />
-              <button className="btn-secondary" style={{ fontSize: 12, padding: "5px 12px", whiteSpace: "nowrap" }} onClick={savePreset}>💾 저장</button>
-              {presets.length > 0 && (
-                <div style={{ position: "relative" }}>
-                  <button className="btn-secondary" style={{ fontSize: 12, padding: "5px 12px", whiteSpace: "nowrap" }} onClick={() => setPresetOpen((p) => !p)}>📂 불러오기 ({presets.length})</button>
-                  {presetOpen && (
-                    <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, zIndex: 50, minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
-                      {presets.map((p) => (
-                        <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderBottom: "1px solid var(--border)" }}>
-                          <button onClick={() => loadPreset(p)} style={{ flex: 1, background: "none", border: "none", color: "var(--text)", fontSize: 13, fontWeight: 700, cursor: "pointer", textAlign: "left" }}>
-                            {p.name} <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 11 }}>({p.memberIds.length}명)</span>
-                          </button>
-                          <button onClick={() => deletePreset(p.name)} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 14, padding: "0 2px", flexShrink: 0 }}>×</button>
-                        </div>
-                      ))}
+            {/* 도구 줄: 명단 붙여넣기 / 프리셋 */}
+            <div className="sc-bm-tools">
+              <button className={`sc-tool-btn ${pasteOpen ? "on" : ""}`} onClick={() => { setPasteOpen((o) => !o); setPresetOpen(false); }}>📋 신청 명단 붙여넣기</button>
+              <div style={{ position: "relative", marginLeft: "auto" }}>
+                <button className={`sc-tool-btn ${presetOpen ? "on" : ""}`} onClick={() => { setPresetOpen((p) => !p); setPasteOpen(false); }}>
+                  📂 프리셋{presets.length > 0 && <span className="sc-count">{presets.length}</span>}
+                </button>
+                {presetOpen && (
+                  <div className="sc-preset-pop">
+                    <div className="sc-preset-save">
+                      <input
+                        placeholder="현재 명단을 프리셋으로 저장"
+                        value={presetName}
+                        onChange={(e) => setPresetName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") savePreset(); }}
+                      />
+                      <button onClick={savePreset} disabled={!presetName.trim() || filledIds.length === 0}>저장</button>
                     </div>
-                  )}
-                </div>
-              )}
+                    {presets.length === 0 && <div className="sc-preset-empty">저장된 프리셋이 없어요.</div>}
+                    {presets.map((p) => (
+                      <div key={p.name} className="sc-preset-row">
+                        <button className="nm" onClick={() => loadPreset(p)}>{p.name}<span>{p.memberIds.length}명</span></button>
+                        <button className="del" onClick={() => deletePreset(p.name)} title="삭제">×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+
+            {pasteOpen && (
+              <div className="sc-paste-box">
+                <textarea
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  rows={10}
+                  placeholder={"1. 닉네임 서폿\n2. 닉네임 서폿(고정)\n3. 닉네임 원딜, 미드\n4. 닉네임 남는 곳\n..."}
+                  autoFocus
+                />
+                <div className="sc-paste-help">
+                  한 줄에 한 명씩 붙여넣으면 비슷한 닉네임의 클랜원을 찾아 채워요.
+                  <b>(고정)</b>이면 <b>주라인</b>, <b>남는 곳</b>이면 <b>ALL</b>이 켜지고, 나머지는 회원 정보 라인을 그대로 써요.
+                </div>
+                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                  <button className="btn-secondary" onClick={() => setPasteOpen(false)}>취소</button>
+                  <button className="btn-primary" disabled={!pasteText.trim()} onClick={applyPaste}>적용</button>
+                </div>
+              </div>
+            )}
+            {!pasteOpen && notFound.length > 0 && (
+              <div className="sc-paste-warn">⚠ 못 찾은 이름: {notFound.map((r) => r.name).join(", ")} — 해당 칸에서 직접 선택해 주세요.</div>
+            )}
+            {!pasteOpen && fuzzyNotes.length > 0 && (
+              <div className="sc-paste-note">비슷한 이름으로 연결했어요. 확인해 주세요: {fuzzyNotes.map((r) => `${r.name} → ${r.matched}`).join(", ")}</div>
+            )}
+
+            <div className="sc-slot-head">
+              <span>클랜원</span>
+              <span className="r">회원 라인 · <b className="all">ALL</b> 아무 라인 · <b className="main">주라인</b> 주라인만</span>
+            </div>
+            <div className="sc-slots">
               {slots.map((slot, idx) => {
                 const available = members.filter((m) => !usedIds.includes(m.id) || m.id === slot.memberId);
+                const mem = members.find((m) => m.id === slot.memberId);
+                const lineInfo = mem
+                  ? [mem.mainLine ? LINE_LBL[mem.mainLine] ?? mem.mainLine : "-", mem.subLine ? (mem.subLine.toUpperCase() === "ALL" ? "ALL" : LINE_LBL[mem.subLine] ?? mem.subLine) : null].filter(Boolean).join(" / ")
+                  : undefined;
                 return (
                   <SlotMemberInput
                     key={idx}
                     index={idx}
                     members={available}
                     value={slot}
+                    lineInfo={lineInfo}
                     isOverrideAll={overrideAll.has(slot.memberId)}
                     isOverrideMain={overrideMain.has(slot.memberId)}
-                    showAllBtn={members.find((m) => m.id === slot.memberId)?.subLine?.toUpperCase() !== "ALL"}
+                    showAllBtn={mem?.subLine?.toUpperCase() !== "ALL"}
                     inputRef={(el) => { inputRefs.current[idx] = el; }}
                     onSelect={(m) => {
                       setSlots((prev) => prev.map((s, i) => i === idx ? { memberId: m.id, memberName: m.nickname } : s));
@@ -513,176 +748,111 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
                 );
               })}
             </div>
-            {err && <div className="error" style={{ marginBottom: 10 }}>{err}</div>}
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn-primary" disabled={!canGenerate || loading} onClick={() => generate(filledIds)}>
-                {loading ? "생성 중..." : "팀 생성"}
-              </button>
-              <button className="btn-secondary" onClick={() => setSlots(emptySlots())}>전체 지우기</button>
-              <button className="btn-secondary" onClick={onClose}>닫기</button>
+            {err && <div className="error" style={{ marginTop: 10 }}>{err}</div>}
+            <div className="sc-bm-foot">
+              <button className="btn-secondary" onClick={() => { setSlots(emptySlots()); setOverrideAll(new Set()); setOverrideMain(new Set()); setPasteReport([]); }}>전체 지우기</button>
+              <div className="r">
+                <button className="btn-secondary" onClick={onClose}>닫기</button>
+                <button className="btn-primary" disabled={!canGenerate || loading} onClick={() => generate(filledIds)}>
+                  {loading ? "생성 중..." : canGenerate ? "팀 생성" : `팀 생성 (${filledIds.length}/10)`}
+                </button>
+              </div>
             </div>
           </>
         ) : (
           <>
-            {/* 카드 목록 - 선택 전 */}
             {result === null ? (
-              <div style={{ display: "grid", gridTemplateColumns: `repeat(${savedResult ? 4 : 3}, 1fr)`, gap: 10, marginBottom: 16 }}>
-                {/* 저장된 카드 - 항상 첫 번째 */}
-                {savedResult && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <button
-                      onClick={() => setSelectedIdx(-2)}
-                      style={{
-                        flex: 1, background: "var(--card-2)", border: "2px solid #4ade80", borderRadius: 12,
-                        padding: 14, cursor: "pointer", textAlign: "left",
-                      }}
-                    >
-                      <div style={{ fontWeight: 800, fontSize: 13, color: "var(--accent)", marginBottom: 8 }}>
-                        📌 저장됨<span style={{ fontSize: 11, fontWeight: 400, marginLeft: 6, color: "var(--muted)" }}>점수차 {savedResult.diff}</span>
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                        {([1, 2] as const).map((t) => {
-                          const team = t === 1 ? savedResult.team1 : savedResult.team2;
-                          const color = t === 1 ? "var(--win-text)" : "var(--loss-text)";
-                          return (
-                            <div key={t}>
-                              <div style={{ fontSize: 11, fontWeight: 800, color, marginBottom: 4 }}>{t === 1 ? "🔵 블루" : "🔴 레드"}</div>
-                              {["TOP","JG","MID","ADC","SUP"].map((line) => {
-                                const p = team.find((x) => x.line === line);
-                                if (!p) return null;
-                                return (
-                                  <div key={line} style={{ display: "flex", gap: 6, fontSize: 12, marginBottom: 3, minWidth: 0 }}>
-                                    <span style={{ color: "var(--muted)", width: 26, flexShrink: 0 }}>{LINE_LBL[line]}</span>
-                                    <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => setSavedResult(null)}
-                      style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, color: "#e74c3c", cursor: "pointer", fontSize: 12, padding: "5px 0", fontWeight: 700 }}
-                    >저장 해제</button>
-                  </div>
+              <div className="sc-cands">
+                {savedResult && renderCandidate(
+                  savedResult,
+                  <span className="sc-cand-title saved">📌 고정한 구성</span>,
+                  () => setSelectedIdx(-2),
+                  <button className="sc-cand-act danger" onClick={() => setSavedResult(null)}>고정 해제</button>,
+                  true,
                 )}
                 {results.slice(0, 3).map((r, i) => (
-                  <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <button
-                      onClick={() => setSelectedIdx(i)}
-                      style={{
-                        flex: 1, background: "var(--card-2)", border: "2px solid var(--border)", borderRadius: 12,
-                        padding: 14, cursor: "pointer", textAlign: "left", transition: "border-color 0.15s, transform 0.1s",
-                      }}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--accent)"; (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "var(--border)"; (e.currentTarget as HTMLElement).style.transform = "none"; }}
-                    >
-                      <div style={{ fontWeight: 800, fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>
-                        {i + 1}팀<span style={{ fontSize: 11, fontWeight: 400, marginLeft: 6 }}>점수차 {r.diff}</span>
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                        {([1, 2] as const).map((t) => {
-                          const team = t === 1 ? r.team1 : r.team2;
-                          const color = t === 1 ? "var(--win-text)" : "var(--loss-text)";
-                          return (
-                            <div key={t}>
-                              <div style={{ fontSize: 11, fontWeight: 800, color, marginBottom: 4 }}>{t === 1 ? "🔵 블루" : "🔴 레드"}</div>
-                              {["TOP","JG","MID","ADC","SUP"].map((line) => {
-                                const p = team.find((x) => x.line === line);
-                                if (!p) return null;
-                                return (
-                                  <div key={line} style={{ display: "flex", gap: 6, fontSize: 12, marginBottom: 3, minWidth: 0 }}>
-                                    <span style={{ color: "var(--muted)", width: 26, flexShrink: 0 }}>{LINE_LBL[line]}</span>
-                                    <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => { setSavedResult(r); generate(filledIds, true); }}
-                      style={{ background: "none", border: "1px solid var(--border)", borderRadius: 7, color: "var(--muted)", cursor: "pointer", fontSize: 12, padding: "5px 0", fontWeight: 700 }}
-                    >📌 저장 후 다시 돌리기</button>
-                  </div>
+                  <React.Fragment key={i}>
+                    {renderCandidate(
+                      r,
+                      <span className="sc-cand-title">구성 {i + 1}</span>,
+                      () => setSelectedIdx(i),
+                      <button className="sc-cand-act" onClick={() => { setSavedResult(r); generate(filledIds, true); }}>📌 이 구성 고정하고 나머지 다시 돌리기</button>,
+                    )}
+                  </React.Fragment>
                 ))}
               </div>
             ) : (
-              <>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-                  {([1, 2] as const).map((t) => {
-                    const team = t === 1 ? result.team1 : result.team2;
-                    const sum = t === 1 ? result.sum1 : result.sum2;
-                    const color = t === 1 ? "var(--win-text)" : "var(--loss-text)";
-                    return (
-                      <div key={t} style={{ border: `2px solid ${color}`, borderRadius: 10, padding: 14 }}>
-                        <div style={{ fontWeight: 800, fontSize: 14, color, marginBottom: 10 }}>
-                          {t === 1 ? "블루팀" : "레드팀"}
-                          <span style={{ fontSize: 12, fontWeight: 400, color: "var(--muted)", marginLeft: 8 }}>점수합 {sum}</span>
-                        </div>
-                        {["TOP","JG","MID","ADC","SUP"].map((line) => {
-                          const p = team.find((x) => x.line === line);
-                          if (!p) return null;
-                          return (
-                            <div key={line} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, fontSize: 13 }}>
-                              <span style={{ width: 32, color: "var(--muted)", fontSize: 12 }}>{LINE_LBL[line]}</span>
-                              <span style={{ fontWeight: 700 }}>{p.name}</span>
-                              {isAdmin && (
-                                <span style={{ marginLeft: "auto", color: "var(--muted)", fontSize: 12 }}>
-                                  {p.score ?? 0}{p.lineAdjust !== 0 && <span style={{ color: "var(--loss-text)" }}>{p.lineAdjust > 0 ? `+${p.lineAdjust}` : p.lineAdjust}</span>}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </div>
-                {isAdmin && (
-                  <div style={{ textAlign: "center", fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>
-                    점수 차이: <strong style={{ color: result.diff <= 5 ? "var(--win-text)" : "var(--loss-text)" }}>{result.diff}</strong>
+              <div className="sc-matchup">
+                <div className="sc-mu-head">
+                  <div className="blue">블루팀{isAdmin && <small>{result.sum1}</small>}</div>
+                  <div className="mid">
+                    {isAdmin && <span className={`sc-mu-diff ${result.diff <= 5 ? "good" : ""}`}>점수차 {result.diff}</span>}
                   </div>
-                )}
-              </>
-            )}
-            {codeErr && <div className="error" style={{ marginBottom: 10 }}>{codeErr}</div>}
-            {tournamentCode && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "10px 14px", background: "var(--card-2)", borderRadius: 8, border: "1px solid var(--border)" }}>
-                <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0 }}>코드</span>
-                <span style={{ fontSize: 13, fontWeight: 700, flex: 1, wordBreak: "break-all" }}>{tournamentCode}</span>
-                <button
-                  onClick={() => navigator.clipboard.writeText(tournamentCode)}
-                  title="복사"
-                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, padding: "0 2px", flexShrink: 0, color: "var(--muted)" }}
-                >⎘</button>
+                  <div className="red">{isAdmin && <small>{result.sum2}</small>}레드팀</div>
+                </div>
+                {LINE_KEYS.map((line) => {
+                  const b = result.team1.find((x) => x.line === line);
+                  const rd = result.team2.find((x) => x.line === line);
+                  const adj = (p?: BPlayer) => p && p.lineAdjust !== 0 ? <em>{p.lineAdjust > 0 ? `+${p.lineAdjust}` : p.lineAdjust}</em> : null;
+                  return (
+                    <div key={line} className="sc-mu-row">
+                      <div className="side blue">
+                        <b>{b?.name ?? "-"}</b>
+                        {isAdmin && b && <span className="sc">{b.score ?? 0}{adj(b)}</span>}
+                      </div>
+                      <div className="ln">
+                        {LINE_MAP[line] && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={lineIconUrl(LINE_MAP[line].icon)} alt="" width={16} height={16} />
+                        )}
+                        {LINE_LBL[line]}
+                      </div>
+                      <div className="side red">
+                        {isAdmin && rd && <span className="sc">{rd.score ?? 0}{adj(rd)}</span>}
+                        <b>{rd?.name ?? "-"}</b>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
-            {notifyMsg && <div style={{ fontSize: 13, color: notifyMsg.startsWith("✅") ? "var(--win-text)" : "var(--loss-text)", marginBottom: 8 }}>{notifyMsg}</div>}
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn-primary" onClick={() => { setResults([]); setSelectedIdx(-1); setTournamentCode(""); setCodeErr(""); setNotifyMsg(""); }}>다시 선택</button>
-              <button className="btn-secondary" disabled={loading} onClick={() => { if (result !== null) { setSavedResult(null); generate(filledIds, false); } else { generate(filledIds, true); } }}>다시 생성</button>
-              <button className="btn-secondary" disabled={codeLoading || !!tournamentCode} onClick={generateCode}>{codeLoading ? "생성 중..." : "🎮 코드 생성"}</button>
-              {result !== null && (
-                <button className="btn-secondary" disabled={notifyLoading} onClick={async () => {
-                  setNotifyLoading(true); setNotifyMsg("");
-                  try {
-                    const res = await fetch("/api/scrim/notify", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ team1: result!.team1, team2: result!.team2, sum1: result!.sum1, sum2: result!.sum2, diff: result!.diff, slotMemberIds: slots.slice(0, 5).map(s => s.memberId).filter(id => id > 0) }),
-                    });
-                    const json = await res.json();
-                    setNotifyMsg(res.ok ? "✅ 디스코드 전송 완료" : `❌ ${json.error}`);
-                  } catch { setNotifyMsg("❌ 네트워크 오류"); }
-                  finally { setNotifyLoading(false); }
-                }}>{notifyLoading ? "전송 중..." : "📢 디스코드 전송"}</button>
-              )}
-              <button className="btn-secondary" onClick={onClose}>닫기</button>
+
+            {codeErr && <div className="error" style={{ marginTop: 12 }}>{codeErr}</div>}
+            {tournamentCode && (
+              <div className="sc-code">
+                <span className="l">토너먼트 코드</span>
+                <span className="v">{tournamentCode}</span>
+                <button onClick={() => navigator.clipboard.writeText(tournamentCode)}>복사</button>
+              </div>
+            )}
+            {notifyMsg && <div className={`sc-notify ${notifyMsg.startsWith("✅") ? "ok" : "bad"}`}>{notifyMsg}</div>}
+
+            <div className="sc-bm-foot">
+              <div className="l">
+                <button className="btn-secondary" onClick={resetResults}>← 명단 수정</button>
+                {result !== null && <button className="btn-secondary" onClick={() => setSelectedIdx(-1)}>다른 구성 보기</button>}
+                <button className="btn-secondary" disabled={loading} onClick={() => { if (result !== null) { setSavedResult(null); generate(filledIds, false); } else { generate(filledIds, true); } }}>
+                  {loading ? "생성 중..." : "↻ 다시 생성"}
+                </button>
+              </div>
+              <div className="r">
+                <button className="btn-secondary" disabled={codeLoading || !!tournamentCode} onClick={generateCode}>{codeLoading ? "생성 중..." : "🎮 코드 생성"}</button>
+                {result !== null && (
+                  <button className="btn-primary" disabled={notifyLoading} onClick={async () => {
+                    setNotifyLoading(true); setNotifyMsg("");
+                    try {
+                      const res = await fetch("/api/scrim/notify", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ team1: result!.team1, team2: result!.team2, sum1: result!.sum1, sum2: result!.sum2, diff: result!.diff, slotMemberIds: slots.slice(0, 5).map(s => s.memberId).filter(id => id > 0) }),
+                      });
+                      const json = await res.json();
+                      setNotifyMsg(res.ok ? "✅ 디스코드 전송 완료" : `❌ ${json.error}`);
+                    } catch { setNotifyMsg("❌ 네트워크 오류"); }
+                    finally { setNotifyLoading(false); }
+                  }}>{notifyLoading ? "전송 중..." : "📢 디스코드 전송"}</button>
+                )}
+              </div>
             </div>
           </>
         )}
@@ -692,7 +862,7 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
 }
 
 // 팀생성 모달용 슬롯 입력
-function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, onToggleAll, onToggleMain, nextRef, isOverrideAll, isOverrideMain, showAllBtn }: {
+function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, onToggleAll, onToggleMain, nextRef, isOverrideAll, isOverrideMain, showAllBtn, lineInfo }: {
   index: number;
   members: Member[];
   value: { memberId: number; memberName: string };
@@ -705,6 +875,7 @@ function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, o
   isOverrideAll?: boolean;
   isOverrideMain?: boolean;
   showAllBtn?: boolean;
+  lineInfo?: string;
 }) {
   const [query, setQuery] = useState(value.memberName);
   const [open, setOpen] = useState(false);
@@ -731,63 +902,41 @@ function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, o
   }
 
   return (
-    <div ref={wrapRef} style={{ position: "relative" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <span style={{ fontSize: 12, color: "var(--muted)", width: 20, textAlign: "right", flexShrink: 0 }}>{index + 1}</span>
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); setOpen(true); setActiveIdx(-1); if (!e.target.value) onClear(); }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={(e) => {
-            if (open && filtered.length > 0 && e.key === "ArrowDown") {
-              e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, filtered.length - 1));
-            } else if (open && filtered.length > 0 && e.key === "ArrowUp") {
-              e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, -1));
-            } else if (e.key === "Enter") {
-              e.preventDefault();
-              const picked = activeIdx >= 0 ? filtered[activeIdx] : filtered.length > 0 ? filtered[0] : null;
-              if (picked) select(picked);
-              else { setOpen(false); nextRef(); }
-            } else if (e.key === "Escape") { setOpen(false); setActiveIdx(-1); }
-          }}
-          placeholder={`클랜원 ${index + 1}`}
-          style={{
-            width: 180, flexShrink: 0, padding: "7px 10px", borderRadius: 7, fontSize: 13,
-            border: `1px solid ${value.memberId ? "var(--accent)" : "var(--border)"}`,
-            background: "var(--card)", color: "var(--text)",
-          }}
-        />
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
-          {value.memberId > 0 && (
-            <>
-              {showAllBtn && (
-                <button
-                  onClick={onToggleAll}
-                  title="ALL 라인으로 임시 처리"
-                  style={{
-                    background: isOverrideAll ? "var(--accent)" : "none",
-                    border: `1px solid ${isOverrideAll ? "var(--accent)" : "var(--border)"}`,
-                    color: isOverrideAll ? "#fff" : "var(--muted)",
-                    cursor: "pointer", fontSize: 11, padding: "2px 6px", borderRadius: 5, fontWeight: 700,
-                  }}>ALL</button>
-              )}
-              <button
-                onClick={onToggleMain}
-                title="주라인 고정"
-                style={{
-                  background: isOverrideMain ? "#7c3aed" : "none",
-                  border: `1px solid ${isOverrideMain ? "#7c3aed" : "var(--border)"}`,
-                  color: isOverrideMain ? "#fff" : "var(--muted)",
-                  cursor: "pointer", fontSize: 11, padding: "2px 6px", borderRadius: 5, fontWeight: 700,
-                }}>주라인</button>
-              <button onClick={onClear} style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
-            </>
-          )}
-        </div>
-      </div>
+    <div ref={wrapRef} className={`sc-slot ${value.memberId ? "filled" : ""}`}>
+      <span className="no">{index + 1}</span>
+      <input
+        ref={inputRef}
+        value={query}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); setActiveIdx(-1); if (!e.target.value) onClear(); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (open && filtered.length > 0 && e.key === "ArrowDown") {
+            e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, filtered.length - 1));
+          } else if (open && filtered.length > 0 && e.key === "ArrowUp") {
+            e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, -1));
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            const picked = activeIdx >= 0 ? filtered[activeIdx] : filtered.length > 0 ? filtered[0] : null;
+            if (picked) select(picked);
+            else { setOpen(false); nextRef(); }
+          } else if (e.key === "Escape") { setOpen(false); setActiveIdx(-1); }
+        }}
+        placeholder={`클랜원 ${index + 1}`}
+      />
+      {value.memberId > 0 && (
+        <>
+          {lineInfo && <span className="li">{lineInfo}</span>}
+          <span className="acts">
+            {showAllBtn && (
+              <button className={`pill all ${isOverrideAll ? "on" : ""}`} onClick={onToggleAll} title="ALL 라인으로 임시 처리">ALL</button>
+            )}
+            <button className={`pill main ${isOverrideMain ? "on" : ""}`} onClick={onToggleMain} title="주라인 고정">주라인</button>
+            <button className="x" onClick={onClear} title="비우기">×</button>
+          </span>
+        </>
+      )}
       {open && filtered.length > 0 && (
-        <div className="slot-candidates" style={{ zIndex: 50, left: 26 }}>
+        <div className="slot-candidates" style={{ zIndex: 50, left: 30, top: "calc(100% + 2px)" }}>
           {filtered.map((m, i) => (
             <button key={m.id} className={i === activeIdx ? "active" : ""} onMouseDown={() => select(m)}>{m.nickname}</button>
           ))}
@@ -947,6 +1096,11 @@ export default function ScrimPage() {
     finally { setSubmitting(false); }
   }
 
+  // 경기 목록 검색/필터, 통계 정렬
+  const [matchSearch, setMatchSearch] = useState("");
+  const [matchFilter, setMatchFilter] = useState<"all" | "week">("all");
+  const [statsSort, setStatsSort] = useState<{ key: StatsSortKey; dir: 1 | -1 }>({ key: "mmr", dir: -1 });
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
@@ -1060,32 +1214,92 @@ export default function ScrimPage() {
     load();
   }
 
+  // ===== 화면 표시용 파생 데이터 =====
+  const KST_OFFSET = 9 * 60 * 60 * 1000;
+  // 이번 주 월요일 00:00 (KST) 시각
+  const weekStartMs = (() => {
+    const k = new Date(Date.now() + KST_OFFSET);
+    const dow = (k.getUTCDay() + 6) % 7; // 월요일 = 0
+    return Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate() - dow) - KST_OFFSET;
+  })();
+  const doneMatches = matches.filter((m) => m.status === "done");
+  const weekMatches = doneMatches.filter((m) => new Date(m.playedAt).getTime() >= weekStartMs);
+  const weekMvp = (() => {
+    const cnt = new Map<string, number>();
+    for (const m of weekMatches) for (const p of [...m.team1, ...m.team2]) {
+      if (p.isMvp) cnt.set(p.nickname, (cnt.get(p.nickname) ?? 0) + 1);
+    }
+    let best: { name: string; count: number } | null = null;
+    cnt.forEach((count, name) => { if (!best || count > best.count) best = { name, count }; });
+    return best as { name: string; count: number } | null;
+  })();
+  const activePlayerCount = players.filter((p) => p.games > 0).length;
+
+  const matchQuery = matchSearch.trim();
+  const filteredMatches = matches
+    .filter((m) => matchFilter === "all" || new Date(m.playedAt).getTime() >= weekStartMs)
+    .filter((m) => !matchQuery || [...m.team1, ...m.team2].some((p) =>
+      matchScore(p.nickname, matchQuery) > 0 ||
+      (!!p.champion && (champName(p.champion).includes(matchQuery) || p.champion.toLowerCase().includes(matchQuery.toLowerCase())))
+    ));
+  const pageCount = Math.max(1, Math.ceil(filteredMatches.length / MATCH_PAGE_SIZE));
+
+  const sortedStats = players
+    .filter((p) => !statsSearch || matchScore(p.nickname, statsSearch) > 0)
+    .sort((a, b) => {
+      const k = statsSort.key;
+      let x = 0;
+      if (k === "nickname") x = a.nickname.localeCompare(b.nickname);
+      else if (k === "mmr") x = (a.scrimMmr ?? -1) - (b.scrimMmr ?? -1);
+      else if (k === "games") x = a.games - b.games;
+      else if (k === "winRate") x = (a.winRate ?? -1) - (b.winRate ?? -1);
+      else x = Number(a.kda ?? -1) - Number(b.kda ?? -1);
+      return x * statsSort.dir;
+    });
+  const sortTh = (key: StatsSortKey, label: string) => (
+    <th
+      className={statsSort.key === key ? "sorted" : ""}
+      onClick={() => setStatsSort((s) => ({ key, dir: s.key === key ? (s.dir === 1 ? -1 : 1) : key === "nickname" ? 1 : -1 }))}
+    >
+      {label}{statsSort.key === key ? (statsSort.dir < 0 ? " ↓" : " ↑") : ""}
+    </th>
+  );
+
   return (
     <div className="scrim">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <h2 className="scrim-title" style={{ margin: 0 }}>내전</h2>
-          <div style={{ display: "flex", gap: 8 }}>
+      <div className="sc-head">
+        <div>
+          <h2 className="scrim-title">내전</h2>
+          <p className="sc-sub">누적 {doneMatches.length}경기 · 참여 클랜원 {activePlayerCount}명</p>
+        </div>
+        <div className="sc-actions">
+          {isAdmin && (
             <button
               className="btn-secondary"
-              onClick={() => { setShowBalanceModal(true); }}
+              onClick={() => { setShowSyncModal(true); setSyncErr(""); setSyncResult(null); setSyncMemberId(null); setSyncMemberName(""); setSyncStartDate(new Date(Date.now() + 9*60*60*1000).toISOString().slice(0, 10)); setSyncStartTime(""); }}
             >
-              팀생성
+              ⟳ 전적 동기화
             </button>
-            {isAdmin && (
-              <>
-                <button
-                  className="btn-secondary"
-                  onClick={() => { setShowSyncModal(true); setSyncErr(""); setSyncResult(null); setSyncMemberId(null); setSyncMemberName(""); setSyncStartDate(new Date(Date.now() + 9*60*60*1000).toISOString().slice(0, 10)); setSyncStartTime(""); }}
-                >
-                  동기화
-                </button>
-              </>
-            )}
-          </div>
+          )}
+          <button className="btn-primary" onClick={() => setShowBalanceModal(true)}>＋ 팀 생성</button>
+        </div>
       </div>
 
-      <div className="scrim-tabs">
-        <button className={tab === "matches" ? "on" : ""} onClick={() => { setTab("matches"); setMatchPage(0); }}>경기 목록</button>
+      <div className="sc-kpis">
+        <div className="sc-kpi">
+          <div className="l">이번 주 경기</div>
+          <div className="v">{weekMatches.length}<small>경기</small></div>
+        </div>
+        <div className="sc-kpi">
+          <div className="l">이번 주 최다 MVP</div>
+          <div className="v">{weekMvp ? <>{weekMvp.name}<small>{weekMvp.count}회</small></> : <span className="sc-muted">-</span>}</div>
+        </div>
+      </div>
+
+      <div className="sc-tabs">
+        <button className={tab === "matches" ? "on" : ""} onClick={() => { setTab("matches"); setMatchPage(0); }}>
+          경기 목록<span className="sc-count">{doneMatches.length}</span>
+        </button>
         <button className={tab === "ranking" ? "on" : ""} onClick={() => setTab("ranking")}>순위표</button>
         <button className={tab === "stats" ? "on" : ""} onClick={() => setTab("stats")}>통계</button>
       </div>
@@ -1222,186 +1436,242 @@ export default function ScrimPage() {
         </div>
       )}
 
-      {/* 상세 모달 */}
-      {detail && (
-        <div className="modal-backdrop">
-          <div className="modal" style={{ maxWidth: 700, width: "95vw" }}>
-            <div className="modal-head">
-              <span>📊 {detail.nickname} 내전 상세</span>
-              <button className="modal-close" onClick={() => setDetail(null)}>×</button>
-            </div>
-            <div style={{ marginBottom: 14, fontSize: 13, color: "var(--muted)" }}>
-              총 {detail.games}판 · {detail.wins}승 {detail.games - detail.wins}패
-              {detail.winRate !== null && ` · 승률 ${detail.winRate}%`}
-              {" · "}KDA {detail.kda ?? "-"} ({detail.kills}/{detail.deaths}/{detail.assists})
-            </div>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
-                  <th style={{ textAlign: "left", padding: "5px 8px" }}>라인</th>
-                  <th style={{ textAlign: "center", padding: "5px 8px" }}>판수</th>
-                  <th style={{ textAlign: "center", padding: "5px 8px" }}>K/D/A</th>
-                  <th style={{ textAlign: "center", padding: "5px 8px" }}>KDA</th>
-                  <th style={{ textAlign: "left", padding: "5px 8px" }}>많이 한 챔피언</th>
-                </tr>
-              </thead>
-              <tbody>
-                {LINES.filter((l) => detail.lineStats[l].games > 0).map((l) => {
-                  const s = detail.lineStats[l];
-                  const kda = ((s.kills + s.assists) / Math.max(s.deaths, 1)).toFixed(2);
-                  const info = LINE_MAP[l];
-                  const champs = detail.lineChamps?.[l] ?? [];
-                  return (
-                    <tr key={l} style={{ borderBottom: "1px solid var(--border)" }}>
-                      <td style={{ padding: "8px 8px", fontWeight: 700 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          {info && (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={lineIconUrl(info.icon)} alt={info.label} width={18} height={18} />
-                          )}
-                          {info?.label ?? l}
-                        </div>
-                      </td>
-                      <td style={{ padding: "8px 8px", textAlign: "center" }}>{s.games}판</td>
-                      <td style={{ padding: "8px 8px", textAlign: "center", color: "var(--muted)" }}>
-                        {s.kills}/{s.deaths}/{s.assists}
-                      </td>
-                      <td style={{ padding: "8px 8px", textAlign: "center", fontWeight: 700,
-                        color: Number(kda) >= 3 ? "var(--win-text)" : "var(--text)" }}>
-                        {kda}
-                      </td>
-                      <td style={{ padding: "8px 8px" }}>
-                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                          {champs.map((c) => (
-                            <div key={c.id} style={{ textAlign: "center" }}>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={`/champions/${champImgId(c.id)}.png`} alt={c.id} width={36} height={36}
-                                style={{ borderRadius: 6, border: "1px solid var(--border)", display: "block" }} />
-                              <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>{c.count}판</div>
+      {/* 클랜원 상세 (대시보드형) */}
+      {detail && (() => {
+        const d = detail;
+        const avg = d.games > 0 ? [d.kills, d.deaths, d.assists].map((v) => (v / d.games).toFixed(1)) : ["0", "0", "0"];
+        const lineRows = LINES.filter((l) => d.lineStats[l].games > 0).sort((a, b) => d.lineStats[b].games - d.lineStats[a].games);
+        const champs = d.champStats ?? [];
+        const wr = d.winRate ?? 0;
+        const R = 54, C = 2 * Math.PI * R;
+        return (
+          <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) setDetail(null); }}>
+            <div className="sc-detail">
+              <div className="sc-d-top">
+                <h3>{d.nickname}</h3>
+                {d.scrimTier && <span className={tierClass(d.scrimTier)}>{d.scrimTier}</span>}
+                {isAdmin && d.scrimMmr !== null && <span className="sc-muted sc-small">{d.scrimMmr}점</span>}
+                <span className="sc-muted sc-small">· 솔랭 {tierLabel(d.tier, d.rank, d.lp)}</span>
+                <button className="sc-d-close" onClick={() => setDetail(null)}>✕</button>
+              </div>
+
+              {d.games === 0 ? (
+                <div className="sc-pnl sc-empty">내전 기록이 없습니다.</div>
+              ) : (
+                <>
+                  <div className="sc-dash r1">
+                    <div className="sc-pnl">
+                      <h5>모스트 챔피언<span>승률 · KDA</span></h5>
+                      <div className="sc-most">
+                        {champs.slice(0, 3).map((c) => (
+                          <div key={c.id} className="sc-most-row">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img className="sc-cimg" src={`/champions/${champImgId(c.id)}.png`} alt="" width={36} height={36} />
+                            <div>
+                              <div className="nm">{champName(c.id)}</div>
+                              <div className="sb">{c.games}판 · KDA {c.kda}</div>
                             </div>
-                          ))}
+                            <div className={`val ${c.winRate >= 50 ? "up" : "dn"}`}>{c.winRate}<small>%</small></div>
+                          </div>
+                        ))}
+                        {champs.length === 0 && <div className="sc-muted sc-small">챔피언 기록이 없습니다.</div>}
+                      </div>
+                    </div>
+
+                    <div className="sc-pnl">
+                      <h5>승률<span>{d.games}전</span></h5>
+                      <div className="sc-donut-wrap">
+                        <div className="sc-donut">
+                          <svg width="128" height="128">
+                            <circle cx="64" cy="64" r={R} fill="none" className="track" strokeWidth="10" />
+                            <circle cx="64" cy="64" r={R} fill="none" className="fill" strokeWidth="10" strokeLinecap="round"
+                              strokeDasharray={`${(C * wr) / 100} ${C}`} />
+                          </svg>
+                          <div className="c"><div><b>{wr}%</b><small>WIN RATE</small></div></div>
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {LINES.every((l) => detail.lineStats[l].games === 0) && (
-                  <tr><td colSpan={5} style={{ padding: "12px 8px", color: "var(--muted)", textAlign: "center" }}>내전 기록이 없습니다.</td></tr>
-                )}
-              </tbody>
-            </table>
+                        <div className="sc-muted sc-small">{d.wins}승 {d.games - d.wins}패</div>
+                      </div>
+                    </div>
+
+                    <div className="sc-pnl">
+                      <h5>KDA</h5>
+                      <div><span className="sc-big">{d.kda ?? "-"}</span><span className="sc-big-lbl">평점</span></div>
+                      <div className="sc-kda-avg">{avg[0]} / <em>{avg[1]}</em> / {avg[2]}</div>
+                      <div className="sc-kda-cap">판당 평균 킬 / 데스 / 어시스트</div>
+                      <div className="sc-mvp-line"><span>MVP</span><span><b>{d.mvpCount}회</b> · {Math.round((d.mvpCount / d.games) * 100)}%</span></div>
+                    </div>
+                  </div>
+
+                  <div className="sc-dash r2">
+                    <div className="sc-pnl">
+                      <h5>포지션 통계</h5>
+                      <div className="sc-pos">
+                        {lineRows.map((l) => {
+                          const s = d.lineStats[l];
+                          const lineWr = Math.round(((s.wins ?? 0) / s.games) * 100);
+                          return (
+                            <div key={l} className="sc-pos-row">
+                              <div className="sc-pos-ic">
+                                {LINE_MAP[l] && (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={lineIconUrl(LINE_MAP[l].icon)} alt={l} width={18} height={18} />
+                                )}
+                              </div>
+                              <div>
+                                <div className="sc-pos-top">
+                                  <b>{LINE_LABEL[l]}</b>
+                                  <span>{s.games}판 · 승률 {lineWr}% · KDA {((s.kills + s.assists) / Math.max(s.deaths, 1)).toFixed(2)}</span>
+                                </div>
+                                <div className="sc-pos-bar"><i style={{ width: `${Math.round((s.games / d.games) * 100)}%` }} /></div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="sc-pnl">
+                      <h5>챔피언 통계<span>상위 {champs.length}개</span></h5>
+                      <div className="sc-cgrid">
+                        {champs.map((c) => (
+                          <div key={c.id} className="sc-cg">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img className="sc-cimg" src={`/champions/${champImgId(c.id)}.png`} alt="" width={36} height={36} />
+                            <div className="t">
+                              <b>{champName(c.id)}</b>
+                              <span>{c.games}판 · <em className={c.winRate >= 50 ? "up" : "dn"}>{c.winRate}%</em> · {c.kda}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {tab === "matches" && (
         <div>
-          {matchesLoading ? <p>불러오는 중...</p> : matches.length === 0
-            ? <p style={{ color: "var(--muted)", fontSize: 14 }}>등록된 경기가 없습니다.</p>
+          <div className="sc-toolbar">
+            <input
+              className="sc-input"
+              placeholder="클랜원 / 챔피언 검색"
+              value={matchSearch}
+              onChange={(e) => { setMatchSearch(e.target.value); setMatchPage(0); }}
+            />
+            <div className="sc-chips">
+              {([["all", "전체"], ["week", "이번 주"]] as const).map(([k, label]) => (
+                <button key={k} className={`sc-chip ${matchFilter === k ? "on" : ""}`} onClick={() => { setMatchFilter(k); setMatchPage(0); }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {matchesLoading ? <p>불러오는 중...</p> : filteredMatches.length === 0
+            ? <p className="sc-empty">{matches.length === 0 ? "등록된 경기가 없습니다." : "조건에 맞는 경기가 없습니다."}</p>
             : (
             <>
-            <div className="match-log">
-              {matches.slice(matchPage * MATCH_PAGE_SIZE, (matchPage + 1) * MATCH_PAGE_SIZE).map((m) => {
+              {filteredMatches.slice(matchPage * MATCH_PAGE_SIZE, (matchPage + 1) * MATCH_PAGE_SIZE).map((m) => {
                 const dt = new Date(m.playedAt);
                 const dateStr = dt.toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
                 const timeStr = dt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
                 const isPending = m.status !== "done";
+                const maxDamage = Math.max(1, ...m.team1.map((p) => p.damage ?? 0), ...m.team2.map((p) => p.damage ?? 0));
                 return (
-                  <div key={m.id} className="match-card">
-                    <div className="mc-meta">
-                      <span>{dateStr} {timeStr}</span>
-                      {m.note && <span className="mc-note">· {m.note}</span>}
-                      {isPending && <span className="mc-pending-badge">결과 미등록</span>}
+                  <div key={m.id} className="sc-match">
+                    <div className="sc-m-meta">
+                      <b>{dateStr} {timeStr}</b>
+                      {m.note && <span>{m.note}</span>}
+                      {m.riotMatchId && <span className="sc-badge">자동 동기화</span>}
                       {isAdmin && (
-                        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                        <div className="sc-m-menu">
                           {/* 자동 동기화된 경기(riotMatchId 있음)는 Riot 전적 그대로라 수정하지 않고, 삭제만 허용한다. */}
-                          {!m.riotMatchId && (
-                            <button className="edit-btn" style={{ padding: "3px 10px", fontSize: 12 }} onClick={() => openEditModal(m)}>수정</button>
-                          )}
-                          <button className="del-btn small" onClick={() => deleteMatch(m.id)}>삭제</button>
+                          {!m.riotMatchId && <button className="sc-icon-btn" onClick={() => openEditModal(m)}>수정</button>}
+                          <button className="sc-icon-btn danger" onClick={() => deleteMatch(m.id)}>삭제</button>
                         </div>
                       )}
                     </div>
-                    <div className="mc-teams">
-                      {(() => {
-                        const LINE_ORDER = ["TOP","JG","MID","ADC","SUP"];
-                        const sortTeam = (team: MatchParticipant[]) =>
-                          [...team].sort((a, b) => (LINE_ORDER.indexOf(a.line ?? "") + 1 || 99) - (LINE_ORDER.indexOf(b.line ?? "") + 1 || 99));
-                        const maxDamage = Math.max(1, ...m.team1.map((p) => p.damage ?? 0), ...m.team2.map((p) => p.damage ?? 0));
-                        return ([1, 2] as const).map((t) => {
-                        const team = sortTeam(t === 1 ? m.team1 : m.team2);
+                    <div className="sc-teams">
+                      {([1, 2] as const).map((t) => {
+                        const team = sortTeamByLine(t === 1 ? m.team1 : m.team2);
                         const isWin = !isPending && m.winnerTeam === t;
+                        const sum = team.reduce((a, p) => [a[0] + p.kills, a[1] + p.deaths, a[2] + p.assists], [0, 0, 0]);
                         return (
-                          <div key={t} className={`mc-team ${isPending ? "pending" : isWin ? "win" : "loss"}`}>
-                            <div className="mc-team-head">
-                              {t === 1 ? "🔵 블루팀" : "🔴 레드팀"}
-                              {!isPending && (isWin ? " 🏆" : " ✗")}
+                          <div key={t} className={`sc-team ${isPending ? "" : isWin ? "win" : "loss"}`}>
+                            <div className="sc-t-head">
+                              <span className={`sc-dot ${t === 1 ? "blue" : "red"}`} />
+                              {t === 1 ? "블루팀" : "레드팀"}
+                              {!isPending && <span className={`sc-res ${isWin ? "w" : "l"}`}>{isWin ? "승리" : "패배"}</span>}
+                              <span className="sc-t-sum">{sum.join(" / ")}</span>
                             </div>
                             {team.map((p) => {
                               const dmgPct = Math.round(((p.damage ?? 0) / maxDamage) * 100);
+                              const player = players.find((x) => x.memberId === p.memberId);
                               return (
-                              <div key={p.memberId} className="mc-player-row">
-                                <span className="mc-champ-icon">
-                                  {p.champion && (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={`/champions/${champImgId(p.champion)}.png`} alt="" width={28} height={28} />
-                                  )}
-                                </span>
-                                <span className="mc-name">
-                                  {p.line && LINE_MAP[p.line] && (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={lineIconUrl(LINE_MAP[p.line].icon)} alt={p.line} width={12} height={12} className="mc-line-icon" />
-                                  )}
-                                  <span style={p.isMvp ? { color: "#FFD700", fontWeight: 800 } : undefined}>
-                                    {p.isMvp && "👑 "}{p.nickname}
-                                  </span>
-                                </span>
-                                <span className="mc-kda-col">
-                                  {p.kills}/<em>{p.deaths}</em>/{p.assists}
-                                </span>
-                                <span className="mc-dmg-col">
-                                  {!!p.damage && (
-                                    <>
-                                      <span className="mc-dmg-num">{p.damage.toLocaleString()}</span>
-                                      <span className="mc-dmg-bar-wrap"><span className="mc-dmg-bar" style={{ width: `${dmgPct}%` }} /></span>
-                                    </>
-                                  )}
-                                </span>
-                                <span className="mc-items-col">
-                                  {p.items?.map((itemId, i) => {
-                                    const src = itemIconUrl(itemId);
-                                    return src ? (
+                                <div key={p.memberId} className="sc-row">
+                                  <span className="sc-champ">
+                                    {p.champion
                                       // eslint-disable-next-line @next/next/no-img-element
-                                      <img key={i} src={src} alt="" width={22} height={22} />
-                                    ) : null;
-                                  })}
-                                </span>
-                              </div>
+                                      ? <img src={`/champions/${champImgId(p.champion)}.png`} alt="" width={30} height={30} />
+                                      : <span className="sc-ph" />}
+                                    {p.line && LINE_MAP[p.line] && (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img className="sc-ln" src={lineIconUrl(LINE_MAP[p.line].icon)} alt={p.line} width={14} height={14} />
+                                    )}
+                                  </span>
+                                  <span className={`sc-name ${player ? "sc-pn" : ""}`} onClick={() => player && setDetail(player)}>
+                                    <span className="txt">{p.nickname}</span>
+                                    {p.isMvp && <span className="sc-mvp">MVP</span>}
+                                  </span>
+                                  <span className="sc-kda">
+                                    {p.kills} / <em>{p.deaths}</em> / {p.assists}
+                                    <small>{((p.kills + p.assists) / Math.max(p.deaths, 1)).toFixed(2)} KDA</small>
+                                  </span>
+                                  <span className="sc-dmg">
+                                    {!!p.damage && (
+                                      <>
+                                        {p.damage.toLocaleString()}
+                                        <span className="sc-bar"><i style={{ width: `${dmgPct}%` }} /></span>
+                                      </>
+                                    )}
+                                  </span>
+                                  <span className="sc-items">
+                                    {p.items?.map((itemId, i) => {
+                                      const src = itemIconUrl(itemId);
+                                      return src ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img key={i} src={src} alt="" width={19} height={19} />
+                                      ) : null;
+                                    })}
+                                  </span>
+                                </div>
                               );
                             })}
                           </div>
                         );
-                        });
-                      })()}
+                      })}
                     </div>
                   </div>
                 );
               })}
-            </div>
-            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginTop: 16 }}>
-              <button className="btn-secondary" disabled={matchPage <= 0} onClick={() => setMatchPage(p => p - 1)}>‹ 이전</button>
-              <span style={{ fontSize: 13, color: "var(--muted)" }}>{matchPage + 1} / {Math.ceil(matches.length / MATCH_PAGE_SIZE)}</span>
-              <button className="btn-secondary" disabled={(matchPage + 1) * MATCH_PAGE_SIZE >= matches.length} onClick={() => setMatchPage(p => p + 1)}>다음 ›</button>
-            </div>
+              <div className="sc-pager">
+                <button className="btn-secondary" disabled={matchPage <= 0} onClick={() => setMatchPage((p) => p - 1)}>‹ 이전</button>
+                <span>{matchPage + 1} / {pageCount}</span>
+                <button className="btn-secondary" disabled={matchPage + 1 >= pageCount} onClick={() => setMatchPage((p) => p + 1)}>다음 ›</button>
+              </div>
             </>
           )}
         </div>
       )}
 
       {tab === "ranking" && (
-        <div style={{ marginTop: 16 }}>
-          {loading ? <p>불러오는 중...</p> : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+        loading ? <p>불러오는 중...</p> : (
+          <>
+            <div className="sc-rank-grid">
               {LINES.map((line) => {
                 const lineMembers = members
                   .filter((m) => m.mainLine === line)
@@ -1409,136 +1679,107 @@ export default function ScrimPage() {
                   .filter((p): p is Player => !!p && p.scrimMmr !== null && p.games >= 5)
                   .sort((a, b) => (b.scrimMmr ?? 0) - (a.scrimMmr ?? 0));
                 return (
-                  <div key={line} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "var(--card-2)", borderBottom: "1px solid var(--border)" }}>
+                  <div key={line} className="sc-rank-col">
+                    <div className="sc-rank-head">
                       {LINE_MAP[line] && (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={lineIconUrl(LINE_MAP[line].icon)} alt={line} width={20} height={20} />
+                        <img src={lineIconUrl(LINE_MAP[line].icon)} alt={line} width={18} height={18} />
                       )}
-                      <span style={{ fontWeight: 800, fontSize: 14 }}>{LINE_LABEL[line]}</span>
-                      <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: "auto" }}>{lineMembers.length}명</span>
+                      {LINE_LABEL[line]}
+                      <span>{lineMembers.length}명</span>
                     </div>
-                    <div style={{ padding: "8px 0" }}>
-                      {lineMembers.length === 0 && (
-                        <div style={{ padding: "12px 14px", color: "var(--muted)", fontSize: 13 }}>등록된 클랜원 없음</div>
-                      )}
-                      {lineMembers.map((p, i) => (
-                        <div key={p.memberId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", borderBottom: i < lineMembers.length - 1 ? "1px solid var(--border)" : "none", background: i === 0 ? "rgba(255,215,0,0.05)" : i === 1 ? "rgba(192,192,192,0.05)" : i === 2 ? "rgba(205,127,50,0.05)" : "transparent" }}>
-                          <span style={{ width: 20, textAlign: "center", fontSize: 13, fontWeight: 800, color: i === 0 ? "#FFD700" : i === 1 ? "#C0C0C0" : i === 2 ? "#CD7F32" : "var(--muted)", flexShrink: 0 }}>
-                            {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}
-                          </span>
-                          <span style={{ flex: 1, fontWeight: 700, fontSize: 13, cursor: "pointer" }}
-                            onClick={() => setDetail(p)}
-                            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
-                            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text)")}>
-                            {p.nickname}
-                          </span>
-                          <div style={{ textAlign: "right", flexShrink: 0 }}>
-                            {p.scrimTier && (
-                              <span className={`tier-badge tier-${p.scrimTier === "브론즈" ? "bronze" : p.scrimTier === "실버" ? "silver" : p.scrimTier === "골드" ? "gold" : p.scrimTier === "플래티넘" ? "platinum" : p.scrimTier === "에메랄드" ? "emerald" : p.scrimTier === "다이아" ? "diamond" : "master"}`} style={{ fontSize: 11 }}>{p.scrimTier}</span>
-                            )}
-                            {isAdmin && p.scrimMmr !== null && <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>{p.scrimMmr}점</div>}
-                          </div>
+                    {lineMembers.length === 0 && <div className="sc-rank-empty">등록된 클랜원 없음</div>}
+                    {lineMembers.map((p, i) => (
+                      <div key={p.memberId} className="sc-rank-row" onClick={() => setDetail(p)}>
+                        <span className={`sc-no ${i < 3 ? `n${i + 1}` : ""}`}>{i + 1}</span>
+                        <span className="sc-rank-nm">{p.nickname}</span>
+                        <div className="sc-rank-sub">
+                          {p.scrimTier && <span className={tierClass(p.scrimTier)}>{p.scrimTier}</span>}
+                          {isAdmin && p.scrimMmr !== null && <div>{p.scrimMmr}점</div>}
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    ))}
                   </div>
                 );
               })}
             </div>
-          )}
-        </div>
+            <div className="sc-note">5경기 이상 참여한 클랜원만 주 라인 기준으로 표시됩니다.</div>
+          </>
+        )
       )}
 
       {tab === "stats" && (
         <>
           {error && <div className="error">{error}</div>}
           {loading ? <p>불러오는 중...</p> : (
-            <div style={{ overflowX: "auto" }}>
-              <input
-                value={statsSearch}
-                onChange={(e) => setStatsSearch(e.target.value)}
-                placeholder="클랜원 검색"
-                style={{ margin: "12px 0 16px", padding: "7px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13, width: 200 }}
-              />
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead>
-                  <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
-                    <th style={{ textAlign: "left", padding: "6px 10px" }}>클랜원</th>
-                    <th style={{ textAlign: "center", padding: "6px 10px", whiteSpace: "nowrap", minWidth: 140 }}>내전 티어</th>
-                    {LINES.map((l) => (
-                      <th key={l} style={{ textAlign: "center", padding: "6px 8px" }}>
-                        {LINE_MAP[l] ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={lineIconUrl(LINE_MAP[l].icon)} alt={l} width={18} height={18} style={{ verticalAlign: "middle" }} />
-                        ) : l}
-                      </th>
-                    ))}
-                    <th style={{ textAlign: "center", padding: "6px 10px" }}>총판수</th>
-                    <th style={{ textAlign: "center", padding: "6px 10px" }}>승률</th>
-                    <th style={{ textAlign: "center", padding: "6px 10px" }}>KDA</th>
-                    {isAdmin && <th style={{ textAlign: "center", padding: "6px 10px" }}>MMR 조정</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {players.filter((p) => !statsSearch || matchScore(p.nickname, statsSearch) > 0).sort((a, b) => (b.scrimMmr ?? -1) - (a.scrimMmr ?? -1)).map((p) => (
-                    <tr key={p.memberId} style={{ borderBottom: "1px solid var(--border)" }}>
-                      <td style={{ padding: "8px 10px", fontWeight: 700, cursor: "pointer", color: "var(--text)" }}
-                        onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
-                        onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text)")}
-                        onClick={() => setDetail(p)}>{p.nickname}</td>
-                      <td style={{ padding: "8px 10px", textAlign: "center", whiteSpace: "nowrap", minWidth: 140 }}>
-                        {p.scrimTier
-                          ? <>
-                              <span className={`tier-badge tier-${p.scrimTier === "브론즈" ? "bronze" : p.scrimTier === "실버" ? "silver" : p.scrimTier === "골드" ? "gold" : p.scrimTier === "플래티넘" ? "platinum" : p.scrimTier === "에메랄드" ? "emerald" : p.scrimTier === "다이아" ? "diamond" : "master"}`}>{p.scrimTier}</span>
-                              {isAdmin && p.scrimMmr !== null && <span style={{ fontSize: 11, color: "var(--muted)", marginLeft: 8 }}>({p.scrimMmr})</span>}
-                            </>
-                          : <span style={{ color: "var(--muted)" }}>-</span>
-                        }
-                      </td>
-                      {LINES.map((l) => (
-                        <td key={l} style={{ padding: "8px 8px", textAlign: "center", color: p.lineCounts[l] > 0 ? "var(--text)" : "var(--muted)" }}>
-                          {p.lineCounts[l] > 0 ? p.lineCounts[l] : "-"}
-                        </td>
-                      ))}
-                      <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)" }}>
-                        {p.games > 0 ? `${p.games}판` : "-"}
-                      </td>
-                      <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 700,
-                        color: p.winRate !== null ? (p.winRate >= 50 ? "var(--win-text)" : "var(--loss-text)") : "var(--muted)" }}>
-                        {p.winRate !== null ? `${p.winRate}%` : "-"}
-                      </td>
-                      <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 700,
-                        color: p.kda ? (Number(p.kda) >= 3 ? "var(--win-text)" : "var(--text)") : "var(--muted)" }}>
-                        {p.kda ?? "-"}
-                      </td>
-                      {isAdmin && (
-                        <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 4, justifyContent: "center" }}>
-                            <input
-                              type="number" min={1}
-                              value={editingMmr === p.memberId ? mmrInput : ""}
-                              onFocus={() => { setEditingMmr(p.memberId); setMmrInput(""); }}
-                              onChange={(e) => setMmrInput(e.target.value)}
-                              placeholder="점수"
-                              style={{ width: 56, padding: "4px 6px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 12, textAlign: "center" }}
-                            />
-                            <button
-                              onClick={() => { const v = Math.max(1, Number(mmrInput) || 0); saveMmr(p.memberId, (p.scrimMmr ?? 0) + v); }}
-                              style={{ width: 28, height: 28, borderRadius: 6, border: "none", background: "#2e6b3e", color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer", flexShrink: 0 }}
-                            >+</button>
-                            <button
-                              onClick={() => { const v = Math.max(1, Number(mmrInput) || 0); saveMmr(p.memberId, (p.scrimMmr ?? 0) - v); }}
-                              style={{ width: 28, height: 28, borderRadius: 6, border: "none", background: "#7a1f2e", color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer", flexShrink: 0 }}
-                            >-</button>
-                          </div>
-                        </td>
-                      )}
+            <>
+              <div className="sc-toolbar">
+                <input className="sc-input" value={statsSearch} onChange={(e) => setStatsSearch(e.target.value)} placeholder="클랜원 검색" />
+                <span className="sc-hint">열 제목을 누르면 정렬됩니다</span>
+              </div>
+              <div className="sc-tbl-wrap">
+                <table className="sc-tbl">
+                  <thead>
+                    <tr>
+                      {sortTh("nickname", "클랜원")}
+                      {sortTh("mmr", "내전 티어")}
+                      <th>라인 분포</th>
+                      {sortTh("games", "판수")}
+                      {sortTh("winRate", "승률")}
+                      {sortTh("kda", "KDA")}
+                      {isAdmin && <th>MMR 조정</th>}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {sortedStats.map((p) => {
+                      const maxLine = Math.max(1, ...LINES.map((l) => p.lineCounts[l]));
+                      return (
+                        <tr key={p.memberId}>
+                          <td><span className="sc-pn" onClick={() => setDetail(p)}>{p.nickname}</span></td>
+                          <td>
+                            {p.scrimTier
+                              ? <>
+                                  <span className={tierClass(p.scrimTier)}>{p.scrimTier}</span>
+                                  {isAdmin && p.scrimMmr !== null && <span className="sc-mmr">{p.scrimMmr}</span>}
+                                </>
+                              : <span className="sc-muted">-</span>}
+                          </td>
+                          <td>
+                            <span className="sc-lines" title={LINES.map((l) => `${LINE_LABEL[l]} ${p.lineCounts[l]}`).join(" · ")}>
+                              {LINES.map((l) => (
+                                <i key={l} className={p.lineCounts[l] ? "" : "z"} style={{ height: Math.max(2, Math.round((p.lineCounts[l] / maxLine) * 22)) }} />
+                              ))}
+                            </span>
+                          </td>
+                          <td>{p.games > 0 ? `${p.games}판` : <span className="sc-muted">-</span>}</td>
+                          <td>
+                            {p.winRate !== null
+                              ? <span className={`sc-wr ${p.winRate >= 50 ? "up" : "dn"}`}>{p.winRate}%<span className="sc-bar"><i style={{ width: `${p.winRate}%` }} /></span></span>
+                              : <span className="sc-muted">-</span>}
+                          </td>
+                          <td className={p.kda && Number(p.kda) >= 3 ? "sc-kda-good" : ""}>{p.kda ?? <span className="sc-muted">-</span>}</td>
+                          {isAdmin && (
+                            <td>
+                              <span className="sc-mmr-adj">
+                                <input
+                                  type="number" min={1}
+                                  value={editingMmr === p.memberId ? mmrInput : ""}
+                                  onFocus={() => { setEditingMmr(p.memberId); setMmrInput(""); }}
+                                  onChange={(e) => setMmrInput(e.target.value)}
+                                  placeholder="점수"
+                                />
+                                <button className="plus" onClick={() => { const v = Math.max(1, Number(mmrInput) || 0); saveMmr(p.memberId, (p.scrimMmr ?? 0) + v); }}>+</button>
+                                <button className="minus" onClick={() => { const v = Math.max(1, Number(mmrInput) || 0); saveMmr(p.memberId, (p.scrimMmr ?? 0) - v); }}>−</button>
+                              </span>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </>
       )}

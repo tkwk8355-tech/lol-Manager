@@ -18,7 +18,6 @@ interface Party {
 const MODES: Mode[] = ["flex", "solo", "aram", "normal"];
 const TABS: Tab[] = ["all", ...MODES];
 const MODE_KO: Record<Mode, string> = { aram: "칼바람", normal: "일반협곡", flex: "자유랭크", solo: "솔로랭크" };
-const MODE_ICON: Record<Mode, string> = { aram: "🌊", normal: "⚔️", flex: "🏆", solo: "👤" };
 const TAB_KO: Record<Tab, string> = { all: "전체", flex: "자유랭크", solo: "솔로랭크", aram: "칼바람", normal: "일반협곡" };
 
 function fmtStart(startAt: string | null): string {
@@ -229,84 +228,114 @@ export default function PartyPage() {
     finally { setBusyId(null); }
   }
 
+  const participantRows = (
+    list: string[],
+    setList: (fn: (prev: string[]) => string[]) => void,
+    max: number,
+  ) => list.map((nick, i) => (
+    <div key={i} className="pt-prow">
+      <span className="no">{i + 1}</span>
+      <ParticipantInput
+        value={nick}
+        onChange={(v) => setList((prev) => prev.map((x, idx) => idx === i ? v : x))}
+        onAddNext={() => setList((prev) => prev.length >= max ? prev : [...prev, ""])}
+        autoFocusOnMount={i === list.length - 1 && i > 0}
+        isLast={i === list.length - 1}
+        existingValues={list.filter((_, idx) => idx !== i)}
+      />
+      <button type="button" className="pt-icon" title="삭제"
+        onClick={() => setList((prev) => prev.length === 1 ? [""] : prev.filter((_, idx) => idx !== i))}>✕</button>
+    </div>
+  ));
+
   return (
-    <div className="party">
+    <div className="party pt">
       {settingsModal && (
         <div className="modal-backdrop">
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ minWidth: 320 }}>
-            <h3 style={{ marginBottom: 16 }}>⚙️ 파티 점수 설정</h3>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 16 }}>
-              <thead>
-                <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                  <th style={{ padding: "6px 8px", textAlign: "left" }}>모드</th>
-                  <th style={{ padding: "6px 8px", textAlign: "center" }}>지급 포인트</th>
-                  <th style={{ padding: "6px 8px", textAlign: "center" }}>최소 판수</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pointSettings.map((s, i) => (
-                  <tr key={s.mode} style={{ borderBottom: "1px solid var(--border)" }}>
-                    <td style={{ padding: "6px 8px" }}>{{ aram: "칼바람", normal: "일반협곡", flex: "자유랜크", solo: "솔로랜크" }[s.mode] ?? s.mode}</td>
-                    <td style={{ padding: "6px 8px", textAlign: "center" }}>
-                      <input type="number" min={0} value={s.points} style={{ width: 60, textAlign: "center", padding: "4px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)" }}
-                        onChange={(e) => setPointSettings(prev => prev.map((x, j) => j === i ? { ...x, points: Number(e.target.value) } : x))} />
-                    </td>
-                    <td style={{ padding: "6px 8px", textAlign: "center" }}>
-                      <input type="number" min={1} value={s.min_games} style={{ width: 60, textAlign: "center", padding: "4px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)" }}
-                        onChange={(e) => setPointSettings(prev => prev.map((x, j) => j === i ? { ...x, min_games: Number(e.target.value) } : x))} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div className="modal-head">
+              <span>파티 점수 설정</span>
+              <button className="modal-close" onClick={() => setSettingsModal(false)}>×</button>
+            </div>
+            <div className="ui-table-wrap" style={{ marginBottom: 16 }}>
+              <table className="ui-table">
+                <thead>
+                  <tr><th>모드</th><th style={{ textAlign: "center" }}>지급 포인트</th><th style={{ textAlign: "center" }}>최소 판수</th></tr>
+                </thead>
+                <tbody>
+                  {pointSettings.map((s, i) => (
+                    <tr key={s.mode}>
+                      <td style={{ fontWeight: 700 }}>{MODE_KO[s.mode as Mode] ?? s.mode}</td>
+                      <td style={{ textAlign: "center" }}>
+                        <input type="number" min={0} value={s.points} className="ui-input pt-num"
+                          onChange={(e) => setPointSettings(prev => prev.map((x, j) => j === i ? { ...x, points: Number(e.target.value) } : x))} />
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <input type="number" min={1} value={s.min_games} className="ui-input pt-num"
+                          onChange={(e) => setPointSettings(prev => prev.map((x, j) => j === i ? { ...x, min_games: Number(e.target.value) } : x))} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button className="del-btn" onClick={() => setSettingsModal(false)}>취소</button>
-              <button className="sync-btn" disabled={settingsBusy} onClick={saveSettings}>{settingsBusy ? "저장 중..." : "저장"}</button>
+              <button className="btn-secondary" onClick={() => setSettingsModal(false)}>취소</button>
+              <button className="btn-primary" disabled={settingsBusy} onClick={saveSettings}>{settingsBusy ? "저장 중..." : "저장"}</button>
             </div>
           </div>
         </div>
       )}
       {aramModal !== null && (
         <div className="modal-backdrop">
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380 }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
             <div className="modal-head">
-              <span>🌊 칼바람 판수 입력</span>
+              <span>칼바람 판수 입력</span>
               <button className="modal-close" onClick={() => setAramModal(null)}>×</button>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>참가자별 판수를 입력하세요 (4판당 5점, 하루 최대 5점)</p>
+            <p className="pt-hint">참가자별 판수를 입력하세요. (4판당 5점, 하루 최대 5점)</p>
+            <div className="pt-aram-list">
               {aramModal.participants.map((pp) => (
-                <div key={pp.nickname} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ flex: 1, fontWeight: 700, fontSize: 14 }}>{pp.nickname}</span>
+                <div key={pp.nickname} className="pt-aram-row">
+                  <span>{pp.nickname}</span>
                   <input
-                    type="number" min={0} placeholder="판수"
+                    type="number" min={0} placeholder="판수" className="ui-input pt-num"
                     value={aramMemberGames[pp.nickname] ?? ""}
                     onChange={(e) => setAramMemberGames(prev => ({ ...prev, [pp.nickname]: e.target.value }))}
-                    style={{ width: 70, padding: "6px 8px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14, textAlign: "center" }}
                   />
                 </div>
               ))}
-              <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                <button className="sync-btn" style={{ flex: 1 }} onClick={() => {
-                  const mg: Record<string,number> = {};
-                  for (const pp of aramModal!.participants) {
-                    const g = Number(aramMemberGames[pp.nickname] ?? 0);
-                    mg[pp.nickname] = isNaN(g) ? 0 : g;
-                  }
-                  const id = aramModal!.id;
-                  setAramModal(null);
-                  deleteParty(id, mg);
-                }}>펑</button>
-                <button className="cancel-btn" style={{ flex: 1 }} onClick={() => setAramModal(null)}>취소</button>
-              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+              <button className="btn-secondary" onClick={() => setAramModal(null)}>취소</button>
+              <button className="btn-primary" onClick={() => {
+                const mg: Record<string,number> = {};
+                for (const pp of aramModal!.participants) {
+                  const g = Number(aramMemberGames[pp.nickname] ?? 0);
+                  mg[pp.nickname] = isNaN(g) ? 0 : g;
+                }
+                const id = aramModal!.id;
+                setAramModal(null);
+                deleteParty(id, mg);
+              }}>파티 종료</button>
             </div>
           </div>
         </div>
       )}
-      <h2 className="party-title">또간집 파티 기록 장부</h2>
-      <p className="party-sub">전체 · 자랭 · 솔랭 · 칼바람 · 일반 협곡</p>
 
-      <div className="scrim-tabs">
+      <div className="ui-page-head">
+        <div>
+          <h2>파티 모집</h2>
+          <p>자유랭크 · 솔로랭크 · 칼바람 · 일반협곡 파티 기록</p>
+        </div>
+        {user && isAdmin(user.role) && (
+          <div className="ui-page-actions">
+            <button type="button" className="btn-secondary" onClick={openSettings}>⚙ 점수 설정</button>
+          </div>
+        )}
+      </div>
+
+      <div className="ui-tabs">
         {TABS.map((t) => (
           <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>{TAB_KO[t]}</button>
         ))}
@@ -324,74 +353,78 @@ export default function PartyPage() {
       ) : (
         <>
           {isAdmin(user.role) && (
-            <form className="party-create-form" onSubmit={createParty}>
-              <select className="party-mode-select" value={createMode} onChange={(e) => setCreateMode(e.target.value as Mode)}>
-                {MODES.map((m) => <option key={m} value={m}>{MODE_KO[m]}</option>)}
-              </select>
-              <input className="party-note-input" placeholder="메모 (선택)" value={note}
-                onChange={(e) => setNote(e.target.value)} maxLength={255} />
-              <input
-                type="date"
-                className="party-time-text-input"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                required
-              />
-              <input
-                className="party-time-text-input"
-                placeholder="시작 시간 (2100 → 21:00)"
-                value={startTime}
-                onChange={(e) => {
-                  let v = e.target.value.replace(/[^0-9]/g, "").slice(0, 4);
-                  if (v.length === 4) v = v.slice(0, 2) + ":" + v.slice(2);
-                  setStartTime(v);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    const first = document.querySelector<HTMLInputElement>(".party-participant-nick-input");
-                    first?.focus();
-                  }
-                }}
-                maxLength={5}
-                required
-                onInvalid={(e) => (e.target as HTMLInputElement).setCustomValidity("시작 시간을 입력하세요.")}
-                onInput={(e) => (e.target as HTMLInputElement).setCustomValidity("")}
-              />
-              <div className="party-participants-input">
-                <span className="party-participants-label">참가자</span>
-                {participants.map((nick, i) => (
-                  <div key={i} className="party-participant-row">
-                    <ParticipantInput value={nick} onChange={(v) => updateParticipant(i, v)} onAddNext={addParticipant} autoFocusOnMount={i === participants.length - 1 && i > 0} isLast={i === participants.length - 1} existingValues={participants.filter((_, idx) => idx !== i)} />
-                    <button type="button" className="party-participant-add-inline" onClick={addParticipant} title="인원 추가" disabled={participants.length >= createMaxSize}>+</button>
-                    <button type="button" className="party-participant-remove" onClick={() => removeParticipant(i)}>✕</button>
-                  </div>
-                ))}
+            <form className="ui-card pt-create" onSubmit={createParty}>
+              <div className="pt-create-head">
+                <b>새 파티</b>
+                <div className="pt-modes">
+                  {MODES.map((m) => (
+                    <button key={m} type="button" className={`pt-mode ${createMode === m ? "on" : ""}`}
+                      onClick={() => { setCreateMode(m); setParticipants((prev) => prev.slice(0, m === "solo" ? 2 : 5)); }}>
+                      {MODE_KO[m]}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <button type="submit" disabled={creating}>{creating ? "생성 중..." : "파티 만들기"}</button>
+              <div className="pt-create-grid">
+                <label className="pt-field">
+                  <span>날짜</span>
+                  <input type="date" className="ui-input" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+                </label>
+                <label className="pt-field">
+                  <span>시작 시간</span>
+                  <input
+                    className="ui-input"
+                    placeholder="2100 → 21:00"
+                    value={startTime}
+                    onChange={(e) => {
+                      let v = e.target.value.replace(/[^0-9]/g, "").slice(0, 4);
+                      if (v.length === 4) v = v.slice(0, 2) + ":" + v.slice(2);
+                      setStartTime(v);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const first = document.querySelector<HTMLInputElement>(".party-participant-nick-input");
+                        first?.focus();
+                      }
+                    }}
+                    maxLength={5}
+                    required
+                    onInvalid={(e) => (e.target as HTMLInputElement).setCustomValidity("시작 시간을 입력하세요.")}
+                    onInput={(e) => (e.target as HTMLInputElement).setCustomValidity("")}
+                  />
+                </label>
+              </div>
+              <div className="pt-field">
+                <span>참가자 <small>{participants.filter((x) => x.trim()).length}/{createMaxSize}</small></span>
+                <div className="pt-plist">
+                  {participantRows(participants, setParticipants, createMaxSize)}
+                  {participants.length < createMaxSize && (
+                    <button type="button" className="pt-add" onClick={addParticipant}>+ 참가자 추가</button>
+                  )}
+                </div>
+              </div>
+              <div className="pt-create-foot">
+                <button type="submit" className="btn-primary" disabled={creating}>{creating ? "생성 중..." : "파티 만들기"}</button>
+              </div>
             </form>
           )}
-          {isAdmin(user.role) && (
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-              <button type="button" className="excel-btn-small" onClick={openSettings}>⚙️ 점수 설정</button>
-            </div>
-          )}
 
-          {loading && <p className="party-empty">불러오는 중...</p>}
-          {!loading && parties.length === 0 && <p className="party-empty">모집 중인 파티가 없습니다.</p>}
+          {loading && <p className="ui-empty">불러오는 중...</p>}
+          {!loading && parties.length === 0 && <p className="ui-empty">모집 중인 파티가 없습니다.</p>}
 
-          <div className="party-list" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+          <div className="pt-list">
             {parties.map((p) => {
               const isEditing = editingId === p.id;
+              const cnt = p.participants.length;
               return (
-                <div className={`party-card ${p.status}`} key={p.id}>
-                  <div className="party-card-head">
-                    <span className={`party-mode-badge mode-${p.mode}`}>{MODE_ICON[p.mode]} {MODE_KO[p.mode]}</span>
-                    <span className="party-card-title">{p.note || ""}</span>
-                    <span className="party-start">{fmtStart(p.startAt)}</span>
-                    <span className="party-count">{p.participants.length}명</span>
+                <div className={`ui-card pt-card ${p.status}`} key={p.id}>
+                  <div className="pt-card-head">
+                    <span className={`party-mode-badge mode-${p.mode}`}>{MODE_KO[p.mode]}</span>
+                    <span className="pt-time">{fmtStart(p.startAt)}</span>
+                    <span className={`pt-count ${cnt >= p.maxSize ? "full" : ""}`}>{cnt}/{p.maxSize}</span>
                     {isAdmin(user.role) && !isEditing && (
-                      <button className="party-cancel-btn" title="파티 삭제" disabled={busyId === p.id}
+                      <button className="pt-icon pt-del" title="파티 삭제 (포인트 없음)" disabled={busyId === p.id}
                         onClick={() => {
                           if (!confirm("파티를 삭제할까요? (포인트 지급 없음)")) return;
                           setBusyId(p.id);
@@ -401,47 +434,36 @@ export default function PartyPage() {
                         }}>✕</button>
                     )}
                   </div>
+                  {p.note && <div className="pt-note">{p.note}</div>}
 
                   {isEditing ? (
-                    <div className="party-edit-area">
-                      {editParticipants.map((nick, i) => (
-                        <div key={i} className="party-participant-row">
-                          <ParticipantInput
-                            value={nick}
-                            onChange={(v) => setEditParticipants((prev) => prev.map((x, idx) => idx === i ? v : x))}
-                            onAddNext={() => setEditParticipants((prev) => prev.length >= p.maxSize ? prev : [...prev, ""])}
-                            autoFocusOnMount={i === editParticipants.length - 1 && i > 0}
-                            isLast={i === editParticipants.length - 1}
-                            existingValues={editParticipants.filter((_, idx) => idx !== i)}
-                          />
-                          <button type="button" className="party-participant-add-inline"
-                            onClick={() => setEditParticipants((prev) => prev.length >= p.maxSize ? prev : [...prev, ""])} disabled={editParticipants.length >= p.maxSize}>+</button>
-                          <button type="button" className="party-participant-remove"
-                            onClick={() => setEditParticipants((prev) => prev.length === 1 ? [""] : prev.filter((_, idx) => idx !== i))}>✕</button>
-                        </div>
-                      ))}
-                      <div className="party-actions" style={{ marginTop: 8 }}>
-                        <button className="save-btn" disabled={busyId === p.id} onClick={() => saveEdit(p.id)}>
+                    <div className="pt-plist" style={{ marginTop: 10 }}>
+                      {participantRows(editParticipants, setEditParticipants, p.maxSize)}
+                      {editParticipants.length < p.maxSize && (
+                        <button type="button" className="pt-add" onClick={() => setEditParticipants((prev) => [...prev, ""])}>+ 참가자 추가</button>
+                      )}
+                      <div className="pt-actions">
+                        <button className="btn-secondary" onClick={() => setEditingId(null)}>취소</button>
+                        <button className="btn-primary" disabled={busyId === p.id} onClick={() => saveEdit(p.id)}>
                           {busyId === p.id ? "저장 중..." : "저장"}
                         </button>
-                        <button className="cancel-btn" onClick={() => setEditingId(null)}>취소</button>
                       </div>
                     </div>
                   ) : (
-                    <div className="party-participants">
+                    <div className="pt-chips">
                       {p.participants.map((pp, i) => (
-                        <span className="party-participant-chip" key={i}>{pp.nickname}</span>
+                        <span className="pt-chip" key={i}>{pp.nickname}</span>
                       ))}
                     </div>
                   )}
 
                   {isAdmin(user.role) && !isEditing && (
-                    <div className="party-actions">
+                    <div className="pt-actions">
                       <button className="edit-btn" onClick={() => {
                         setEditingId(p.id);
-                        setEditParticipants(p.participants.map((pp) => pp.nickname));
-                      }}>수정</button>
-                      <button className="party-boom-btn" disabled={busyId === p.id}
+                        setEditParticipants(p.participants.length ? p.participants.map((pp) => pp.nickname) : [""]);
+                      }}>참가자 수정</button>
+                      <button className="pt-end" disabled={busyId === p.id}
                         onClick={() => {
                           if (!confirm("파티를 종료할까요?")) return;
                           if (p.mode === "aram") { setAramMemberGames({}); setAramModal({id: p.id, participants: (p.historyParticipants ?? []).map(n => ({userId: null, nickname: n}))}); }

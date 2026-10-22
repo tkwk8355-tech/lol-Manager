@@ -52,36 +52,37 @@ export async function GET() {
     const ratingMap = new Map<number, number>(ratingRows.map((r: any) => [r.member_id, r.mmr]));
 
     const [parts] = await pool.query(
-      `SELECT p.member_id, p.line, p.champion, p.kills, p.deaths, p.assists,
+      `SELECT p.member_id, p.line, p.champion, p.kills, p.deaths, p.assists, p.is_mvp,
               IF(m.winner_team > 0 AND p.team = m.winner_team, 1, 0) AS win
        FROM scrim_participants p
        JOIN scrim_matches m ON m.id = p.match_id WHERE m.status = 'done'`
     ) as [any[], any];
 
-    // MVP 횟수 (scrim_mvp 타입 point_logs)
-    const [mvpRows] = await pool.query(
-      `SELECT member_id, COUNT(*) AS cnt FROM point_logs WHERE type = 'scrim_mvp' GROUP BY member_id`
-    ) as [any[], any];
-    const mvpCountByMember = new Map<number, number>(mvpRows.map((r: any) => [r.member_id, Number(r.cnt)]));
+    // MVP 횟수: 경기별 MVP는 scrim_participants.is_mvp에 저장된다 (아래 parts 집계에서 함께 센다).
+    // 예전엔 point_logs의 'scrim_mvp' 로그를 셌는데, 현재는 그 로그가 기록되지 않아 항상 0이 나왔다.
+    const mvpCountByMember = new Map<number, number>();
 
     const LINES = ["TOP","JG","MID","ADC","SUP"];
-    const emptyLineStats = () => Object.fromEntries(LINES.map((l) => [l, {games:0,kills:0,deaths:0,assists:0}]));
+    const emptyLineStats = () => Object.fromEntries(LINES.map((l) => [l, {games:0,wins:0,kills:0,deaths:0,assists:0}]));
+    type ChampAgg = { games:number; wins:number; kills:number; deaths:number; assists:number };
     const emptyLineChamps = () => Object.fromEntries(LINES.map((l) => [l, new Map<string,number>()]));
 
     const statMap = new Map<number, {
-      lineStats: Record<string,{games:number;kills:number;deaths:number;assists:number}>;
+      lineStats: Record<string,{games:number;wins:number;kills:number;deaths:number;assists:number}>;
       lineChamps: Record<string, Map<string,number>>;
+      champs: Map<string, ChampAgg>; // 라인 구분 없이 챔피언별 누적 기록 (상세보기 챔피언 통계용)
       kills:number; deaths:number; assists:number; games:number; wins:number;
     }>();
     for (const p of parts) {
       if (!statMap.has(p.member_id)) statMap.set(p.member_id, {
-        lineStats: emptyLineStats(), lineChamps: emptyLineChamps(),
+        lineStats: emptyLineStats(), lineChamps: emptyLineChamps(), champs: new Map(),
         kills:0, deaths:0, assists:0, games:0, wins:0
       });
       const s = statMap.get(p.member_id)!;
       const line = (p.line ?? "").toUpperCase();
       if (LINES.includes(line)) {
         s.lineStats[line].games++;
+        if (p.win === 1) s.lineStats[line].wins++;
         s.lineStats[line].kills += p.kills;
         s.lineStats[line].deaths += p.deaths;
         s.lineStats[line].assists += p.assists;
@@ -90,6 +91,13 @@ export async function GET() {
           cm.set(p.champion, (cm.get(p.champion) ?? 0) + 1);
         }
       }
+      if (p.champion) {
+        const c = s.champs.get(p.champion) ?? { games:0, wins:0, kills:0, deaths:0, assists:0 };
+        c.games++; if (p.win === 1) c.wins++;
+        c.kills += p.kills; c.deaths += p.deaths; c.assists += p.assists;
+        s.champs.set(p.champion, c);
+      }
+      if (Number(p.is_mvp) === 1) mvpCountByMember.set(p.member_id, (mvpCountByMember.get(p.member_id) ?? 0) + 1);
       s.kills += p.kills; s.deaths += p.deaths; s.assists += p.assists; s.games++;
       if (p.win === 1) s.wins++;
     }
@@ -97,7 +105,7 @@ export async function GET() {
     const players = members.map((m) => {
       const t = tierByMember.get(m.id) ?? null;
       const s = statMap.get(m.id) ?? {
-        lineStats: emptyLineStats(), lineChamps: emptyLineChamps(),
+        lineStats: emptyLineStats(), lineChamps: emptyLineChamps(), champs: new Map<string, ChampAgg>(),
         kills:0, deaths:0, assists:0, games:0, wins:0
       };
       const lineCounts = Object.fromEntries(LINES.map((l) => [l, s.lineStats[l].games]));
@@ -105,6 +113,15 @@ export async function GET() {
         l,
         [...s.lineChamps[l].entries()].sort((a,b) => b[1]-a[1]).slice(0,3).map(([id,count]) => ({id,count})),
       ]));
+      // 챔피언별 통계: 판수 많은 순 상위 9개 (승률 / KDA 포함)
+      const champStats = [...s.champs.entries()]
+        .sort((a, b) => b[1].games - a[1].games || b[1].wins - a[1].wins)
+        .slice(0, 9)
+        .map(([id, c]) => ({
+          id, games: c.games, wins: c.wins, kills: c.kills, deaths: c.deaths, assists: c.assists,
+          winRate: Math.round((c.wins / c.games) * 100),
+          kda: ((c.kills + c.assists) / Math.max(c.deaths, 1)).toFixed(2),
+        }));
       const kda = s.games > 0 ? ((s.kills + s.assists) / Math.max(s.deaths, 1)).toFixed(2) : null;
       const winRate = s.games > 0 ? Math.round((s.wins / s.games) * 100) : null;
       const mvpCount = mvpCountByMember.get(m.id) ?? 0;
@@ -114,7 +131,7 @@ export async function GET() {
       return {
         memberId: m.id, nickname: m.nickname,
         tier: t?.tier ?? null, rank: t?.rank ?? null, lp: t?.lp ?? 0,
-        lineCounts, lineStats: s.lineStats, lineChamps, kills: s.kills, deaths: s.deaths, assists: s.assists, games: s.games, wins: s.wins, kda, winRate,
+        lineCounts, lineStats: s.lineStats, lineChamps, champStats, kills: s.kills, deaths: s.deaths, assists: s.assists, games: s.games, wins: s.wins, kda, winRate,
         mvpCount, scrimScore,
         scrimMmr: ratingMap.has(m.id) ? ratingMap.get(m.id)! : null,
         scrimTier: ratingMap.has(m.id) ? SCRIM_TIER_KO[mmrToScrimTier(ratingMap.get(m.id)!)] : null,

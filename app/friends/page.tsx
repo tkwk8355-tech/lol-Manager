@@ -106,18 +106,25 @@ export default function FriendsPage() {
   );
 
   return (
-    <div className="scrim">
-      <h2 className="scrim-title">지인 관리</h2>
-      <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>
-        클랜원 1인당 지인 최대 3명. 파티 시 함께 묶이는 인원을 지정합니다.
-      </p>
+    <div className="fr">
+      <div className="ui-page-head">
+        <div>
+          <h2>지인 관리</h2>
+          <p>클랜원 1인당 지인 최대 3명 · 파티 시 함께 묶이는 인원을 지정합니다.</p>
+        </div>
+        {isAdmin && (
+          <div className="ui-page-actions">
+            <button className="btn-primary" onClick={openAddModal}>+ 지인 추가</button>
+          </div>
+        )}
+      </div>
 
       {/* 지인 관리 모달 */}
       {modal && (
         <div className="modal-backdrop">
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
             <div className="modal-head">
-              <span>👥 {modal.id === -1 ? "클랜원 선택" : `${modalMember?.nickname} 지인 관리`}</span>
+              <span>{modal.id === -1 ? "클랜원 선택" : `${modalMember?.nickname} · 지인 관리`}</span>
               <button className="modal-close" onClick={() => { setModal(null); setMemberSearch(""); setFriendSearch(""); }}>×</button>
             </div>
 
@@ -130,7 +137,8 @@ export default function FriendsPage() {
                 <div>
                   <input
                     autoFocus
-                    placeholder="클랜원 검색..."
+                    className="ui-input fr-full"
+                    placeholder="지인을 등록할 클랜원 검색"
                     value={memberSearch}
                     onChange={(e) => setMemberSearch(e.target.value)}
                     onKeyDown={(e) => {
@@ -138,18 +146,15 @@ export default function FriendsPage() {
                         setModal(memberCandidates[0]); setMemberSearch("");
                       }
                     }}
-                    style={{ width: "100%", padding: "8px 12px", borderRadius: 8,
-                      border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13, marginBottom: 6 }}
                   />
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 300, overflowY: "auto" }}>
+                  <div className="fr-pick-list">
                     {memberSearch.trim() && memberCandidates.slice(0, 30).map((m) => (
-                      <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8,
-                        background: "var(--card-2)", borderRadius: 8, padding: "7px 10px", fontSize: 13, cursor: "pointer" }}
-                        onClick={() => { setModal(m); setMemberSearch(""); }}>
-                        <span style={{ flex: 1 }}>{m.nickname}</span>
-                        <span style={{ fontSize: 11, color: "var(--muted)" }}>지인 {m.friends.length}/3</span>
-                      </div>
+                      <button key={m.id} className="fr-pick" onClick={() => { setModal(m); setMemberSearch(""); }}>
+                        <span>{m.nickname}</span>
+                        <small>지인 {m.friends.length}/3</small>
+                      </button>
                     ))}
+                    {!memberSearch.trim() && <p className="fr-hint">이름을 입력하면 클랜원이 나와요.</p>}
                   </div>
                 </div>
               );
@@ -158,68 +163,51 @@ export default function FriendsPage() {
             {/* 2단계: 지인 관리 */}
             {modal.id !== -1 && modalMember && (
               <>
-                <button style={{ fontSize: 12, color: "var(--muted)", background: "none", border: "none",
-                  cursor: "pointer", padding: 0, marginBottom: 12 }}
-                  onClick={() => { setModal({ id: -1, nickname: "", friends: [] }); setFriendSearch(""); }}>
+                <button className="fr-back" onClick={() => { setModal({ id: -1, nickname: "", friends: [] }); setFriendSearch(""); }}>
                   ← 다른 클랜원 선택
                 </button>
 
-                {/* 현재 지인 목록 */}
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, fontWeight: 700 }}>
-                    현재 지인 ({modalMember.friends.length}/3)
-                  </div>
+                <div className="fr-sec">
+                  <div className="fr-sec-title">현재 지인 <small>{modalMember.friends.length}/3</small></div>
                   {modalMember.friends.length === 0
-                    ? <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>등록된 지인이 없습니다.</p>
+                    ? <p className="fr-hint">등록된 지인이 없습니다.</p>
                     : modalMember.friends.map((f) => (
-                      <div key={f.friendId} style={{ display: "flex", alignItems: "center", gap: 8,
-                        background: "var(--card-2)", borderRadius: 8, padding: "7px 10px", fontSize: 13, marginBottom: 4 }}>
-                        <span style={{ flex: 1, fontWeight: 700 }}>{f.friendName}</span>
-                        <button className="del-btn small" disabled={busy}
-                          onClick={() => removeFriend(modalMember.id, f.friendId)}>삭제</button>
+                      <div key={f.friendId} className="fr-item">
+                        <b>{f.friendName}</b>
+                        <button className="del-btn small" disabled={busy} onClick={() => removeFriend(modalMember.id, f.friendId)}>삭제</button>
                       </div>
                     ))
                   }
                 </div>
 
-                {/* 지인 추가 */}
                 {modalMember.friends.length < 3 ? (
-                  <div>
-                    <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, fontWeight: 700 }}>지인 추가</div>
-                    <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-                      <input
-                        autoFocus
-                        placeholder="클랜원 검색..."
-                        value={friendSearch}
-                        onChange={(e) => setFriendSearch(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && candidates.length > 0) {
-                            addFriend(modalMember.id, candidates[0].id);
-                            setFriendSearch("");
-                          }
-                        }}
-                        style={{ flex: 1, padding: "8px 12px", borderRadius: 8,
-                          border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
-                      />
-                      <button className="sync-btn" disabled={busy || candidates.length === 0}
-                        onClick={() => { if (candidates.length > 0) { addFriend(modalMember.id, candidates[0].id); setFriendSearch(""); } }}>
-                        등록
-                      </button>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 200, overflowY: "auto" }}>
+                  <div className="fr-sec">
+                    <div className="fr-sec-title">지인 추가</div>
+                    <input
+                      autoFocus
+                      className="ui-input fr-full"
+                      placeholder="클랜원 검색 (Enter로 첫 번째 추가)"
+                      value={friendSearch}
+                      onChange={(e) => setFriendSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && candidates.length > 0) {
+                          addFriend(modalMember.id, candidates[0].id);
+                          setFriendSearch("");
+                        }
+                      }}
+                    />
+                    <div className="fr-pick-list short">
                       {candidates.slice(0, 20).map((c) => (
-                        <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8,
-                          background: "var(--card-2)", borderRadius: 8, padding: "7px 10px", fontSize: 13 }}>
-                          <span style={{ flex: 1 }}>{c.nickname}</span>
-                          <button className="sync-btn" style={{ padding: "4px 10px", fontSize: 12 }}
-                            disabled={busy} onClick={() => addFriend(modalMember.id, c.id)}>추가</button>
+                        <div key={c.id} className="fr-item">
+                          <span>{c.nickname}</span>
+                          <button className="edit-btn" disabled={busy} onClick={() => addFriend(modalMember.id, c.id)}>추가</button>
                         </div>
                       ))}
-                      {candidates.length === 0 && <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>추가 가능한 클랜원이 없습니다.</p>}
+                      {candidates.length === 0 && <p className="fr-hint">추가 가능한 클랜원이 없습니다.</p>}
                     </div>
                   </div>
                 ) : (
-                  <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>지인이 최대(3명)입니다.</p>
+                  <p className="fr-hint">지인이 최대(3명)입니다.</p>
                 )}
               </>
             )}
@@ -229,46 +217,29 @@ export default function FriendsPage() {
 
       {error && <div className="error">{error}</div>}
 
-      {/* 지인 추가 버튼 (운영진만) */}
-      {isAdmin && (
-        <div style={{ marginBottom: 14 }}>
-          <button className="sync-btn" onClick={openAddModal}>+ 지인 추가</button>
-        </div>
-      )}
-
-      {/* 검색 */}
-      <div style={{ marginBottom: 14, display: "flex", gap: 8 }}>
-        <input
-          placeholder="클랜원 검색..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ flex: 1, padding: "10px 14px", borderRadius: 8,
-            border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14 }}
-        />
+      <div className="fr-toolbar">
+        <input className="ui-input" placeholder="클랜원 검색" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <span className="fr-count">{filtered.length}명</span>
       </div>
 
-      {loading ? <p>불러오는 중...</p> : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+      {loading ? <p className="ui-empty">불러오는 중...</p> : (
+        <div className="fr-grid">
           {filtered.map((m) => (
-              <div key={m.id} className="home-panel" style={{ padding: "12px 14px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                  <span style={{ fontWeight: 800, fontSize: 14 }}>{m.nickname}</span>
-                  {isAdmin && (
-                    <button className="edit-btn" style={{ fontSize: 11, padding: "3px 8px" }}
-                      onClick={() => { setModal(m); setFriendSearch(""); }}>관리</button>
-                  )}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  {m.friends.map((f) => (
-                    <div key={f.friendId} style={{ padding: "6px 10px", borderRadius: 8,
-                      background: "var(--card-2)", fontSize: 13, fontWeight: 700 }}>
-                      {f.friendName}
-                    </div>
-                  ))}
-                </div>
+            <div key={m.id} className="ui-card fr-card">
+              <div className="fr-card-head">
+                <b>{m.nickname}</b>
+                <span className="fr-badge">{m.friends.length}/3</span>
+                {isAdmin && (
+                  <button className="edit-btn fr-manage" onClick={() => { setModal(m); setFriendSearch(""); }}>관리</button>
+                )}
               </div>
-            ))}
-          {filtered.length === 0 && <p style={{ gridColumn: "1/-1", color: "var(--muted)" }}>등록된 지인이 없습니다.</p>}
+              <div className="fr-chips">
+                {m.friends.map((f) => <span key={f.friendId} className="pt-chip">{f.friendName}</span>)}
+                {m.friends.length === 0 && <span className="fr-none">지인 없음</span>}
+              </div>
+            </div>
+          ))}
+          {filtered.length === 0 && <p className="ui-empty" style={{ gridColumn: "1/-1" }}>등록된 지인이 없습니다.</p>}
         </div>
       )}
     </div>

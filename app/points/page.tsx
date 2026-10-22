@@ -68,6 +68,7 @@ export default function PointsPage() {
   const pointCommentRef = useRef<HTMLInputElement>(null);
   const [pointMemberActiveIdx, setPointMemberActiveIdx] = useState(-1);
   const [pointMsg, setPointMsg] = useState("");
+  const [rankSearch, setRankSearch] = useState("");
 
   // 상점 아이템
   const [shopItems, setShopItems] = useState<ShopItem[]>([]);
@@ -241,9 +242,23 @@ export default function PointsPage() {
     <div className="userinfo"><div className="party-login-notice">접근 권한이 없습니다.</div></div>
   );
 
+  const LOG_TYPE: Record<string, { label: string; cls: string }> = {
+    solo: { label: "솔로랭크", cls: "gold" }, flex: { label: "자유랭크", cls: "orange" }, normal: { label: "일반", cls: "green" },
+    scrim: { label: "내전", cls: "purple" }, aram: { label: "칼바람", cls: "cyan" }, manual: { label: "수동", cls: "blue" },
+    shop: { label: "상점", cls: "red" }, birthday: { label: "생일보너스", cls: "pink" }, rookie_session: { label: "수습", cls: "green" },
+  };
+  const rankList = members.map((m, i) => ({ ...m, rank: i + 1 })).filter((m) => !rankSearch.trim() || m.nickname.toLowerCase().includes(rankSearch.trim().toLowerCase()));
+  const pageCount = Math.ceil(pointTotal / 50);
+
   return (
-    <div style={{ maxWidth: 1400, margin: "0 auto", padding: "0 16px" }}>
-      <div className="scrim-tabs" style={{ marginBottom: 16 }}>
+    <div className="po">
+      <div className="ui-page-head">
+        <div>
+          <h2>포인트</h2>
+          <p>활동 포인트 현황 · 적립 내역 · 포인트 상점</p>
+        </div>
+      </div>
+      <div className="ui-tabs">
         <button className={subTab === "rank" ? "on" : ""} onClick={() => setSubTab("rank")}>포인트 현황</button>
         <button className={subTab === "log" ? "on" : ""} onClick={() => setSubTab("log")}>적립 / 로그</button>
         <button className={subTab === "shop" ? "on" : ""} onClick={() => setSubTab("shop")}>포인트 상점</button>
@@ -252,25 +267,26 @@ export default function PointsPage() {
       {/* 상점 구매 모달 */}
       {shopModal && (
         <div className="modal-backdrop">
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 360 }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
             <div className="modal-head">
-              <span>구매: {shopModal.name}</span>
+              <span>상품 구매</span>
               <button className="modal-close" onClick={() => setShopModal(null)}>×</button>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>조건: {shopModal.condition} / 소모: {shopModal.cost > 0 ? `${shopModal.cost}P` : "포인트 무관"}</p>
-              <select value={shopMemberId} onChange={(e) => setShopMemberId(e.target.value)}
-                style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14 }}>
+            <div className="po-buy-item">
+              <b>{shopModal.name}</b>
+              <span>조건 {shopModal.condition} · {shopModal.cost > 0 ? `${shopModal.cost}P 소모` : "포인트 무관"}</span>
+            </div>
+            <label className="po-field">
+              <span>구매할 클랜원</span>
+              <select className="ui-select" value={shopMemberId} onChange={(e) => setShopMemberId(e.target.value)}>
                 <option value="">클랜원 선택</option>
                 {members.map((m) => <option key={m.id} value={m.id}>{m.nickname} ({m.totalPoints}P)</option>)}
               </select>
-              {shopErr && <span style={{ fontSize: 12, color: "var(--loss-text)" }}>{shopErr}</span>}
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="sync-btn" style={{ flex: 1 }} disabled={shopBusy} onClick={submitShopPurchase}>
-                  {shopBusy ? "처리 중..." : "구매"}
-                </button>
-                <button className="cancel-btn" style={{ flex: 1 }} onClick={() => setShopModal(null)}>취소</button>
-              </div>
+            </label>
+            {shopErr && <div className="po-msg bad">{shopErr}</div>}
+            <div className="po-modal-foot">
+              <button className="btn-secondary" onClick={() => setShopModal(null)}>취소</button>
+              <button className="btn-primary" disabled={shopBusy} onClick={submitShopPurchase}>{shopBusy ? "처리 중..." : "구매"}</button>
             </div>
           </div>
         </div>
@@ -278,49 +294,42 @@ export default function PointsPage() {
 
       {/* 포인트 현황 */}
       {subTab === "rank" && (
-        <>
-          {loading ? <p>불러오는 중...</p> : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-              {members.map((m, i) => {
+        loading ? <p className="ui-empty">불러오는 중...</p> : members.length === 0 ? <p className="ui-empty">데이터가 없습니다.</p> : (
+          <>
+            <div className="po-toolbar">
+              <input className="ui-input" placeholder="클랜원 검색" value={rankSearch} onChange={(e) => setRankSearch(e.target.value)} />
+              <span className="po-legend">
+                활동 등급 {ACTIVITY_TIERS.slice().reverse().map((t) => <span key={t.label} style={{ color: t.color }}>{t.label}</span>)}
+              </span>
+            </div>
+            <div className="po-grid">
+              {rankList.map((m) => {
                 const at = activityTier(m.totalPoints);
                 return (
-                  <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8,
-                    background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px" }}>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: "var(--muted)", width: 24, flexShrink: 0, textAlign: "center" }}>
-                      {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}
-                    </span>
-                    <span style={{ fontWeight: 700, fontSize: 13, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {m.nickname}
-                    </span>
-                    {at && (
-                      <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5, flexShrink: 0,
-                        background: `${at.color}22`, color: at.color, border: `1px solid ${at.color}55` }}>
-                        {at.label}
-                      </span>
-                    )}
-                    <span style={{ fontWeight: 800, fontSize: 13, flexShrink: 0,
-                      color: m.totalPoints > 0 ? "var(--win-text)" : "var(--muted)" }}>
-                      {m.totalPoints}P
-                    </span>
+                  <div key={m.id} className="po-row">
+                    <span className={`rk ${m.rank <= 3 ? "top n" + m.rank : ""}`}>{m.rank}</span>
+                    <span className="nm">{m.nickname}</span>
+                    {at && <span className="po-tier" style={{ color: at.color, background: `${at.color}22` }}>{at.label}</span>}
+                    <span className={`pt ${m.totalPoints > 0 ? "" : "zero"}`}>{m.totalPoints.toLocaleString()}P</span>
                   </div>
                 );
               })}
-              {members.length === 0 && (
-                <div style={{ gridColumn: "1 / -1", padding: 16, color: "var(--muted)", textAlign: "center" }}>데이터가 없습니다.</div>
-              )}
+              {rankList.length === 0 && <p className="ui-empty" style={{ gridColumn: "1 / -1" }}>검색 결과가 없습니다.</p>}
             </div>
-          )}
-        </>
+          </>
+        )
       )}
 
       {/* 적립 / 로그 */}
       {subTab === "log" && (
-        <div>
-          <div className="home-panel" style={{ marginBottom: 16 }}>
-            <div className="home-panel-head"><h3>포인트 수동 지급</h3></div>
-            <form onSubmit={givePoint} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <div ref={pointMemberWrapRef} style={{ position: "relative" }}>
+        <div className="po-stack">
+          <div className="ui-card ui-card-pad">
+            <h3 className="ui-section-title">포인트 수동 지급</h3>
+            <form onSubmit={givePoint} className="po-give">
+              <div ref={pointMemberWrapRef} className="po-field" style={{ position: "relative" }}>
+                <span>클랜원</span>
                 <input
+                  className={`ui-input ${pointForm.memberId ? "picked" : ""}`}
                   value={pointMemberQuery}
                   onChange={(e) => { setPointMemberQuery(e.target.value); setPointMemberOpen(true); setPointMemberActiveIdx(-1); if (!e.target.value) setPointForm((p) => ({ ...p, memberId: "" })); }}
                   onFocus={() => setPointMemberOpen(true)}
@@ -334,210 +343,146 @@ export default function PointsPage() {
                       else setPointMemberOpen(false);
                     } else if (e.key === "Escape") { setPointMemberOpen(false); setPointMemberActiveIdx(-1); }
                   }}
-                  placeholder="클랜원 검색"
-                  style={{ width: 200, padding: "9px 12px", borderRadius: 8, border: `1px solid ${pointForm.memberId ? "var(--accent)" : "var(--border)"}`, background: "var(--card)", color: "var(--text)", fontSize: 14 }}
+                  placeholder="이름 검색"
                 />
                 {pointMemberOpen && filteredPointMembers.length > 0 && (
-                  <div className="slot-candidates" style={{ zIndex: 50, minWidth: 200 }}>
+                  <div className="slot-candidates" style={{ zIndex: 50, minWidth: 220, top: "100%" }}>
                     {filteredPointMembers.map((m, i) => (
-                      <button key={m.id} className={i === pointMemberActiveIdx ? "active" : ""} onMouseDown={() => selectPointMember(m)}>
+                      <button key={m.id} type="button" className={i === pointMemberActiveIdx ? "active" : ""} onMouseDown={() => selectPointMember(m)}>
                         {m.nickname} ({m.totalPoints}P)
                       </button>
                     ))}
                   </div>
                 )}
               </div>
-              <input ref={pointInputRef} type="number" placeholder="포인트 (음수 가능)" value={pointForm.points}
-                onChange={(e) => setPointForm((p) => ({ ...p, points: e.target.value }))}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); pointCommentRef.current?.focus(); } }}
-                style={{ width: 160, padding: "9px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14 }} />
-              <input ref={pointCommentRef} placeholder="사유 (필수)" value={pointForm.comment}
-                onChange={(e) => setPointForm((p) => ({ ...p, comment: e.target.value }))}
-                style={{ flex: 1, minWidth: 200, padding: "9px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 14 }} />
-              <button type="submit" className="sync-btn">지급</button>
+              <label className="po-field">
+                <span>포인트</span>
+                <input ref={pointInputRef} type="number" className="ui-input" placeholder="음수 가능" value={pointForm.points}
+                  onChange={(e) => setPointForm((p) => ({ ...p, points: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); pointCommentRef.current?.focus(); } }} />
+              </label>
+              <label className="po-field grow">
+                <span>사유</span>
+                <input ref={pointCommentRef} className="ui-input" placeholder="필수" value={pointForm.comment}
+                  onChange={(e) => setPointForm((p) => ({ ...p, comment: e.target.value }))} />
+              </label>
+              <button type="submit" className="btn-primary">지급</button>
             </form>
-            {pointMsg && <p style={{ marginTop: 8, fontSize: 13, color: "var(--win-text)" }}>{pointMsg}</p>}
+            {pointMsg && <div className={`po-msg ${pointMsg.includes("완료") ? "ok" : "bad"}`}>{pointMsg}</div>}
           </div>
-          <div className="home-panel">
-            <div className="home-panel-head"><h3>포인트 전체 로그</h3></div>
-            <div style={{ marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <input
-                placeholder="클랜원 이름 검색..."
+
+          <div className="ui-card ui-card-pad">
+            <div className="po-log-head">
+              <h3 className="ui-section-title" style={{ margin: 0 }}>포인트 전체 로그 <span className="sub">{pointTotal.toLocaleString()}건</span></h3>
+              <input className="ui-input" placeholder="클랜원 이름 검색"
                 value={pointLogSearch}
-                onChange={(e) => { setPointLogSearch(e.target.value); setPointPage(0); loadPointLogs(0, e.target.value); }}
-                style={{ width: 200, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
-              />
-              {pointTotal > 50 && (
-                <div className="page-nav">
-                  <button disabled={pointPage <= 0} onClick={() => { const p = pointPage - 1; setPointPage(p); loadPointLogs(p); }}>‹</button>
-                  <span>{pointPage + 1} / {Math.ceil(pointTotal / 50)} ({pointTotal}건)</span>
-                  <button disabled={pointPage >= Math.ceil(pointTotal / 50) - 1} onClick={() => { const p = pointPage + 1; setPointPage(p); loadPointLogs(p); }}>›</button>
-                </div>
-              )}
+                onChange={(e) => { setPointLogSearch(e.target.value); setPointPage(0); loadPointLogs(0, e.target.value); }} />
             </div>
-            <div style={{ position: "relative" }}>
-              {pointLoading && (
-                <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 10, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 6, pointerEvents: "none" }}>
-                  <span style={{ fontSize: 13, color: "var(--muted)" }}>불러오는 중...</span>
-                </div>
-              )}
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
-                <colgroup>
-                  <col style={{ width: 130 }} />
-                  <col style={{ width: 110 }} />
-                  <col style={{ width: 80 }} />
-                  <col style={{ width: 55 }} />
-                  <col style={{ width: 70 }} />
-                  <col style={{ width: 260 }} />
-                  <col style={{ width: 100 }} />
-                  <col style={{ width: 52 }} />
-                </colgroup>
+            <div className="ui-table-wrap po-log" style={{ position: "relative" }}>
+              {pointLoading && <div className="po-loading">불러오는 중...</div>}
+              <table className="ui-table">
                 <thead>
-                  <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
-                    <th style={{ textAlign: "left", padding: "6px 8px" }}>시간</th>
-                    <th style={{ textAlign: "left", padding: "6px 8px" }}>클랜원</th>
-                    <th style={{ textAlign: "left", padding: "6px 8px" }}>타입</th>
-                    <th style={{ textAlign: "right", padding: "6px 8px" }}>판수</th>
-                    <th style={{ textAlign: "right", padding: "6px 8px" }}>포인트</th>
-                    <th style={{ textAlign: "left", padding: "6px 8px" }}>사유</th>
-                    <th style={{ textAlign: "left", padding: "6px 8px" }}>지급자</th>
-                    <th style={{ padding: "6px 8px" }}></th>
+                  <tr>
+                    <th>시간</th><th>클랜원</th><th>타입</th><th style={{ textAlign: "right" }}>판수</th>
+                    <th style={{ textAlign: "right" }}>포인트</th><th>사유</th><th>지급자</th><th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pointLogs.map((l) => (
-                    <tr key={l.id} style={{ borderBottom: "1px solid var(--border)", height: 38 }}>
-                      <td style={{ padding: "0 8px", color: "var(--muted)", whiteSpace: "nowrap" }}>{l.created_at?.slice(0, 16)}</td>
-                      <td style={{ padding: "0 8px", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.nickname}</td>
-                      <td style={{ padding: "0 8px" }}>
-                        <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5,
-                          background: ({scrim:"rgba(155,89,182,0.18)",shop:"rgba(231,76,60,0.18)",manual:"rgba(83,131,232,0.18)",solo:"rgba(241,196,15,0.18)",flex:"rgba(230,126,34,0.18)",aram:"rgba(0,188,212,0.18)",birthday:"rgba(255,107,157,0.18)"}[l.type as string] ?? "rgba(46,204,113,0.18)"),
-                          color: ({scrim:"#c39bd3",shop:"#f1948a",manual:"#7aa2f7",solo:"#f1c40f",flex:"#e67e22",aram:"#00bcd4",birthday:"#ff6b9d"}[l.type as string] ?? "#2ecc71") }}>
-                          {({ solo: "솔로랭크", flex: "자유랭크", normal: "일반", scrim: "내전", aram: "칼바람", manual: "수동", shop: "상점", birthday: "생일보너스", rookie_session: "수습" } as any)[l.type] ?? l.type}
-                        </span>
-                      </td>
-                      <td style={{ padding: "0 8px", textAlign: "right", color: "var(--muted)" }}>{l.games > 0 ? `${l.games}판` : "-"}</td>
-                      <td style={{ padding: "0 8px", textAlign: "right", fontWeight: 800,
-                        color: l.points > 0 ? "var(--win-text)" : "var(--loss-text)" }}>
-                        {l.points > 0 ? `+${l.points}` : l.points}P
-                      </td>
-                      <td style={{ padding: "0 8px", color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.comment ?? "-"}</td>
-                      <td style={{ padding: "0 8px", color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.given_by_name ?? "-"}</td>
-                      <td style={{ padding: "0 8px" }}>
-                        <button className="del-btn small" onClick={() => cancelPoint(l.id)}>취소</button>
-                      </td>
-                    </tr>
-                  ))}
+                  {pointLogs.map((l) => {
+                    const t = LOG_TYPE[l.type as string] ?? { label: l.type, cls: "green" };
+                    return (
+                      <tr key={l.id}>
+                        <td className="muted nowrap">{l.created_at?.slice(0, 16)}</td>
+                        <td className="b nowrap">{l.nickname}</td>
+                        <td><span className={`po-type ${t.cls}`}>{t.label}</span></td>
+                        <td className="muted" style={{ textAlign: "right" }}>{l.games > 0 ? `${l.games}판` : "-"}</td>
+                        <td style={{ textAlign: "right" }} className={`b ${l.points > 0 ? "plus" : "minus"}`}>{l.points > 0 ? `+${l.points}` : l.points}P</td>
+                        <td className="muted ellip">{l.comment ?? "-"}</td>
+                        <td className="muted nowrap">{l.given_by_name ?? "-"}</td>
+                        <td style={{ textAlign: "right" }}><button className="del-btn small" onClick={() => cancelPoint(l.id)}>취소</button></td>
+                      </tr>
+                    );
+                  })}
                   {pointLogs.length === 0 && (
-                    <tr><td colSpan={8} style={{ padding: "12px 8px", color: "var(--muted)" }}>포인트 내역이 없습니다.</td></tr>
+                    <tr><td colSpan={8} className="ui-empty">포인트 내역이 없습니다.</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
+            {pageCount > 1 && (
+              <div className="po-pager">
+                <button className="btn-secondary" disabled={pointPage <= 0} onClick={() => { const p = pointPage - 1; setPointPage(p); loadPointLogs(p); }}>‹ 이전</button>
+                <span>{pointPage + 1} / {pageCount}</span>
+                <button className="btn-secondary" disabled={pointPage >= pageCount - 1} onClick={() => { const p = pointPage + 1; setPointPage(p); loadPointLogs(p); }}>다음 ›</button>
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {/* 포인트 상점 */}
       {subTab === "shop" && (
-        <div className="home-panel">
-          <div className="home-panel-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <h3>포인트 상점</h3>
-            <button className="sync-btn" style={{ fontSize: 12, padding: "4px 12px" }}
-              onClick={() => { setItemForm({ ...EMPTY_ITEM }); setItemErr(""); }}>
-              + 상품 추가
-            </button>
+        <div className="ui-card ui-card-pad">
+          <div className="po-log-head">
+            <h3 className="ui-section-title" style={{ margin: 0 }}>포인트 상점 <span className="sub">{shopItems.length}개 상품</span></h3>
+            <button className="btn-primary" onClick={() => { setItemForm({ ...EMPTY_ITEM }); setItemErr(""); }}>+ 상품 추가</button>
           </div>
 
-          {/* 상품 추가/수정 폼 */}
           {itemForm && (
-            <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, padding: 14, marginBottom: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <input
-                  placeholder="상품명 (필수)"
-                  value={itemForm.name}
-                  onChange={(e) => setItemForm((p) => p && ({ ...p, name: e.target.value }))}
-                  style={{ flex: 2, minWidth: 160, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
-                />
-                <input
-                  type="number"
-                  placeholder="소모 포인트 (0=무관)"
-                  value={itemForm.cost}
-                  onChange={(e) => setItemForm((p) => p && ({ ...p, cost: Number(e.target.value) }))}
-                  style={{ width: 150, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
-                />
-                <select
-                  value={itemForm.cond}
-                  onChange={(e) => setItemForm((p) => p && ({ ...p, cond: e.target.value }))}
-                  style={{ width: 130, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
-                >
+            <div className="po-item-form">
+              <label className="po-field grow2"><span>상품명</span>
+                <input className="ui-input" placeholder="필수" value={itemForm.name} onChange={(e) => setItemForm((p) => p && ({ ...p, name: e.target.value }))} />
+              </label>
+              <label className="po-field"><span>소모 포인트</span>
+                <input type="number" className="ui-input" placeholder="0 = 무관" value={itemForm.cost} onChange={(e) => setItemForm((p) => p && ({ ...p, cost: Number(e.target.value) }))} />
+              </label>
+              <label className="po-field"><span>구매 조건</span>
+                <select className="ui-select" value={itemForm.cond} onChange={(e) => setItemForm((p) => p && ({ ...p, cond: e.target.value }))}>
                   {CONDITION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
-                <input
-                  placeholder="비고"
-                  value={itemForm.note}
-                  onChange={(e) => setItemForm((p) => p && ({ ...p, note: e.target.value }))}
-                  style={{ flex: 2, minWidth: 160, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
-                />
-                <input
-                  type="number"
-                  placeholder="정렬순서"
-                  value={itemForm.sort_order}
-                  onChange={(e) => setItemForm((p) => p && ({ ...p, sort_order: Number(e.target.value) }))}
-                  style={{ width: 90, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 13 }}
-                />
-              </div>
-              {itemErr && <span style={{ fontSize: 12, color: "var(--loss-text)" }}>{itemErr}</span>}
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="sync-btn" style={{ fontSize: 12, padding: "5px 16px" }} disabled={itemBusy} onClick={saveItem}>
-                  {itemBusy ? "저장 중..." : itemForm.id ? "수정" : "추가"}
-                </button>
-                <button className="cancel-btn" style={{ fontSize: 12, padding: "5px 16px" }} onClick={() => setItemForm(null)}>장닫기</button>
+              </label>
+              <label className="po-field grow2"><span>비고</span>
+                <input className="ui-input" value={itemForm.note} onChange={(e) => setItemForm((p) => p && ({ ...p, note: e.target.value }))} />
+              </label>
+              <label className="po-field small"><span>정렬</span>
+                <input type="number" className="ui-input" value={itemForm.sort_order} onChange={(e) => setItemForm((p) => p && ({ ...p, sort_order: Number(e.target.value) }))} />
+              </label>
+              <div className="po-item-actions">
+                {itemErr && <span className="po-msg bad">{itemErr}</span>}
+                <button className="btn-secondary" onClick={() => setItemForm(null)}>닫기</button>
+                <button className="btn-primary" disabled={itemBusy} onClick={saveItem}>{itemBusy ? "저장 중..." : itemForm.id ? "수정" : "추가"}</button>
               </div>
             </div>
           )}
 
-          {shopItemsLoading ? <p className="empty">불러오는 중...</p> : (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
-                  <th style={{ textAlign: "left", padding: "6px 10px" }}>상품명</th>
-                  <th style={{ textAlign: "center", padding: "6px 10px" }}>소모 포인트</th>
-                  <th style={{ textAlign: "center", padding: "6px 10px" }}>구매 조건</th>
-                  <th style={{ textAlign: "left", padding: "6px 10px" }}>비고</th>
-                  <th style={{ padding: "6px 10px" }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {shopItems.map((item) => (
-                  <tr key={item.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                    <td style={{ padding: "8px 10px", fontWeight: 700 }}>{item.name}</td>
-                    <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 800,
-                      color: item.cost > 0 ? "var(--loss-text)" : "var(--muted)" }}>
-                      {item.cost > 0 ? `${item.cost}P` : "-"}
-                    </td>
-                    <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--muted)" }}>
-                      {item.cond || "상관없음"}
-                    </td>
-                    <td style={{ padding: "8px 10px", color: "var(--muted)", fontSize: 12 }}>{item.note || "-"}</td>
-                    <td style={{ padding: "8px 10px", display: "flex", gap: 6 }}>
-                      <button className="sync-btn" style={{ fontSize: 11, padding: "3px 10px" }}
-                        onClick={() => { setShopModal({ name: item.name, cost: item.cost, condition: item.cond || "상관없음" }); setShopMemberId(""); setShopErr(""); }}>
-                        구매
-                      </button>
-                      <button className="sync-btn" style={{ fontSize: 11, padding: "3px 10px", background: "var(--card)", color: "var(--text)", border: "1px solid var(--border)" }}
-                        onClick={() => { setItemForm({ id: item.id, name: item.name, cost: item.cost, cond: item.cond ?? "", note: item.note ?? "", sort_order: item.sort_order }); setItemErr(""); }}>
-                        수정
-                      </button>
-                      <button className="del-btn small" onClick={() => deleteItem(item.id)}>삭제</button>
-                    </td>
-                  </tr>
-                ))}
-                {shopItems.length === 0 && (
-                  <tr><td colSpan={5} style={{ padding: "12px 10px", color: "var(--muted)" }}>등록된 상품이 없습니다.</td></tr>
-                )}
-              </tbody>
-            </table>
+          {shopItemsLoading ? <p className="ui-empty">불러오는 중...</p> : (
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead>
+                  <tr><th>상품명</th><th style={{ textAlign: "center" }}>소모 포인트</th><th style={{ textAlign: "center" }}>구매 조건</th><th>비고</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {shopItems.map((item) => (
+                    <tr key={item.id}>
+                      <td className="b">{item.name}</td>
+                      <td style={{ textAlign: "center" }} className={`b ${item.cost > 0 ? "minus" : "muted"}`}>{item.cost > 0 ? `${item.cost}P` : "-"}</td>
+                      <td style={{ textAlign: "center" }}><span className="ui-badge">{item.cond || "상관없음"}</span></td>
+                      <td className="muted">{item.note || "-"}</td>
+                      <td>
+                        <div className="po-row-actions">
+                          <button className="btn-primary po-sm" onClick={() => { setShopModal({ name: item.name, cost: item.cost, condition: item.cond || "상관없음" }); setShopMemberId(""); setShopErr(""); }}>구매</button>
+                          <button className="edit-btn" onClick={() => { setItemForm({ id: item.id, name: item.name, cost: item.cost, cond: item.cond ?? "", note: item.note ?? "", sort_order: item.sort_order }); setItemErr(""); }}>수정</button>
+                          <button className="del-btn" onClick={() => deleteItem(item.id)}>삭제</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {shopItems.length === 0 && (
+                    <tr><td colSpan={5} className="ui-empty">등록된 상품이 없습니다.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

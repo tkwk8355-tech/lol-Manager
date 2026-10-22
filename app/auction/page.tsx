@@ -746,23 +746,22 @@ export default function AuctionPage(){
   if(!user)return(<div className="scrim"><div className="party-login-notice">경매 시스템을 이용하려면 로그인이 필요합니다.<button type="button" className="inline-login-btn" onClick={()=>openAuthModal("login")}>로그인 / 회원가입</button></div></div>);
   if(user.scrimOnly)return(<div className="scrim"><div className="party-login-notice">경매 시스템에 접근할 수 없습니다.</div></div>);
   return(
-    <div className="scrim">
-      {!activeId&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-        <div style={{display:"flex",gap:0,background:"var(--card-2)",borderRadius:8,padding:3,border:"1px solid var(--border)"}}>
-          <button onClick={()=>{setTab("sessions");}} style={{padding:"6px 18px",borderRadius:6,fontSize:13,fontWeight:700,border:"none",cursor:"pointer",background:tab==="sessions"?"var(--accent)":"transparent",color:tab==="sessions"?"#fff":"var(--muted)"}}>📢 경매</button>
-          {(isAdmin||user?.showRoster)&&<button onClick={()=>setTab("roster")} style={{padding:"6px 18px",borderRadius:6,fontSize:13,fontWeight:700,border:"none",cursor:"pointer",background:tab==="roster"?"var(--accent)":"transparent",color:tab==="roster"?"#fff":"var(--muted)"}}>👥 참여자 관리</button>}
+    <div className="ev">
+      <div className="ui-page-head"><div><h2>경매내전</h2><p>팀장이 포인트로 선수를 입찰해 팀을 꾸려요.</p></div></div>
+      {!activeId&&<div className="ev-bar">
+        <div className="ev-seg">
+          <button className={tab==="sessions"?"on":""} onClick={()=>{setTab("sessions");}}>경매 목록</button>
+          {(isAdmin||user?.showRoster)&&<button className={tab==="roster"?"on":""} onClick={()=>setTab("roster")}>참여자 관리</button>}
         </div>
-        <div style={{display:"flex",gap:8}}>
-          {tab==="sessions"&&isAdmin&&<button className="btn-primary" onClick={()=>setShowCreate(true)}>+ 새 경매 생성</button>}
-        </div>
+        {tab==="sessions"&&isAdmin&&<button className="btn-primary" onClick={()=>setShowCreate(true)}>+ 새 경매</button>}
       </div>}
-      {activeId&&<div style={{marginBottom:12}}><button className="btn-secondary" onClick={()=>setActiveId(null)}>← 목록으로</button></div>}
+      {activeId&&<div className="ev-back"><button className="btn-secondary" onClick={()=>setActiveId(null)}>← 목록으로</button></div>}
       {tab==="sessions"&&(
         <>
           {!activeId&&(
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              {sessions.length===0&&<p style={{color:"var(--muted)"}}>경매 세션이 없습니다.</p>}
-              {sessions.map(s=>(<div key={s.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"14px 18px",display:"flex",alignItems:"center",gap:12}}><span style={{fontWeight:800,fontSize:15}}>{s.name||`세션 #${s.id}`}</span><span style={{fontSize:12,padding:"2px 8px",borderRadius:6,fontWeight:700,background:s.status==="done"?"rgba(46,204,113,0.15)":s.status==="running"?"rgba(83,131,232,0.15)":"var(--card-2)",color:s.status==="done"?"#2ecc71":s.status==="running"?"var(--win-text)":"var(--muted)"}}>{STATUS_LABEL[s.status]??s.status}</span><span style={{color:"var(--muted)",fontSize:13}}>참가자 {s.player_count}명</span><span style={{color:"var(--muted)",fontSize:12,marginLeft:"auto"}}>{new Date(s.created_at).toLocaleDateString("ko-KR")}</span><button className="btn-secondary" style={{padding:"6px 14px",fontSize:12}} onClick={()=>setActiveId(s.id)}>입장</button>{isAdmin&&<button className="del-btn small" onClick={async()=>{if(!confirm("삭제하시겠습니까?"))return;await fetch("/api/auction?sessionId="+s.id,{method:"DELETE"});loadSessions();}}>삭제</button>}</div>))}
+            <div className="ev-list">
+              {sessions.length===0&&<p className="ui-empty">경매 세션이 없습니다.</p>}
+              {sessions.map(s=>(<div key={s.id} className="ui-card ev-row" onClick={()=>setActiveId(s.id)}><div className="ev-row-main"><span className="ev-row-title">{s.name||`세션 #${s.id}`}</span><span className="ev-row-meta">참가자 {s.player_count}명 · {new Date(s.created_at).toLocaleDateString("ko-KR")}</span></div><span className={`ui-badge ${s.status==="done"?"green":s.status==="running"?"blue":""}`}>{STATUS_LABEL[s.status]??s.status}</span><button className="btn-secondary ev-enter" onClick={e=>{e.stopPropagation();setActiveId(s.id);}}>입장</button>{isAdmin&&<button className="del-btn" onClick={async e=>{e.stopPropagation();if(!confirm("삭제하시겠습니까?"))return;await fetch("/api/auction?sessionId="+s.id,{method:"DELETE"});loadSessions();}}>삭제</button>}</div>))}
             </div>
           )}
           {activeId&&<AuctionRoom sessionId={activeId} isAdmin={isAdmin} myUserId={myUserId} />}
