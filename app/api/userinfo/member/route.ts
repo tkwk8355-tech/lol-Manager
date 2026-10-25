@@ -5,7 +5,7 @@ import { requireAdmin } from "@/lib/auth";
 
 // POST: 클랜원 신규 등록 (본계정 Riot ID 기반)
 export async function POST(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     const { gameName, tagLine } = await req.json().catch(() => ({}));
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     const { id, birthYear, birthDate, gender, mainLine, subLine, position, status, statusNote, scrimMmr } = await req.json();

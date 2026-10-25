@@ -7,7 +7,7 @@ const LINES = ["TOP", "JG", "MID", "ADC", "SUP"];
 
 // POST /api/scrim/recruit/join — 내전 모집에 신청 (클랜원 연동 필요)
 export async function POST(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   try {
     const body = await req.json().catch(() => ({}));
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
 
 // DELETE /api/scrim/recruit/join?recruitId=1 — 신청 취소
 export async function DELETE(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   try {
     const recruitId = Number(new URL(req.url).searchParams.get("recruitId"));

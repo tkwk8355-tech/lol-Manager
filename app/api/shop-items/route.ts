@@ -14,7 +14,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   if (auth.session.role !== "admin" && auth.session.role !== "subadmin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
 
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   if (auth.session.role !== "admin" && auth.session.role !== "subadmin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
 
@@ -62,7 +62,7 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   if (auth.session.role !== "admin" && auth.session.role !== "subadmin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
 

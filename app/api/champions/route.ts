@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool, ensureSchema } from "@/lib/db";
+import { requireAuth, requireAdmin } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req, { allowScrimOnly: true });
+  if (!auth.ok) return auth.response;
   const q = new URL(req.url).searchParams.get("q")?.trim() ?? "";
   await ensureSchema();
   const pool = getPool();
@@ -18,7 +21,10 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ champions: rows });
 }
 
-export async function POST() {
+// 챔피언 목록 동기화는 운영진만.
+export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req);
+  if (!auth.ok) return auth.response;
   try {
     await ensureSchema();
     const pool = getPool();

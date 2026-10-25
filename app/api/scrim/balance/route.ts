@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool, ensureSchema } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +82,8 @@ function teamEffectiveSum(team: Player[], infoMap: Map<number, LineInfo>): numbe
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req, { allowScrimOnly: true });
+  if (!auth.ok) return auth.response;
   try {
     const { memberIds, overrideAll = [], overrideMain = [] }: { memberIds: number[]; overrideAll?: number[]; overrideMain?: number[] } = await req.json();
     if (!Array.isArray(memberIds) || memberIds.length !== 10)

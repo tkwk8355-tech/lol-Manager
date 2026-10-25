@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     await ensureSchema();
     const pool = getPool();
     const [rows] = await pool.query(
-      "SELECT id, username, password, nickname, role, scrim_only, status FROM users WHERE username = ?",
+      "SELECT id, username, password, nickname, role, scrim_only, status, token_version FROM users WHERE username = ?",
       [uname]
     ) as [any[], any];
     const user = rows[0];
@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
       nickname: user.nickname,
       role: user.role,
       scrimOnly: !!user.scrim_only,
+      tv: Number(user.token_version ?? 0),
     });
 
     const identity = await resolvePartyIdentity(user.id).catch(() => null);
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
         linkedRiotId: identity?.displayName ?? null,
       },
     });
-    res.cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions());
+    res.cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions(undefined, req));
     return res;
   } catch (err) {
     console.error(err);

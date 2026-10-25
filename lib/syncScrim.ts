@@ -2,7 +2,7 @@ import mysql from "mysql2/promise";
 import { getPool, ensureSchema } from "@/lib/db";
 import { getAccountByRiotId, getMatchIds, getMatch, RiotApiError } from "@/lib/riot";
 import { givePoints, updateLastAchieved } from "@/lib/points";
-import { pickMvpIds } from "@/lib/scrim";
+import { pickMvpIds, matchDurationSec } from "@/lib/scrim";
 
 function kstDateTimeString(ms: number): string {
   const d = new Date(ms);
@@ -75,9 +75,17 @@ export async function syncScrimMatches(memberId: number, startAt: string, givenB
 
     for (const matchId of matchIds) {
       try {
-        const [dupRows] = await pool.query("SELECT id FROM scrim_matches WHERE riot_match_id = ?", [matchId]) as [any[], any];
+        const [dupRows] = await pool.query("SELECT id, game_duration FROM scrim_matches WHERE riot_match_id = ?", [matchId]) as [any[], any];
         if (dupRows.length > 0) {
           skippedDuplicate++;
+          // 경기 시간 컬럼 추가 전에 들어온 경기는 이번 기회에 경기 시간을 채운다 (DPM/분당 CS 계산용)
+          if (!Number(dupRows[0].game_duration)) {
+            try {
+              const dm = await getMatch(matchId);
+              const dur = matchDurationSec(dm.info);
+              if (dur > 0) await pool.query("UPDATE scrim_matches SET game_duration = ? WHERE id = ?", [dur, dupRows[0].id]);
+            } catch { /* 경기 시간 보충 실패는 무시 */ }
+          }
           // 이미 있는 매치도 참가자 추적
           const [spRows] = await pool.query(`SELECT member_id FROM scrim_participants WHERE match_id = ?`, [dupRows[0].id]) as [any[], any];
           for (const r of spRows) seenMemberIds.add(r.member_id);
@@ -107,8 +115,8 @@ export async function syncScrimMatches(memberId: number, startAt: string, givenB
             : matched.some((m: any) => m.p.teamId === 200 && m.p.win) ? 2 : 0;
 
           const [res] = await conn.query(
-            `INSERT INTO scrim_matches (mode, status, winner_team, note, played_at, riot_match_id) VALUES ('rift', 'done', ?, ?, ?, ?)`,
-            [winnerTeam, "자동 동기화", new Date(info.gameCreation), matchId]
+            `INSERT INTO scrim_matches (mode, status, winner_team, note, played_at, riot_match_id, game_duration) VALUES ('rift', 'done', ?, ?, ?, ?, ?)`,
+            [winnerTeam, "자동 동기화", new Date(info.gameCreation), matchId, matchDurationSec(info)]
           ) as any;
           const newMatchId = res.insertId;
 

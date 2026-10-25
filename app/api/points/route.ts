@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 // GET /api/points?memberId=1  — 특정 클랜원 포인트 로그
 // GET /api/points              — 전체 로그 (운영진만)
 export async function GET(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   await ensureSchema();
   const pool = getPool();
@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/points — 운영진 수동 포인트 지급 or 상점 구매
 export async function POST(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   if (auth.session.role !== "admin" && auth.session.role !== "subadmin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
 
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
 
 // DELETE /api/points?id=1 — 포인트 로그 취소 (운영진만)
 export async function DELETE(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   if (auth.session.role !== "admin" && auth.session.role !== "subadmin") return NextResponse.json({ error: "권한 없음" }, { status: 403 });
 

@@ -6,7 +6,7 @@ import { pickMvpIds, MvpParticipant } from "@/lib/scrim";
 // POST /api/scrim/match/resync
 // 완료된 경기 중 is_mvp 미설정 경기에 MVP 플래그 및 MMR 소급 적용
 export async function POST(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
 
   try {

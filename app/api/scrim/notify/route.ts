@@ -5,7 +5,7 @@ import { syncScrimMatches } from "@/lib/syncScrim";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req, { allowScrimOnly: true });
   if (!auth.ok) return auth.response;
 
   try {
@@ -42,8 +42,8 @@ export async function POST(req: NextRequest) {
     });
 
     if (!res.ok) {
-      const text = await res.text();
-      return NextResponse.json({ error: `봇 서버 오류: ${text}` }, { status: 500 });
+      console.error("[notify] 봇 서버 오류:", res.status, await res.text().catch(() => ""));
+      return NextResponse.json({ error: "디스코드 봇 서버 오류" }, { status: 502 });
     }
 
     return NextResponse.json({ ok: true, syncResult });

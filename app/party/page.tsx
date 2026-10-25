@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../components/AuthProvider";
+import { parsePartyPosts, matchPartyEntries, PastedParty, PartyCandidate, MatchedEntry } from "@/lib/partyPaste";
 
 type Mode = "aram" | "normal" | "flex" | "solo";
 type Tab = Mode | "all";
@@ -34,31 +35,49 @@ function fmtStart(startAt: string | null): string {
 
 const isAdmin = (role: string) => role === "admin" || role === "subadmin";
 
-function ParticipantInput({ value, onChange, onAddNext, autoFocusOnMount, isLast, existingValues }: {
+// 참가자 입력: 클랜원(본계정) 목록에서만 고를 수 있다.
+// 예전엔 입력할 때마다 서버에 검색을 보내서, 빠르게 치고 엔터를 누르면 이전 검색 결과(엉뚱한 사람)가 들어가거나
+// 목록에 없는 이름이 그대로 들어가는 문제가 있었다. 이제 전체 목록을 한 번 받아 화면에서 바로 거른다.
+const normNick = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+
+function filterPartyMembers(members: PartyCandidate[], q: string, exclude: Set<string>): PartyCandidate[] {
+  const nq = normNick(q);
+  if (!nq) return [];
+  return members
+    .filter((m) => !exclude.has(normNick(m.gameName)))
+    .map((m) => {
+      const g = normNick(m.gameName), n = normNick(m.nickname);
+      const score = g === nq || n === nq ? 3 : g.startsWith(nq) || n.startsWith(nq) ? 2 : g.includes(nq) || n.includes(nq) ? 1 : 0;
+      return { m, score };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || a.m.gameName.localeCompare(b.m.gameName))
+    .slice(0, 8)
+    .map((x) => x.m);
+}
+
+function ParticipantInput({ value, onChange, onAddNext, autoFocusOnMount, isLast, existingValues, members, invalid }: {
   value: string; onChange: (v: string) => void; onAddNext: () => void; autoFocusOnMount?: boolean; isLast?: boolean; existingValues?: string[];
+  members: PartyCandidate[]; invalid?: boolean;
 }) {
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [open, setOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
+  const [warn, setWarn] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (autoFocusOnMount) inputRef.current?.focus();
   }, [autoFocusOnMount]);
 
-  async function handleChange(v: string) {
-    onChange(v);
-    setActiveIdx(-1);
-    if (!v.trim()) { setSuggestions([]); return; }
-    try {
-      const res = await fetch(`/api/party/members?q=${encodeURIComponent(v.trim())}`);
-      const json = await res.json();
-      const others = (existingValues ?? []).map(s => s.toLowerCase());
-      setSuggestions((json.members ?? []).map((m: any) => m.gameName).filter((n: string) => n.toLowerCase() !== value.toLowerCase() && !others.includes(n.toLowerCase())));
-    } catch { setSuggestions([]); }
-  }
+  const exclude = new Set((existingValues ?? []).map(normNick));
+  const suggestions = open ? filterPartyMembers(members, value, exclude) : [];
+  // 이미 클랜원 본계정 이름과 정확히 같으면 확정된 상태로 본다
+  const exact = members.find((m) => !exclude.has(normNick(m.gameName)) &&
+    (normNick(m.gameName) === normNick(value) || normNick(m.nickname) === normNick(value)));
+  const showList = suggestions.length > 0 && !(exact && suggestions.length === 1 && exact.gameName === value);
 
   function confirm(name: string) {
-    onChange(name); setSuggestions([]); setActiveIdx(-1);
+    onChange(name); setOpen(false); setActiveIdx(-1); setWarn(false);
     if (isLast) onAddNext();
   }
 
@@ -66,34 +85,42 @@ function ParticipantInput({ value, onChange, onAddNext, autoFocusOnMount, isLast
     <div style={{ position: "relative", flex: 1 }}>
       <input
         ref={inputRef}
-        className="party-participant-nick-input"
+        // 입력 중에는 표시하지 않고, 칸을 벗어났거나 엔터가 막혔을 때만 빨간 테두리
+        className={`party-participant-nick-input ${((invalid && !open) || warn) && value.trim() ? "invalid" : ""}`}
+        title={invalid && value.trim() ? "클랜원 목록에 없는 이름이에요" : undefined}
         placeholder="본계정 닉네임"
         value={value}
-        onChange={(e) => handleChange(e.target.value)}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); setActiveIdx(-1); setWarn(false); }}
+        onFocus={() => setOpen(true)}
         onKeyDown={(e) => {
-          if (suggestions.length > 0 && e.key === "ArrowDown") {
+          if (showList && e.key === "ArrowDown") {
             e.preventDefault();
             setActiveIdx((i) => Math.min(i + 1, suggestions.length - 1));
-          } else if (suggestions.length > 0 && e.key === "ArrowUp") {
+          } else if (showList && e.key === "ArrowUp") {
             e.preventDefault();
             setActiveIdx((i) => Math.max(i - 1, -1));
           } else if (e.key === "Enter") {
             e.preventDefault();
-            const picked = activeIdx >= 0 ? suggestions[activeIdx] : suggestions.length > 0 ? suggestions[0] : value.trim();
-            if (picked) confirm(picked);
+            if (!value.trim()) return;
+            // 방향키로 고른 사람 → 이름이 정확히 같은 사람 → 목록 첫 번째. 목록에 없으면 넣지 않는다.
+            const picked = activeIdx >= 0 && showList ? suggestions[activeIdx] : exact ?? suggestions[0];
+            if (picked) confirm(picked.gameName);
+            else { setWarn(true); setOpen(false); }
           } else if (e.key === "Escape") {
-            setSuggestions([]); setActiveIdx(-1);
+            setOpen(false); setActiveIdx(-1);
           }
         }}
-        onBlur={() => setTimeout(() => { setSuggestions([]); setActiveIdx(-1); }, 150)}
+        onBlur={() => setTimeout(() => { setOpen(false); setActiveIdx(-1); }, 150)}
         maxLength={50}
       />
-      {suggestions.length > 0 && (
+      {showList && (
         <div className="slot-candidates" style={{ zIndex: 20 }}>
           {suggestions.map((s, i) => (
-            <button key={s} type="button"
+            <button key={s.gameName} type="button"
               className={i === activeIdx ? "active" : ""}
-              onMouseDown={() => confirm(s)}>{s}</button>
+              onMouseDown={() => confirm(s.gameName)}>
+              {s.gameName}{s.nickname && normNick(s.nickname) !== normNick(s.gameName) && <em> {s.nickname}</em>}
+            </button>
           ))}
         </div>
       )}
@@ -124,6 +151,14 @@ export default function PartyPage() {
   const [settingsModal, setSettingsModal] = useState(false);
   const [pointSettings, setPointSettings] = useState<{mode:string;points:number;min_games:number}[]>([]);
   const [settingsBusy, setSettingsBusy] = useState(false);
+  // 모집글 붙여넣기
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [pasteChoices, setPasteChoices] = useState<PastedParty[]>([]); // 글이 여러 개일 때 고를 목록
+  const [pasteReport, setPasteReport] = useState<{ entries: MatchedEntry[]; timeRaw: string | null; overflow: number } | null>(null);
+  const [pasteErr, setPasteErr] = useState("");
+  const partyMembersRef = useRef<PartyCandidate[] | null>(null);
+  const [partyMembers, setPartyMembers] = useState<PartyCandidate[]>([]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -168,6 +203,8 @@ export default function PartyPage() {
 
   async function createParty(e: React.FormEvent) {
     e.preventDefault();
+    const bad = invalidMessage(participants);
+    if (bad) { setError(bad); return; }
     setCreating(true); setError("");
     try {
       const res = await fetch("/api/party", {
@@ -183,9 +220,58 @@ export default function PartyPage() {
       });
       const json = await res.json();
       if (!res.ok) setError(json.error || "파티 생성 실패");
-      else { setNote(""); setStartDate(new Date(new Date().getTime() + 9*60*60*1000).toISOString().slice(0,10)); setStartTime(""); setParticipants([""]); load(tab); }
+      else { setNote(""); setStartDate(new Date(new Date().getTime() + 9*60*60*1000).toISOString().slice(0,10)); setStartTime(""); setParticipants([""]); setPasteReport(null); load(tab); }
     } catch { setError("네트워크 오류"); }
     finally { setCreating(false); }
+  }
+
+  async function loadPartyMembers(): Promise<PartyCandidate[]> {
+    if (partyMembersRef.current) return partyMembersRef.current;
+    const res = await fetch("/api/party/members?all=1");
+    const json = await res.json();
+    partyMembersRef.current = (json.members ?? []).map((m: any) => ({ gameName: m.gameName, nickname: m.nickname ?? m.gameName }));
+    setPartyMembers(partyMembersRef.current!);
+    return partyMembersRef.current!;
+  }
+
+  // 운영진이면 참가자 입력용 클랜원 목록을 미리 받아 둔다
+  useEffect(() => {
+    if (user && isAdmin(user.role)) loadPartyMembers().catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  // 클랜원 본계정 이름이 아닌 칸 (목록을 아직 못 받았으면 검사하지 않음 — 서버에서 한 번 더 막는다)
+  const validNicks = new Set(partyMembers.map((m) => normNick(m.gameName)));
+  const isInvalidNick = (n: string) => partyMembers.length > 0 && !!n.trim() && !validNicks.has(normNick(n));
+  function invalidMessage(list: string[]): string | null {
+    const bad = list.filter(isInvalidNick);
+    return bad.length > 0 ? `클랜원 목록에 없는 이름이 있어요: ${bad.join(", ")} — 자동완성에서 골라 주세요.` : null;
+  }
+
+  // 파싱된 모집글 하나를 생성 폼에 채운다
+  async function fillFromPasted(p: PastedParty) {
+    setPasteErr("");
+    let members: PartyCandidate[];
+    try { members = await loadPartyMembers(); }
+    catch { setPasteErr("클랜원 목록을 불러오지 못했어요."); return; }
+    const mode = p.mode ?? createMode;
+    const max = mode === "solo" ? 2 : 5;
+    const matched = matchPartyEntries(p.entries.slice(0, max), members);
+    const names = matched.map((m) => m.matched?.gameName ?? m.written);
+    setCreateMode(mode);
+    setStartTime(p.startTime ?? "");
+    setParticipants(names.length > 0 ? names : [""]);
+    setPasteReport({ entries: matched, timeRaw: p.startTime ? null : p.timeRaw, overflow: Math.max(0, p.entries.length - max) });
+    setPasteChoices([]);
+    setPasteOpen(false);
+  }
+
+  function applyPaste() {
+    const posts = parsePartyPosts(pasteText);
+    if (posts.length === 0) { setPasteErr("모집글을 읽지 못했어요. 제목(칼바람/자랭/솔랭/일반)과 번호 명단이 있는지 확인해 주세요."); return; }
+    if (posts.length === 1) { fillFromPasted(posts[0]); return; }
+    setPasteErr("");
+    setPasteChoices(posts); // 여러 개면 고르게 한다
   }
 
   function updateParticipant(i: number, val: string) {
@@ -211,6 +297,8 @@ export default function PartyPage() {
   }
 
   async function saveEdit(partyId: number) {
+    const bad = invalidMessage(editParticipants);
+    if (bad) { setError(bad); return; }
     setBusyId(partyId); setError("");
     try {
       const res = await fetch("/api/party", {
@@ -242,6 +330,8 @@ export default function PartyPage() {
         autoFocusOnMount={i === list.length - 1 && i > 0}
         isLast={i === list.length - 1}
         existingValues={list.filter((_, idx) => idx !== i)}
+        members={partyMembers}
+        invalid={isInvalidNick(nick)}
       />
       <button type="button" className="pt-icon" title="삭제"
         onClick={() => setList((prev) => prev.length === 1 ? [""] : prev.filter((_, idx) => idx !== i))}>✕</button>
@@ -364,7 +454,61 @@ export default function PartyPage() {
                     </button>
                   ))}
                 </div>
+                <button type="button" className={`sc-tool-btn ${pasteOpen ? "on" : ""}`} style={{ marginLeft: "auto" }}
+                  onClick={() => { setPasteOpen((o) => !o); setPasteChoices([]); setPasteErr(""); }}>📋 모집글 붙여넣기</button>
               </div>
+
+              {pasteOpen && (
+                <div className="sc-paste-box" style={{ marginBottom: 0 }}>
+                  <textarea
+                    value={pasteText}
+                    onChange={(e) => { setPasteText(e.target.value); setPasteChoices([]); }}
+                    rows={10}
+                    placeholder={"🍸자랭🌈\n3판시 10p\n시간:1900\n-----------------------------\n1.닉네임 에디\n2.닉네임 jg\n...\n\n⏰️대기"}
+                    autoFocus
+                  />
+                  <div className="sc-paste-help">
+                    카톡 모집글을 그대로 붙여넣으면 <b>모드</b>(제목), <b>시작 시간</b>(시간: 줄), <b>참가자</b>(----- 아래 번호 명단)를 채워요.
+                    이름 뒤 라인·티어·코멘트는 무시하고, 비슷한 닉네임의 본계정으로 연결해요. <b>대기</b> 명단은 넣지 않아요.
+                  </div>
+                  {pasteErr && <div className="sc-paste-warn" style={{ margin: 0 }}>{pasteErr}</div>}
+                  {pasteChoices.length > 0 && (
+                    <div className="pt-paste-choices">
+                      <span className="sc-paste-help">모집글이 {pasteChoices.length}개예요. 만들 파티를 고르세요.</span>
+                      {pasteChoices.map((c, i) => (
+                        <button key={i} type="button" className="sc-tool-btn" onClick={() => fillFromPasted(c)}>
+                          {c.mode ? MODE_KO[c.mode] : c.title || "모드 미확인"} · {c.startTime ?? "시간 미정"} · {c.entries.length}명
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                    <button type="button" className="btn-secondary" onClick={() => setPasteOpen(false)}>취소</button>
+                    <button type="button" className="btn-primary" disabled={!pasteText.trim()} onClick={applyPaste}>적용</button>
+                  </div>
+                </div>
+              )}
+              {!pasteOpen && pasteReport && (() => {
+                const notFound = pasteReport.entries.filter((e) => !e.matched);
+                const fuzzy = pasteReport.entries.filter((e) => e.matched && !e.exact);
+                return (
+                  <>
+                    {pasteReport.timeRaw !== null && (
+                      <div className="sc-paste-warn" style={{ margin: 0 }}>⚠ 시간을 읽지 못했어요{pasteReport.timeRaw ? ` ("${pasteReport.timeRaw}")` : ""} — 시작 시간을 직접 입력해 주세요.</div>
+                    )}
+                    {notFound.length > 0 && (
+                      <div className="sc-paste-warn" style={{ margin: 0 }}>⚠ 못 찾은 이름: {notFound.map((e) => e.written).join(", ")} — 해당 칸에서 직접 고쳐 주세요.</div>
+                    )}
+                    {pasteReport.overflow > 0 && (
+                      <div className="sc-paste-warn" style={{ margin: 0 }}>⚠ 정원을 넘는 {pasteReport.overflow}명은 넣지 않았어요.</div>
+                    )}
+                    {fuzzy.length > 0 && (
+                      <div className="sc-paste-note" style={{ margin: 0 }}>비슷한 이름으로 연결했어요. 확인해 주세요: {fuzzy.map((e) => `${e.written} → ${e.matched!.gameName}`).join(", ")}</div>
+                    )}
+                  </>
+                );
+              })()}
+
               <div className="pt-create-grid">
                 <label className="pt-field">
                   <span>날짜</span>

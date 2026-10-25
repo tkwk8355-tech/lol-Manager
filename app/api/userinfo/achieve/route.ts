@@ -3,7 +3,7 @@ import { getPool } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
 
   const { memberId, achievedAt } = await req.json();

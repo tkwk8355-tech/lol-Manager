@@ -28,7 +28,7 @@ function calcScore(results: boolean[]): { score: number; games: { win: boolean; 
 export async function POST(req: NextRequest) {
   await ensureSchema();
   const pool = getPool();
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
 
   const { sessionId, teamNo } = await req.json();

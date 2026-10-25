@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 // GET /api/userinfo/blacklist?memberId=1 (특정) or 전체
 export async function GET(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   await ensureSchema();
   const pool = getPool();
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/userinfo/blacklist
 export async function POST(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   const body = await req.json().catch(() => ({}));
   const memberId = Number(body.memberId);
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
 
 // PATCH /api/userinfo/blacklist - 블랙 수정
 export async function PATCH(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   const body = await req.json().catch(() => ({}));
   const id = Number(body.id);
@@ -58,7 +58,7 @@ export async function PATCH(req: NextRequest) {
 
 // DELETE /api/userinfo/blacklist?id=1
 export async function DELETE(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   const id = Number(new URL(req.url).searchParams.get("id"));
   if (!id) return NextResponse.json({ error: "id 필수" }, { status: 400 });

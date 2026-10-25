@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // PATCH /api/scrim/rating — 특정 멤버 MMR 수동 수정 (어드민)
 
 export async function POST(req: NextRequest) {
-  const session = getSessionFromRequest(req);
+  const session = await getSessionFromRequest(req);
   if (!session || (session.role !== "admin" && session.role !== "subadmin"))
     return NextResponse.json({ error: "권한 없음" }, { status: 403 });
 
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const session = getSessionFromRequest(req);
+  const session = await getSessionFromRequest(req);
   if (!session || (session.role !== "admin" && session.role !== "subadmin"))
     return NextResponse.json({ error: "권한 없음" }, { status: 403 });
 

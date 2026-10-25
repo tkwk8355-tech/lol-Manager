@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool, ensureSchema } from "@/lib/db";
-import { requireAdmin, hashPassword } from "@/lib/auth";
+import { requireAdmin, hashPassword, invalidateUserState } from "@/lib/auth";
 
 // 운영진이 특정 로그인 계정의 비밀번호를 기본값(1234)으로 초기화한다.
 // 비밀번호를 잊어버린 클랜원을 위한 구제 절차. 초기화 후 본인이
@@ -8,7 +8,7 @@ import { requireAdmin, hashPassword } from "@/lib/auth";
 const DEFAULT_RESET_PASSWORD = "1234";
 
 export async function POST(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     const { userId } = await req.json().catch(() => ({}));
@@ -18,13 +18,14 @@ export async function POST(req: NextRequest) {
     await ensureSchema();
     const pool = getPool();
     const [result] = await pool.query(
-      "UPDATE users SET password = ? WHERE id = ?",
+      "UPDATE users SET password = ?, token_version = token_version + 1 WHERE id = ?",
       [hashPassword(DEFAULT_RESET_PASSWORD), uid]
     ) as any;
     if (result.affectedRows === 0) {
       return NextResponse.json({ error: "존재하지 않는 계정입니다." }, { status: 404 });
     }
 
+    invalidateUserState(uid);
     return NextResponse.json({ ok: true, password: DEFAULT_RESET_PASSWORD });
   } catch (err) {
     console.error(err);

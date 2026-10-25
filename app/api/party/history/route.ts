@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 // GET /api/party/history — 최근 2주 파티 내역
 export async function GET(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   if (auth.session.role !== "admin" && auth.session.role !== "subadmin")
     return NextResponse.json({ error: "운영진만 접근 가능합니다." }, { status: 403 });

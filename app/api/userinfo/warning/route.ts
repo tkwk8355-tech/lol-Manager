@@ -8,7 +8,7 @@ const WARNING_TYPES = ["운영 방침 위반", "지각 및 노쇼", "판수 미�
 
 // GET /api/userinfo/warning?memberId=1
 export async function GET(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   const memberId = Number(new URL(req.url).searchParams.get("memberId"));
   if (!memberId) return NextResponse.json({ error: "memberId 필수" }, { status: 400 });
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/userinfo/warning
 export async function POST(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
 
   const body = await req.json().catch(() => ({}));
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
 
 // PATCH /api/userinfo/warning - 경고 수정
 export async function PATCH(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
 
   const body = await req.json().catch(() => ({}));
@@ -77,7 +77,7 @@ export async function PATCH(req: NextRequest) {
 
 // DELETE /api/userinfo/warning?id=1
 export async function DELETE(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
 
   const id = Number(new URL(req.url).searchParams.get("id"));

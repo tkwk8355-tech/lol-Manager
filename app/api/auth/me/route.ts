@@ -5,7 +5,7 @@ import { getPool } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const session = getSessionFromRequest(req);
+  const session = await getSessionFromRequest(req);
   if (!session) return NextResponse.json({ user: null });
   const pool = getPool();
   const [rows] = await pool.query("SELECT show_roster FROM users WHERE id = ?", [session.userId]) as [any[], any];

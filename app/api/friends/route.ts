@@ -9,7 +9,7 @@ const MAX_FRIENDS = 3;
 // GET /api/friends — 전체 클랜원 + 지인 목록
 // 지인 = 내가 등록한 사람 + 나를 등록한 사람 (양방향 표시, 단방향 저장)
 export async function GET(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   try {
     await ensureSchema();
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/friends — 지인 추가 (운영진만), 단방향 저장
 export async function POST(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     const { memberId, friendId } = await req.json();
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
 
 // DELETE /api/friends?memberId=1&friendId=2 — 지인 삭제 (운영진만), 양방향 삭제
 export async function DELETE(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     const url = new URL(req.url);

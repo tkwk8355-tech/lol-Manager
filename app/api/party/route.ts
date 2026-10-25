@@ -20,6 +20,26 @@ interface PartyRow {
   start_at: string | null;
   created_at: string;
 }
+// 참가자 이름 검증: 활동 중인 클랜원의 본계정 game_name만 허용한다.
+// 대소문자/띄어쓰기는 무시하고, 저장은 DB에 있는 본계정 이름 그대로 한다. 중복은 하나만 남긴다.
+async function resolveParticipantNicks(pool: mysql.Pool, nicknames: string[]): Promise<{ names: string[]; unknown: string[] }> {
+  if (nicknames.length === 0) return { names: [], unknown: [] };
+  const [rows] = await pool.query(
+    `SELECT a.game_name FROM accounts a
+     JOIN members m ON m.id = a.member_id
+     WHERE a.is_main = 1 AND m.status NOT IN ('withdraw', 'black')`
+  ) as [any[], any];
+  const norm = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+  const byNorm = new Map<string, string>(rows.map((r: any) => [norm(r.game_name), r.game_name]));
+  const names: string[] = [], unknown: string[] = [];
+  for (const n of nicknames) {
+    const hit = byNorm.get(norm(n));
+    if (!hit) unknown.push(n);
+    else if (!names.includes(hit)) names.push(hit);
+  }
+  return { names, unknown };
+}
+
 interface ParticipantRow {
   party_id: number;
   user_id: number | null;
@@ -55,7 +75,7 @@ function shapeParty(p: PartyRow, participants: ParticipantRow[]) {
 
 // GET /api/party?mode=...
 export async function GET(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   try {
     const mode = new URL(req.url).searchParams.get("mode");
@@ -114,7 +134,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/party — 파티 생성 (운영진만)
 export async function POST(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   if (auth.session.role !== "admin" && auth.session.role !== "subadmin") {
     return NextResponse.json({ error: "운영진만 파티를 생성할 수 있습니다." }, { status: 403 });
@@ -149,6 +169,13 @@ export async function POST(req: NextRequest) {
 
     await ensureSchema();
     const pool = getPool();
+
+    const resolved = await resolveParticipantNicks(pool, nicknames);
+    if (resolved.unknown.length > 0) {
+      return NextResponse.json({ error: `클랜원 목록에 없는 이름이 있어요: ${resolved.unknown.join(", ")}` }, { status: 400 });
+    }
+    nicknames.splice(0, nicknames.length, ...resolved.names);
+
     const { userId } = auth.session;
     const hostNickname = auth.session.nickname ?? "운영진";
     const maxSize = mode === "solo" ? 2 : 5;
@@ -191,7 +218,7 @@ export async function POST(req: NextRequest) {
 
 // PATCH /api/party — 파티 참가자 수정 (운영진만)
 export async function PATCH(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   if (auth.session.role !== "admin" && auth.session.role !== "subadmin") {
     return NextResponse.json({ error: "운영진만 수정할 수 있습니다." }, { status: 403 });
@@ -210,6 +237,12 @@ export async function PATCH(req: NextRequest) {
     const [rows] = await pool.query("SELECT id, status FROM parties WHERE id = ?", [partyId]) as [any[], any];
     if (!rows[0]) return NextResponse.json({ error: "존재하지 않는 파티입니다." }, { status: 404 });
     if (rows[0].status === "ended") return NextResponse.json({ error: "종료된 파티는 수정할 수 없습니다." }, { status: 400 });
+
+    const resolved = await resolveParticipantNicks(pool, nicknames);
+    if (resolved.unknown.length > 0) {
+      return NextResponse.json({ error: `클랜원 목록에 없는 이름이 있어요: ${resolved.unknown.join(", ")}` }, { status: 400 });
+    }
+    nicknames.splice(0, nicknames.length, ...resolved.names);
 
     const conn = await pool.getConnection();
     try {
@@ -256,7 +289,7 @@ export async function PATCH(req: NextRequest) {
 
 // DELETE /api/party — 파티 종료(펑), 운영진만
 export async function DELETE(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     let id: number;

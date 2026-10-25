@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getLeagueEntries, RiotApiError } from "@/lib/riot";
+import { requireAuth } from "@/lib/auth";
 
 interface TierInfo {
   tier: string; // 예: EMERALD (언랭이면 빈 문자열)
@@ -36,6 +37,8 @@ async function getSoloTier(puuid: string): Promise<TierInfo> {
 
 // GET /api/tiers?puuids=p1,p2,p3...
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.response;
   const { searchParams } = new URL(req.url);
   const raw = searchParams.get("puuids")?.trim();
   if (!raw) {

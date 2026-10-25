@@ -1,10 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth";
 import { getPool, ensureSchema } from "@/lib/db";
 import { givePoints } from "@/lib/points";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // 생일 등 개인정보가 포함되고, 생일 포인트 지급도 일어나므로 로그인 필수.
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.response;
   try {
     await ensureSchema();
     const pool = getPool();

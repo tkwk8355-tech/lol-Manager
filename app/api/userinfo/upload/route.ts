@@ -3,7 +3,7 @@ import { getPool, ensureSchema } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     const body = await req.json();
@@ -55,13 +55,15 @@ export async function POST(req: NextRequest) {
         if (e?.code === "ER_DUP_ENTRY") {
           errors.push(`${m.nickname}: 이미 같은 이름의 클랜원이 있어 건너뜁니다.`);
         } else {
-          errors.push(`${m.nickname} 추가 실패: ${e.message}`);
+          console.error("[userinfo/upload]", m.nickname, e);
+          errors.push(`${m.nickname} 추가 실패`);
         }
       }
     }
 
     return NextResponse.json({ success: true, addedMembers, addedAccounts, errors: errors.length ? errors : undefined });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.error("[userinfo/upload] 오류:", e);
+    return NextResponse.json({ error: "업로드 처리 중 오류가 발생했습니다." }, { status: 500 });
   }
 }

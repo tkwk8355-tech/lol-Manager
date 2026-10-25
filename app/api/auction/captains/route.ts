@@ -3,7 +3,7 @@ import { getPool, ensureSchema } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   await ensureSchema();
   const pool = getPool();

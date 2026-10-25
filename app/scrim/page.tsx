@@ -42,6 +42,7 @@ interface Player {
   champStats: ChampStat[];
   kills: number; deaths: number; assists: number; games: number; wins: number; kda: string | null; winRate: number | null;
   mvpCount: number; scrimScore: number; scrimMmr: number | null; scrimTier: string | null;
+  dpm: number | null; cspm: number | null; timedGames: number; // 분당 딜량 / 분당 CS (경기 시간이 있는 경기 기준)
 }
 interface Member { id: number; nickname: string; subLine?: string | null; mainLine?: string | null; }
 interface ChampionInfo { id: string; name: string; }
@@ -1499,6 +1500,21 @@ export default function ScrimPage() {
                       <div className="sc-kda-avg">{avg[0]} / <em>{avg[1]}</em> / {avg[2]}</div>
                       <div className="sc-kda-cap">판당 평균 킬 / 데스 / 어시스트</div>
                       <div className="sc-mvp-line"><span>MVP</span><span><b>{d.mvpCount}회</b> · {Math.round((d.mvpCount / d.games) * 100)}%</span></div>
+                      <div className="sc-pm">
+                        <div className="sc-pm-cell">
+                          <small>DPM</small>
+                          <b>{d.dpm !== null ? d.dpm.toLocaleString() : "-"}</b>
+                          <span>분당 딜량</span>
+                        </div>
+                        <div className="sc-pm-cell">
+                          <small>CS/분</small>
+                          <b>{d.cspm !== null ? d.cspm.toFixed(1) : "-"}</b>
+                          <span>분당 CS</span>
+                        </div>
+                      </div>
+                      {d.timedGames > 0 && d.timedGames < d.games && (
+                        <div className="sc-kda-cap">경기 시간이 기록된 {d.timedGames}판 기준</div>
+                      )}
                     </div>
                   </div>
 

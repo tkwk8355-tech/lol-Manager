@@ -41,7 +41,7 @@ function shape(r: RecruitRow, participants: ParticipantRow[]) {
 // GET /api/scrim/recruit — 모집 목록 조회. 일반 클랜원도 볼 수 있다(신청 여부 판단용).
 // 상세 점수/전적 데이터는 절대 포함하지 않는다.
 export async function GET(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   try {
     await ensureSchema();
@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/scrim/recruit — 내전 모집 열기 (운영진만)
 export async function POST(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     const body = await req.json().catch(() => ({}));
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
 
 // DELETE /api/scrim/recruit?id=1 — 모집 취소 (운영진만)
 export async function DELETE(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     const id = Number(new URL(req.url).searchParams.get("id"));

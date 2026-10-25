@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth";
 import { getPool, ensureSchema } from "@/lib/db";
 import { tierBaseScore, winRateAdjust, mmrToScrimTier, SCRIM_TIER_KO } from "@/lib/scrim";
 
@@ -12,7 +13,9 @@ function tierScore(tier: string|null, rank: string|null, lp: number) {
   return TIER_ORDER.indexOf(tier) * 400 + (RANK_ORDER[rank ?? "IV"] ?? 0) * 100 + (lp ?? 0);
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req, { allowScrimOnly: true });
+  if (!auth.ok) return auth.response;
   try {
     await ensureSchema();
     const pool = getPool();
@@ -53,6 +56,7 @@ export async function GET() {
 
     const [parts] = await pool.query(
       `SELECT p.member_id, p.line, p.champion, p.kills, p.deaths, p.assists, p.is_mvp,
+              p.damage, p.cs, m.game_duration,
               IF(m.winner_team > 0 AND p.team = m.winner_team, 1, 0) AS win
        FROM scrim_participants p
        JOIN scrim_matches m ON m.id = p.match_id WHERE m.status = 'done'`
@@ -72,11 +76,14 @@ export async function GET() {
       lineChamps: Record<string, Map<string,number>>;
       champs: Map<string, ChampAgg>; // 라인 구분 없이 챔피언별 누적 기록 (상세보기 챔피언 통계용)
       kills:number; deaths:number; assists:number; games:number; wins:number;
+      // DPM / 분당 CS: 경기 시간이 기록된 경기(Riot 자동 동기화)만 합산한다
+      timedDamage:number; timedCs:number; timedSec:number; timedGames:number;
     }>();
     for (const p of parts) {
       if (!statMap.has(p.member_id)) statMap.set(p.member_id, {
         lineStats: emptyLineStats(), lineChamps: emptyLineChamps(), champs: new Map(),
-        kills:0, deaths:0, assists:0, games:0, wins:0
+        kills:0, deaths:0, assists:0, games:0, wins:0,
+        timedDamage:0, timedCs:0, timedSec:0, timedGames:0,
       });
       const s = statMap.get(p.member_id)!;
       const line = (p.line ?? "").toUpperCase();
@@ -98,6 +105,13 @@ export async function GET() {
         s.champs.set(p.champion, c);
       }
       if (Number(p.is_mvp) === 1) mvpCountByMember.set(p.member_id, (mvpCountByMember.get(p.member_id) ?? 0) + 1);
+      const dur = Number(p.game_duration) || 0;
+      if (dur > 0) {
+        s.timedDamage += Number(p.damage) || 0;
+        s.timedCs += Number(p.cs) || 0;
+        s.timedSec += dur;
+        s.timedGames++;
+      }
       s.kills += p.kills; s.deaths += p.deaths; s.assists += p.assists; s.games++;
       if (p.win === 1) s.wins++;
     }
@@ -106,7 +120,8 @@ export async function GET() {
       const t = tierByMember.get(m.id) ?? null;
       const s = statMap.get(m.id) ?? {
         lineStats: emptyLineStats(), lineChamps: emptyLineChamps(), champs: new Map<string, ChampAgg>(),
-        kills:0, deaths:0, assists:0, games:0, wins:0
+        kills:0, deaths:0, assists:0, games:0, wins:0,
+        timedDamage:0, timedCs:0, timedSec:0, timedGames:0,
       };
       const lineCounts = Object.fromEntries(LINES.map((l) => [l, s.lineStats[l].games]));
       const lineChamps = Object.fromEntries(LINES.map((l) => [
@@ -125,6 +140,9 @@ export async function GET() {
       const kda = s.games > 0 ? ((s.kills + s.assists) / Math.max(s.deaths, 1)).toFixed(2) : null;
       const winRate = s.games > 0 ? Math.round((s.wins / s.games) * 100) : null;
       const mvpCount = mvpCountByMember.get(m.id) ?? 0;
+      const minutes = s.timedSec / 60;
+      const dpm = minutes > 0 ? Math.round(s.timedDamage / minutes) : null;
+      const cspm = minutes > 0 ? Number((s.timedCs / minutes).toFixed(1)) : null;
       const base = tierBaseScore(t?.tier, t?.lp);
       const adjust = winRateAdjust(s.wins, s.games);
       const scrimScore = base + adjust;
@@ -132,7 +150,7 @@ export async function GET() {
         memberId: m.id, nickname: m.nickname,
         tier: t?.tier ?? null, rank: t?.rank ?? null, lp: t?.lp ?? 0,
         lineCounts, lineStats: s.lineStats, lineChamps, champStats, kills: s.kills, deaths: s.deaths, assists: s.assists, games: s.games, wins: s.wins, kda, winRate,
-        mvpCount, scrimScore,
+        mvpCount, scrimScore, dpm, cspm, timedGames: s.timedGames,
         scrimMmr: ratingMap.has(m.id) ? ratingMap.get(m.id)! : null,
         scrimTier: ratingMap.has(m.id) ? SCRIM_TIER_KO[mmrToScrimTier(ratingMap.get(m.id)!)] : null,
       };

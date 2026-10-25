@@ -10,6 +10,7 @@
 // =============================================================
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth";
 import {
   getAccountByRiotId,
   getSummonerByPuuid,
@@ -127,6 +128,9 @@ const MATCH_COUNT = 10;
 
 // GET /api/summoner?gameName=옵타론&tagLine=3000[&refresh=1]
 export async function GET(req: NextRequest) {
+  // 로그인한 클랜원만 — 외부인이 서버의 Riot API 키 호출 한도를 소진하지 못하게 한다.
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.response;
   const { searchParams } = new URL(req.url);
   const gameName = searchParams.get("gameName")?.trim(); // 게임 이름
   const tagLine = searchParams.get("tagLine")?.trim(); // 태그

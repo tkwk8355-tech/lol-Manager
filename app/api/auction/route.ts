@@ -4,7 +4,7 @@ import { requireAuth, requireAdmin } from "@/lib/auth";
 
 // GET /api/auction?sessionId=N  → 세션 상태 조회
 export async function GET(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   await ensureSchema();
   const pool = getPool();
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/auction  → 세션 생성
 export async function POST(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   await ensureSchema();
   const pool = getPool();
@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
 
 // PATCH /api/auction  → 입찰 / 낙찰 / 세션 상태 변경
 export async function PATCH(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   await ensureSchema();
   const pool = getPool();
@@ -177,7 +177,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (action === "award") {
-    const auth2 = requireAdmin(req);
+    const auth2 = await requireAdmin(req);
     if (!auth2.ok) return auth2.response;
 
     const [nonCaptains] = await pool.query(
@@ -214,7 +214,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (action === "next") {
-    const auth2 = requireAdmin(req);
+    const auth2 = await requireAdmin(req);
     if (!auth2.ok) return auth2.response;
 
     const [nonCaptains] = await pool.query(
@@ -233,21 +233,21 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (action === "timer_start") {
-    const auth2 = requireAdmin(req);
+    const auth2 = await requireAdmin(req);
     if (!auth2.ok) return auth2.response;
     await pool.query(`UPDATE auction_sessions SET timer_started = 1, timer_started_at = ? WHERE id = ?`, [Date.now(), sessionId]);
     return NextResponse.json({ ok: true });
   }
 
   if (action === "start") {
-    const auth2 = requireAdmin(req);
+    const auth2 = await requireAdmin(req);
     if (!auth2.ok) return auth2.response;
     await pool.query(`UPDATE auction_sessions SET status = 'running', current_idx = 0, timer_started = 0, timer_started_at = NULL WHERE id = ?`, [sessionId]);
     return NextResponse.json({ ok: true });
   }
 
   if (action === "reset") {
-    const auth2 = requireAdmin(req);
+    const auth2 = await requireAdmin(req);
     if (!auth2.ok) return auth2.response;
     const [nonCaptains] = await pool.query(
       `SELECT * FROM auction_players WHERE session_id = ? AND is_captain = 0 ORDER BY sort_order ASC`, [sessionId]
@@ -273,7 +273,7 @@ export async function PATCH(req: NextRequest) {
 
 // DELETE /api/auction?sessionId=N
 export async function DELETE(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   await ensureSchema();
   const pool = getPool();

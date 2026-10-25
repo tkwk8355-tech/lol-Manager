@@ -4171,6 +4171,11 @@ a {
 .sc-kda-cap { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .sc-mvp-line { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 12px; }
 .sc-mvp-line b { color: #e8b84a; }
+.sc-pm { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.sc-pm-cell { background: rgba(var(--fg-rgb), 0.04); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+.sc-pm-cell small { font-size: 10px; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+.sc-pm-cell b { font-size: 18px; line-height: 1.2; }
+.sc-pm-cell span { font-size: 11px; color: var(--muted); }
 .sc-pos { display: flex; flex-direction: column; gap: 12px; }
 .sc-pos-row { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: center; }
 .sc-pos-ic { width: 34px; height: 34px; border-radius: 50%; background: var(--panel-2); border: 1px solid var(--line); display: grid; place-items: center; }
@@ -4535,7 +4540,7 @@ select:focus-visible, textarea:focus-visible { outline: none; box-shadow: var(--
 .pt-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .pt-field > span { font-size: 12px; font-weight: 700; color: var(--muted); }
 .pt-field > span small { font-weight: 600; margin-left: 4px; }
-.pt-field .ui-input { width: 100%; }
+.pt-field .auc-field .ui-input, .auc-search .ui-input { width: 100%; }
 .pt-plist { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; }
 .pt-prow { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 4px 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card-2); }
 .pt-prow:focus-within { border-color: var(--accent); }
@@ -4547,6 +4552,10 @@ select:focus-visible, textarea:focus-visible { outline: none; box-shadow: var(--
 .pt-add { height: 36px; border-radius: 8px; border: 1px dashed var(--border); background: transparent; color: var(--muted); font-size: 13px; font-weight: 700; cursor: pointer; }
 .pt-add:hover { border-color: var(--accent); color: var(--text); }
 .pt-create-foot { display: flex; justify-content: flex-end; }
+.pt-paste-choices { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pt-paste-choices .sc-paste-help { width: 100%; }
+.party-participant-nick-input.invalid { border-color: var(--loss-text); }
+.pt-prow:has(.party-participant-nick-input.invalid) { border-color: var(--loss-text); }
 .pt-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 .pt-card { padding: 14px 16px; display: flex; flex-direction: column; }
 .pt-card.full { opacity: 0.85; }
@@ -4739,3 +4748,320 @@ select:focus-visible, textarea:focus-visible { outline: none; box-shadow: var(--
 .ui-toolbar .ui-chip { height: 36px; padding: 0 16px; font-size: 13px; border-radius: 9px; }
 .line-filter-btn { height: 34px; padding: 0 14px; font-size: 13px; }
 .line-filter-btn em { font-size: 12px; }
+
+/* =====================================================================
+   경매내전 (auc-*) — app/components/auction/*
+   ===================================================================== */
+.ui-input.sm, .ui-select.sm { height: 30px; padding: 0 8px; font-size: 12px; border-radius: 7px; }
+.ui-input { width: 100%; }
+
+/* 공통 조각 */
+.auc-champ { display: inline-block; border-radius: 6px; object-fit: cover; border: 1px solid var(--border); flex-shrink: 0; background: var(--card-2); }
+.auc-champ.empty { border-style: dashed; }
+.auc-line-ico { filter: brightness(0) invert(1); opacity: .9; flex-shrink: 0; }
+.auc-line-ico.dim { opacity: .3; }
+:root[data-theme="light"] .auc-line-ico { filter: brightness(0); opacity: .75; }
+:root[data-theme="light"] .auc-line-ico.dim { opacity: .25; }
+.auc-tier { font-size: 12px; font-weight: 700; color: var(--win-text); letter-spacing: .2px; }
+.auc-label { display: flex; align-items: baseline; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 8px; }
+.auc-label em { font-style: normal; font-weight: 500; font-size: 11px; opacity: .85; }
+.auc-count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 18px; padding: 0 6px; border-radius: 999px; background: var(--card-2); color: var(--muted); font-size: 11px; font-weight: 700; }
+.auc-hint { font-size: 12px; color: var(--muted); margin-top: 10px; }
+.auc-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 7px; background: var(--card); border: 1px solid var(--border); font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.auc-chip.lg { height: 34px; padding: 0 6px 0 12px; font-size: 13px; }
+.auc-mini-btn { height: 24px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--card-2); color: var(--text); font-size: 11px; font-weight: 600; cursor: pointer; }
+.auc-mini-btn:hover { border-color: rgba(var(--fg-rgb), .3); }
+.auc-mini-btn.danger { color: var(--loss-text); border-color: rgba(232, 64, 87, .35); background: transparent; padding: 0 7px; }
+.auc-mini-btn.danger:hover { background: rgba(232, 64, 87, .1); }
+.auc-icon-btn { width: 26px; height: 26px; border: none; border-radius: 6px; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
+.auc-icon-btn:hover { background: rgba(var(--fg-rgb), .06); color: var(--text); }
+.auc-search { position: relative; }
+.auc-search-list { z-index: 50; }
+.auc-field { display: block; margin-bottom: 16px; }
+.auc-modal-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.auc-summary { margin-right: auto; font-size: 12px; color: var(--muted); }
+.auc-err { margin-top: 12px; }
+
+/* 경매방 상단 바 */
+.auc-room-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.auc-room-title { font-size: 16px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- 새 경매 모달 ---------- */
+.modal.auc-create { max-width: 880px; }
+.auc-create-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.auc-panel { background: var(--card-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; min-width: 0; }
+.auc-panel-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 800; margin-bottom: 10px; }
+.auc-cap-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.auc-cap-row { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-radius: 8px; background: var(--card); border: 1px solid var(--border); }
+.auc-cap-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.auc-cap-row .ui-select { width: auto; max-width: 120px; background: var(--card-2); }
+.auc-pt-input { display: inline-flex; align-items: center; gap: 4px; }
+.auc-pt-input .ui-input { width: 72px; text-align: center; background: var(--card-2); }
+.auc-pt-input em { font-style: normal; font-size: 11px; color: var(--muted); }
+.auc-player-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 5px; max-height: 240px; overflow-y: auto; }
+.auc-player-chips .auc-chip { justify-content: center; }
+
+/* ---------- 참여자 관리 ---------- */
+.auc-roster-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.auc-roster-head .ui-section-title { margin: 6px 0 0; }
+.auc-roster-add { width: 280px; max-width: 100%; }
+.auc-roster-board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.auc-roster-col { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; min-width: 0; }
+.auc-roster-col-head { display: flex; align-items: center; gap: 6px; padding: 10px 12px; background: var(--card-2); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 800; }
+.auc-roster-col-head .auc-count { margin-left: auto; background: var(--card); }
+.auc-roster-col-body { display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+.auc-roster-card { padding: 10px; border-radius: var(--radius); background: var(--card-2); border: 1px solid transparent; display: flex; flex-direction: column; gap: 8px; transition: border-color .15s; }
+.auc-roster-card:hover { border-color: var(--border); }
+.auc-roster-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; }
+.auc-roster-name { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.auc-roster-name strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.auc-row-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.auc-champ-row { display: flex; gap: 4px; }
+.auc-roster-empty { padding: 14px 0; text-align: center; font-size: 12px; color: var(--muted); opacity: .6; }
+.auc-unassigned { margin-top: 16px; }
+.auc-unassigned-list { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* 참여자 추가/수정 모달 */
+.modal.auc-entry-modal { max-width: 560px; }
+.auc-line-pick { display: flex; gap: 6px; flex-wrap: wrap; }
+.auc-line-pick button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--card-2); color: var(--text); font-size: 13px; font-weight: 700; cursor: pointer; }
+.auc-line-pick button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.auc-line-pick button.on .auc-line-ico { filter: brightness(0) invert(1); opacity: 1; }
+.auc-champ-slots { display: flex; gap: 8px; margin-bottom: 10px; }
+.auc-champ-slot { position: relative; padding: 0; border: none; background: none; cursor: pointer; }
+.auc-champ-slot:disabled { cursor: default; }
+.auc-champ-x { position: absolute; top: -5px; right: -5px; width: 16px; height: 16px; border-radius: 50%; background: var(--loss-accent); color: #fff; font-size: 11px; line-height: 16px; text-align: center; }
+.auc-champ-grid { display: flex; flex-wrap: wrap; gap: 4px; max-height: 232px; overflow-y: auto; margin-top: 8px; padding: 2px; }
+.auc-champ-opt { padding: 0; border: 2px solid transparent; border-radius: 8px; background: none; cursor: pointer; line-height: 0; }
+.auc-champ-opt.on { border-color: var(--accent); }
+.auc-champ-opt.off { opacity: .3; }
+
+/* ---------- 반응형 (목록/참여자/모달) ---------- */
+@media (max-width: 1180px) {
+  .auc-roster-board { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .auc-create-grid { grid-template-columns: minmax(0, 1fr); }
+  .auc-roster-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .auc-roster-board { grid-template-columns: minmax(0, 1fr); }
+  .auc-cap-row { flex-wrap: wrap; padding: 8px 8px 8px 12px; }
+  .auc-cap-name { flex-basis: calc(100% - 40px); }
+  .auc-cap-row .ui-select { flex: 1; max-width: none; }
+}
+
+/* =====================================================================
+   경매방 — 무대(arena) 레이아웃
+   ===================================================================== */
+.auc-arena { display: flex; flex-direction: column; gap: 14px; }
+.auc-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; color: var(--muted); }
+
+/* ---------- 무대 (항상 어두운 방송 화면 톤) ---------- */
+.auc-hero {
+  --hero-bg: #0d1017; --hero-fg: #f2f4f8; --hero-muted: #8f98aa;
+  position: relative; overflow: hidden; isolation: isolate;
+  border-radius: 20px; padding: 22px 28px 26px;
+  background: radial-gradient(120% 140% at 50% -20%, #1b2233 0%, var(--hero-bg) 60%);
+  color: var(--hero-fg);
+  border: 1px solid color-mix(in srgb, var(--team) 35%, #1f2533);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .04);
+  transition: border-color .4s;
+}
+.auc-hero .auc-eyebrow { color: var(--hero-muted); }
+:root .auc-hero .auc-line-ico, :root[data-theme="light"] .auc-hero .auc-line-ico { filter: brightness(0) invert(1); opacity: .95; }
+.auc-hero-glow { position: absolute; inset: -40% -10% auto; height: 120%; z-index: -1; pointer-events: none;
+  background: radial-gradient(50% 50% at 50% 50%, color-mix(in srgb, var(--team) 38%, transparent), transparent 70%);
+  opacity: .55; transition: background .5s; }
+.auc-hero-splash { position: absolute; inset: 0; z-index: -2; background-size: cover; background-position: center;
+  filter: blur(38px) saturate(1.3); opacity: .35; transform: scale(1.3); animation: auc-fade .8s ease; }
+.auc-hero.sold { border-color: var(--team); box-shadow: 0 0 0 1px var(--team), 0 20px 70px color-mix(in srgb, var(--team) 35%, transparent); }
+
+.auc-hero-top { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.auc-live { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 999px;
+  background: rgba(232, 64, 87, .16); color: #ff6b81; font-size: 11px; font-weight: 900; letter-spacing: 1.5px; }
+.auc-live i { width: 7px; height: 7px; border-radius: 50%; background: #ff4d67; animation: auc-blink 1.2s infinite; }
+.auc-hero-count { font-size: 15px; font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.auc-hero-count em { font-style: normal; color: var(--hero-muted); font-weight: 700; }
+.auc-progress-track { flex: 1; height: 4px; border-radius: 999px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+.auc-progress-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #5b8def, #9b7be8); transition: width .5s; }
+
+.auc-hero-main { display: grid; grid-template-columns: minmax(0, 1.25fr) auto minmax(0, 1fr); align-items: center; gap: 28px; }
+.auc-hero-player { min-width: 0; }
+.auc-hero-name { font-size: clamp(36px, 5vw, 60px); font-weight: 900; letter-spacing: -1.5px; line-height: 1.05; margin: 6px 0 12px;
+  word-break: keep-all; text-shadow: 0 4px 30px rgba(0, 0, 0, .5); animation: auc-rise .45s ease; }
+.auc-hero-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.auc-pill { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 999px;
+  background: rgba(255, 255, 255, .07); border: 1px solid rgba(255, 255, 255, .08); font-size: 13px; font-weight: 800; }
+.auc-pill.tier { color: #9cc0ff; }
+.auc-hero-champs { display: flex; gap: 10px; }
+.auc-hero-champs .auc-champ { border-radius: 12px; border: 1px solid rgba(255, 255, 255, .12); box-shadow: 0 6px 18px rgba(0, 0, 0, .4); background: #151a24; }
+.auc-hero-champs.revealed .auc-champ { animation: auc-flip .5s ease both; border-color: var(--team); }
+.auc-hero-champs.revealed .auc-champ:nth-child(2) { animation-delay: .08s; }
+.auc-hero-champs.revealed .auc-champ:nth-child(3) { animation-delay: .16s; }
+
+/* 원형 타이머 */
+.auc-ring { position: relative; width: 168px; height: 168px; }
+.auc-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
+.auc-ring circle { fill: none; stroke-width: 9; }
+.auc-ring .track { stroke: rgba(255, 255, 255, .08); }
+.auc-ring .prog { stroke: var(--t-color); stroke-linecap: round; transition: stroke .3s; }
+.auc-ring::before { content: ""; position: absolute; inset: 14%; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--t-color, transparent) 22%, transparent), transparent 70%); }
+.auc-ring.idle .prog { stroke: rgba(255, 255, 255, .14); }
+.auc-ring.ok { --t-color: #6ea0ff; }
+.auc-ring.warn { --t-color: #f0a03c; }
+.auc-ring.danger { --t-color: #ff5a72; }
+.auc-ring.danger .auc-ring-num { animation: auc-pulse .5s ease-in-out infinite alternate; }
+.auc-ring-inner { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.auc-ring-num { font-size: 58px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; color: var(--t-color); }
+.auc-ring-idle { font-size: 26px; font-weight: 900; color: var(--hero-muted, var(--muted)); }
+.auc-ring-inner small { font-size: 10px; font-weight: 800; letter-spacing: 2px; color: var(--hero-muted, var(--muted)); }
+
+/* 최고 입찰 */
+.auc-hero-bid { text-align: right; min-width: 0; }
+.auc-topbid { margin-top: 6px; animation: auc-pop .45s cubic-bezier(.2, 1.4, .4, 1); }
+.auc-topbid-pt { font-size: clamp(44px, 5.5vw, 72px); font-weight: 900; line-height: 1; letter-spacing: -2px; color: var(--team);
+  font-variant-numeric: tabular-nums; text-shadow: 0 0 40px color-mix(in srgb, var(--team) 45%, transparent); }
+.auc-topbid-pt small { font-size: .38em; margin-left: 2px; letter-spacing: 0; opacity: .8; }
+.auc-topbid-who { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; padding: 6px 14px; border-radius: 999px;
+  background: color-mix(in srgb, var(--team) 20%, transparent); border: 1px solid color-mix(in srgb, var(--team) 50%, transparent);
+  font-size: 15px; font-weight: 800; }
+.auc-topbid-who .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--team); box-shadow: 0 0 10px var(--team); }
+.auc-topbid.empty .auc-topbid-pt { color: rgba(255, 255, 255, .2); text-shadow: none; }
+.auc-topbid.empty .auc-topbid-who { background: rgba(255, 255, 255, .05); border-color: rgba(255, 255, 255, .08); color: var(--hero-muted); }
+
+.auc-hero-banner { margin: 20px auto 0; width: fit-content; padding: 10px 22px; border-radius: 999px; font-size: 16px; font-weight: 900;
+  background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .1); }
+.auc-hero-banner.warn { background: rgba(240, 160, 60, .14); border-color: rgba(240, 160, 60, .4); color: #f5b45a; animation: auc-pulse .6s ease-in-out infinite alternate; }
+.auc-hero-banner.sold { background: var(--team); border-color: var(--team); color: #fff; font-size: 18px; animation: auc-pop .5s cubic-bezier(.2, 1.4, .4, 1);
+  box-shadow: 0 10px 40px color-mix(in srgb, var(--team) 50%, transparent); }
+
+/* 대기/완료 화면 */
+.auc-hero-state { min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; }
+.auc-hero-title { font-size: clamp(32px, 4vw, 48px); font-weight: 900; letter-spacing: -1px; }
+.auc-hero-state p { margin: 0; color: var(--hero-muted); font-size: 14px; }
+.auc-hero-state p.dim { opacity: .8; }
+.auc-cta { margin-top: 10px; height: 52px; padding: 0 40px; border: none; border-radius: 14px; cursor: pointer;
+  background: linear-gradient(135deg, #5b8def, #7b6cf0); color: #fff; font-size: 17px; font-weight: 900;
+  box-shadow: 0 10px 30px rgba(91, 141, 239, .4); transition: transform .1s, box-shadow .2s; }
+.auc-cta:hover { transform: translateY(-1px); box-shadow: 0 14px 36px rgba(91, 141, 239, .5); }
+.auc-cta.sm { margin: 0; height: 42px; padding: 0 22px; font-size: 14px; border-radius: 11px; }
+.auc-cta.go { background: linear-gradient(135deg, #2fae74, #1f8f9e); box-shadow: 0 10px 30px rgba(47, 174, 116, .35); }
+.auc-ghost-btn { margin-top: 8px; height: 40px; padding: 0 22px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, .2); background: rgba(255, 255, 255, .05); color: #fff; font-weight: 800; cursor: pointer; }
+
+/* ---------- 팀장 입찰 바 ---------- */
+.auc-bidbar { display: flex; align-items: center; gap: 20px; padding: 16px 18px; border-radius: 16px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--team) 12%, var(--card)), var(--card) 45%);
+  border: 1px solid color-mix(in srgb, var(--team) 45%, var(--border)); }
+.auc-bidbar-info { min-width: 180px; }
+.auc-bidbar-pt { font-size: 32px; font-weight: 900; line-height: 1.1; color: var(--team); font-variant-numeric: tabular-nums; }
+.auc-bidbar-pt small { font-size: 14px; margin-left: 2px; opacity: .8; }
+.auc-bidbar-hint { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.auc-bidbar-warn { font-size: 12px; font-weight: 800; color: var(--loss-text); margin-top: 2px; }
+.auc-bid-btns { flex: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.auc-bid-btn { --c: #8a93a6; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  height: 72px; border-radius: 14px; cursor: pointer; overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--c) 60%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 22%, transparent), color-mix(in srgb, var(--c) 8%, transparent));
+  color: var(--text); transition: transform .08s, box-shadow .2s, background .2s; }
+.auc-bid-btn small { font-size: 13px; font-weight: 900; color: var(--c); }
+.auc-bid-btn span { font-size: 20px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.auc-bid-btn span em { font-style: normal; font-size: 11px; margin-left: 1px; color: var(--muted); }
+.auc-bid-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 10px 24px color-mix(in srgb, var(--c) 35%, transparent); }
+.auc-bid-btn:active:not(:disabled) { transform: translateY(0) scale(.98); }
+.auc-bid-btn:disabled { opacity: .3; cursor: default; filter: grayscale(1); }
+.auc-bid-btn.t1 { --c: #5b8def; }
+.auc-bid-btn.t2 { --c: #a77be0; }
+.auc-bid-btn.t3 { --c: #f08a3c; }
+
+/* ---------- 운영진 진행 바 ---------- */
+.auc-ctrlbar { display: flex; align-items: center; gap: 18px; padding: 12px 14px; border-radius: 16px; background: var(--card); border: 1px solid var(--border); }
+.auc-ctrl-btns { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.auc-ctrl-status { font-size: 13px; font-weight: 800; color: var(--muted); padding: 0 6px; }
+.auc-queue-strip .auc-eyebrow { white-space: nowrap; flex-shrink: 0; }
+.auc-queue-strip { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding-left: 16px; border-left: 1px solid var(--border); }
+.auc-queue-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; padding: 2px 0; }
+.auc-qchip { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 9px; background: var(--card-2); font-size: 13px; font-weight: 700; white-space: nowrap; }
+.auc-qchip b { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.auc-qchip.more { color: var(--muted); }
+
+/* ---------- 팀 보드 + 입찰 피드 ---------- */
+.auc-lower { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+.auc-board { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.auc-tcard { position: relative; border-radius: 16px; background: var(--card); border: 1px solid var(--border); overflow: hidden; transition: transform .2s, box-shadow .3s, border-color .3s; }
+.auc-tcard.me { border-color: var(--team); }
+.auc-tcard.leading { border-color: var(--team); box-shadow: 0 0 0 1px var(--team), 0 12px 32px color-mix(in srgb, var(--team) 30%, transparent); transform: translateY(-2px); }
+.auc-tcard-head { padding: 14px 14px 12px; background: linear-gradient(160deg, color-mix(in srgb, var(--team) 26%, transparent), transparent 75%); border-bottom: 1px solid var(--border); }
+.auc-tcard-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.auc-tcard-name { font-size: 16px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.auc-tag { flex-shrink: 0; padding: 2px 6px; border-radius: 5px; font-size: 9px; font-weight: 900; letter-spacing: .5px; background: var(--team); color: #fff; }
+.auc-tag.hot { background: transparent; color: var(--team); border: 1px solid var(--team); }
+.auc-tcard-pt { margin-top: 8px; font-size: 26px; font-weight: 900; line-height: 1; color: var(--team); font-variant-numeric: tabular-nums; }
+.auc-tcard-pt small { font-size: 12px; font-weight: 700; color: var(--muted); margin-left: 3px; }
+.auc-tcard-pt.low { color: var(--loss-text); }
+.auc-tcard-bar { margin-top: 8px; height: 4px; border-radius: 999px; background: rgba(var(--fg-rgb), .08); overflow: hidden; }
+.auc-tcard-bar span { display: block; height: 100%; border-radius: inherit; background: var(--team); transition: width .5s; }
+.auc-tcard-slots { display: flex; flex-direction: column; gap: 5px; padding: 10px; }
+.auc-tslot { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border-radius: 9px; border: 1px dashed rgba(var(--fg-rgb), .1); font-size: 13px; }
+.auc-tslot .empty { color: var(--muted); opacity: .55; font-size: 12px; }
+.auc-tslot.filled { border: 1px solid transparent; background: var(--card-2); }
+.auc-tslot.cap { background: color-mix(in srgb, var(--team) 14%, var(--card-2)); }
+.auc-tslot .nm { flex: 1; min-width: 0; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.auc-tslot em { font-style: normal; font-size: 11px; font-weight: 800; color: var(--muted); font-variant-numeric: tabular-nums; }
+.auc-tslot em.c { width: 18px; height: 18px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; background: var(--team); color: #fff; font-size: 10px; }
+.auc-tslot.target { border-color: color-mix(in srgb, var(--team) 60%, transparent); background: color-mix(in srgb, var(--team) 8%, transparent); }
+.auc-tslot.target .empty { color: var(--team); opacity: 1; font-weight: 800; }
+
+.auc-feed { border-radius: 16px; background: var(--card); border: 1px solid var(--border); padding: 14px; position: sticky; top: 12px; }
+.auc-feed-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.auc-feed-n { font-size: 11px; font-weight: 800; color: var(--muted); }
+.auc-feed-empty { padding: 28px 0; text-align: center; color: var(--muted); font-size: 13px; }
+.auc-feed-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.auc-feed-list li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 11px; background: var(--card-2); border-left: 3px solid var(--team); animation: auc-slide .3s ease; }
+.auc-feed-list li .rk { width: 18px; font-size: 12px; font-weight: 900; color: var(--muted); }
+.auc-feed-list li .who { flex: 1; min-width: 0; font-weight: 800; color: var(--team); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.auc-feed-list li .pt { font-size: 16px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.auc-feed-list li .pt small { font-size: 10px; color: var(--muted); margin-left: 1px; }
+.auc-feed-list li.top { background: color-mix(in srgb, var(--team) 16%, var(--card-2)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--team) 45%, transparent); }
+.auc-feed-list li.top .pt { font-size: 19px; color: var(--team); }
+
+/* ---------- 애니메이션 ---------- */
+@keyframes auc-blink { 50% { opacity: .25; } }
+@keyframes auc-pulse { from { transform: scale(1); } to { transform: scale(1.06); } }
+@keyframes auc-pop { 0% { transform: scale(.7); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes auc-rise { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes auc-fade { from { opacity: 0; } }
+@keyframes auc-flip { from { transform: rotateY(90deg); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes auc-slide { from { transform: translateX(-8px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .auc-arena *, .auc-arena *::before { animation: none !important; transition: none !important; }
+}
+
+/* ---------- 경매방 반응형 ---------- */
+@media (max-width: 1100px) {
+  .auc-lower { grid-template-columns: minmax(0, 1fr); }
+  .auc-feed { position: static; }
+}
+@media (max-width: 900px) {
+  .auc-hero { padding: 18px 18px 22px; }
+  .auc-hero-main { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "player player" "bid timer"; gap: 18px; }
+  .auc-hero-player { grid-area: player; text-align: center; }
+  .auc-hero-meta, .auc-hero-champs { justify-content: center; }
+  .auc-hero-timer { grid-area: timer; }
+  .auc-hero-bid { grid-area: bid; text-align: left; }
+  .auc-ring { width: 128px; height: 128px; }
+  .auc-ring-num { font-size: 44px; }
+  .auc-bidbar { flex-direction: column; align-items: stretch; gap: 12px; }
+  .auc-ctrlbar { flex-direction: column; align-items: stretch; }
+  .auc-queue-strip { padding-left: 0; border-left: none; padding-top: 10px; border-top: 1px solid var(--border); }
+}
+@media (max-width: 520px) {
+  .auc-hero-champs .auc-champ { width: 54px; height: 54px; }
+  .auc-bid-btns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .auc-bid-btn { height: 60px; }
+  .auc-board { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .auc-tcard-head { padding: 10px; }
+  .auc-tcard-pt { font-size: 20px; }
+  .auc-tcard-slots { padding: 8px; gap: 4px; }
+  .auc-tslot { height: 30px; padding: 0 7px; gap: 5px; font-size: 12px; }
+}

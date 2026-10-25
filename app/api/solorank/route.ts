@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   await ensureSchema();
   const pool = getPool();
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
 
   const { name, totalGames, teams, startAt } = await req.json();
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   await ensureSchema();
   const pool = getPool();
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
 
   const { action, sessionId, gameNo, winnerTeam, points } = await req.json();
@@ -97,7 +97,7 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   await ensureSchema();
   const pool = getPool();
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
 
   const sessionId = req.nextUrl.searchParams.get("sessionId");

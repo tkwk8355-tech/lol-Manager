@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool, ensureSchema } from "@/lib/db";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, requireAuth } from "@/lib/auth";
 import { givePoints, updateLastAchieved } from "@/lib/points";
 
 interface ParticipantInput { memberId: number; team: number; line?: string; }
 interface ResultInput { memberId: number; champion?: string; kills: number; deaths: number; assists: number; damage: number; }
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req, { allowScrimOnly: true });
+  if (!auth.ok) return auth.response;
   try {
     const { searchParams } = new URL(req.url);
     const mode = searchParams.get("mode");
@@ -70,7 +72,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     const body = await req.json().catch(() => ({}));
@@ -137,7 +139,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     const body = await req.json().catch(() => ({}));
@@ -251,7 +253,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     const id = Number(new URL(req.url).searchParams.get("id"));

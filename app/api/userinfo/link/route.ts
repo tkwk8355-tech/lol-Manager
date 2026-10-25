@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool, ensureSchema } from "@/lib/db";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, invalidateUserState } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 // GET — 전체 로그인 계정 목록
 export async function GET(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     await ensureSchema();
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 
 // PUT — 역할 변경
 export async function PUT(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   // admin만 역할 변경 가능 (subadmin은 불가)
   if (auth.session.role !== "admin") {
@@ -40,7 +40,7 @@ export async function PUT(req: NextRequest) {
     if (approve) {
       await ensureSchema();
       const pool = getPool();
-      await pool.query("UPDATE users SET status = 'active' WHERE id = ?", [Number(userId)]);
+      await pool.query("UPDATE users SET status = 'active' WHERE id = ?", [Number(userId)]); invalidateUserState(Number(userId));
       return NextResponse.json({ ok: true });
     }
     // show_roster 토글
@@ -59,9 +59,9 @@ export async function PUT(req: NextRequest) {
     await ensureSchema();
     const pool = getPool();
     if (role === "scrim") {
-      await pool.query("UPDATE users SET role = 'member', scrim_only = 1 WHERE id = ?", [Number(userId)]);
+      await pool.query("UPDATE users SET role = 'member', scrim_only = 1 WHERE id = ?", [Number(userId)]); invalidateUserState(Number(userId));
     } else {
-      await pool.query("UPDATE users SET role = ?, scrim_only = 0 WHERE id = ?", [role, Number(userId)]);
+      await pool.query("UPDATE users SET role = ?, scrim_only = 0 WHERE id = ?", [role, Number(userId)]); invalidateUserState(Number(userId));
     }
     return NextResponse.json({ ok: true });
   } catch (err) {
@@ -72,7 +72,7 @@ export async function PUT(req: NextRequest) {
 
 // DELETE ?id=1 — 로그인 계정 삭제
 export async function DELETE(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     const id = Number(new URL(req.url).searchParams.get("id"));
@@ -89,6 +89,7 @@ export async function DELETE(req: NextRequest) {
       if (adminRows[0].c <= 1) return NextResponse.json({ error: "마지막 운영진 계정은 삭제할 수 없습니다." }, { status: 400 });
     }
     await pool.query("DELETE FROM users WHERE id = ?", [id]);
+    invalidateUserState(id);
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error(err);

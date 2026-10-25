@@ -5,7 +5,7 @@ import { syncScrimMatches } from "@/lib/syncScrim";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req, { allowScrimOnly: true });
   if (!auth.ok) return auth.response;
   try {
     const body = await req.json().catch(() => ({}));

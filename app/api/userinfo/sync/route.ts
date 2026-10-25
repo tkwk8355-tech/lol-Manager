@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // body: { memberId: number }  → 해당 클랜원의 본계정 솔랭 티어만 갱신
 // body: {}                    → 전체 클랜원 본계정 솔랭 티어 갱신
 export async function POST(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   try {
     const body = await req.json().catch(() => ({}));

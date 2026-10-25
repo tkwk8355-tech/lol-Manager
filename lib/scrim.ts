@@ -308,3 +308,11 @@ export function generateTeams(
   }
   return best;
 }
+
+// Riot MATCH-V5 info → 경기 시간(초).
+// gameEndTimestamp가 있으면 gameDuration은 초 단위, 없으면(구버전 응답) 밀리초 단위다.
+export function matchDurationSec(info: { gameDuration?: number; gameEndTimestamp?: number }): number {
+  const d = Number(info.gameDuration ?? 0);
+  if (!d) return 0;
+  return Math.round(info.gameEndTimestamp ? d : d / 1000);
+}

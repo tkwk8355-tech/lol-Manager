@@ -35,7 +35,14 @@ let schemaReady: Promise<void> | null = null;
 // 스키마가 아직 없으면 만든다. 여러 요청이 동시에 들어와도 한 번만 실행되도록
 // 진행 중인 Promise를 캐시해 둔다.
 export function ensureSchema(): Promise<void> {
-  if (!schemaReady) schemaReady = createSchema();
+  if (!schemaReady) {
+    // 실패한 Promise를 계속 캐시하면 DB가 복구돼도 재시작 전까지 모든 요청이 실패하므로,
+    // 실패 시에는 캐시를 비워 다음 요청에서 다시 시도하게 한다.
+    schemaReady = createSchema().catch((err) => {
+      schemaReady = null;
+      throw err;
+    });
+  }
   return schemaReady;
 }
 
@@ -105,6 +112,8 @@ async function createSchema(): Promise<void> {
   // Riot 전적에서 자동 동기화한 경기는 원본 매치 ID를 저장해 같은 경기가 중복으로 들어오지 않게 한다.
   // (수동으로 입력한 경기는 riot_match_id가 NULL이라 겹치지 않는다.)
   await pool.query(`ALTER TABLE scrim_matches ADD COLUMN IF NOT EXISTS riot_match_id VARCHAR(30) NULL`);
+  // 경기 시간(초). Riot 자동 동기화 경기만 채워진다 (수동 입력 경기는 0). 분당 딜량(DPM)/분당 CS 계산용.
+  await pool.query(`ALTER TABLE scrim_matches ADD COLUMN IF NOT EXISTS game_duration INT NOT NULL DEFAULT 0`);
   const [riotIdxRows] = await pool.query(
     `SELECT COUNT(*) AS c FROM information_schema.STATISTICS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'scrim_matches' AND INDEX_NAME = 'uniq_riot_match_id'`
@@ -355,6 +364,8 @@ async function createSchema(): Promise<void> {
   `);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS scrim_only TINYINT NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'`);
+  // 세션 무효화용 버전. 비밀번호 변경/초기화 시 +1 되어 기존 로그인 쿠키가 모두 만료된다.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0`);
   await seedScrimOnlyAccount(pool);
 
   await pool.query(`

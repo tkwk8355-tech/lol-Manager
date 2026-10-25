@@ -4,7 +4,7 @@ import { requireAuth, requireAdmin } from "@/lib/auth";
 
 // GET /api/auction/roster → roster에 등록된 사람만 반환
 export async function GET(req: NextRequest) {
-  const auth = requireAuth(req);
+  const auth = await requireAuth(req);
   if (!auth.ok) return auth.response;
   await ensureSchema();
   const pool = getPool();
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 // PUT /api/auction/roster → 저장 (upsert)
 // body: { memberId, line, champ1, champ2, champ3 }
 export async function PUT(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   await ensureSchema();
   const pool = getPool();
@@ -41,7 +41,7 @@ export async function PUT(req: NextRequest) {
 
 // DELETE /api/auction/roster → 참여자 제거
 export async function DELETE(req: NextRequest) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;
   await ensureSchema();
   const pool = getPool();

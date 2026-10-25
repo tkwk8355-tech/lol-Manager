@@ -6,7 +6,8 @@ import { requireAuth } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const auth = requireAuth(req);
+  // 내전 화면이 클랜원 목록(닉네임/라인)을 쓰므로 내전 전용 계정도 허용하되, 응답은 최소 필드만 준다.
+  const auth = await requireAuth(req, { allowScrimOnly: true });
   if (!auth.ok) return auth.response;
   try {
     await ensureSchema();
@@ -328,6 +329,14 @@ export async function GET(req: NextRequest) {
     const sorted = [...map.values()].sort((a, b) =>
       a.nickname.localeCompare(b.nickname, "ko")
     );
+    if (auth.session.scrimOnly) {
+      return NextResponse.json({
+        members: sorted.map((m: any) => ({
+          id: m.id, nickname: m.nickname, displayName: m.displayName,
+          mainLine: m.mainLine, subLine: m.subLine, status: m.status,
+        })),
+      });
+    }
     return NextResponse.json({ members: sorted });
   } catch (err) {
     console.error(err);
