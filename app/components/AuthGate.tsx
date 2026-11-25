@@ -7,7 +7,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, loading, openAuthModal } = useAuth();
   const pathname = usePathname();
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <div className="auth-gate-loading" role="status">
+        <span className="spin" aria-hidden="true" />
+        불러오는 중...
+      </div>
+    );
+  }
 
   if (!user) {
     return (

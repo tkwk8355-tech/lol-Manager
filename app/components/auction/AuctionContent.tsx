@@ -10,7 +10,7 @@ import { useAuth } from "../AuthProvider";
 import AuctionRoom from "./AuctionRoom";
 import CreateSessionModal from "./CreateSessionModal";
 import RosterManager from "./RosterManager";
-import { STATUS_BADGE, STATUS_LABEL, type Member, type RosterEntry, type SessionListItem } from "./shared";
+import { AUCTION_TYPE_LABEL, STATUS_BADGE, STATUS_LABEL, type Member, type RosterEntry, type SessionListItem } from "./shared";
 
 export default function AuctionContent() {
   const { user, loading: authLoading, openAuthModal } = useAuth();
@@ -22,6 +22,7 @@ export default function AuctionContent() {
   const [tab, setTab] = useState<"sessions" | "roster">("sessions");
   const [loadingData, setLoadingData] = useState(true);
   const isAdmin = user?.role === "admin" || user?.role === "subadmin";
+  const isOwner = user?.role === "admin";
   const myUserId = user?.userId ?? null;
 
   const loadSessions = useCallback(async () => {
@@ -70,7 +71,7 @@ export default function AuctionContent() {
         <button className="btn-secondary" onClick={() => setActiveId(null)}>← 목록으로</button>
         <span className="auc-room-title">{activeSession?.name || `세션 #${activeId}`}</span>
       </div>
-      <AuctionRoom sessionId={activeId} isAdmin={isAdmin} myUserId={myUserId} />
+      <AuctionRoom sessionId={activeId} isAdmin={isAdmin} isOwner={isOwner} myUserId={myUserId} />
     </div>
   );
 
@@ -92,7 +93,7 @@ export default function AuctionContent() {
             <div key={s.id} className="ui-card ev-row" onClick={() => setActiveId(s.id)}>
               <div className="ev-row-main">
                 <span className="ev-row-title">{s.name || `세션 #${s.id}`}</span>
-                <span className="ev-row-meta">참가자 {s.player_count}명 · {new Date(s.created_at).toLocaleDateString("ko-KR")}</span>
+                <span className="ev-row-meta">{AUCTION_TYPE_LABEL[s.auction_type ?? "member"]} · 참가자 {s.player_count}명 · {new Date(s.created_at).toLocaleDateString("ko-KR")}</span>
               </div>
               <span className={`ui-badge ${STATUS_BADGE[s.status] ?? ""}`}>{STATUS_LABEL[s.status] ?? s.status}</span>
               <button className="btn-secondary ev-enter" onClick={e => { e.stopPropagation(); setActiveId(s.id); }}>입장</button>

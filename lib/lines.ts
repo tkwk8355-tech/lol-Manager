@@ -11,9 +11,10 @@ export const LINES = [
   { key: "SUP", label: "서폿", icon: "icon-position-utility" },
 ] as const;
 
-const CDRAGON = "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions";
+// 외부 CDN(CommunityDragon)에서 받아오면 가끔 로드에 실패해 깨진 이미지가 보여서,
+// public/lines 에 둔 로컬 PNG(원본 아이콘)를 쓴다.
 export function lineIconUrl(icon: string) {
-  return `${CDRAGON}/${icon}.png`;
+  return `/lines/${icon}.png`;
 }
 
 export const LINE_MAP: Record<string, (typeof LINES)[number]> =

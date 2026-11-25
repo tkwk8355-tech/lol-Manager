@@ -29,7 +29,10 @@ export async function GET(req: NextRequest) {
               COALESCE(a.game_name, m.nickname) AS friend_name
        FROM member_friends f
        JOIN members m ON m.id = f.friend_id
-       LEFT JOIN accounts a ON a.member_id = f.friend_id AND a.is_main = 1`
+       JOIN members owner ON owner.id = f.member_id
+       LEFT JOIN accounts a ON a.member_id = f.friend_id AND a.is_main = 1
+       WHERE m.status NOT IN ('withdraw', 'black')
+         AND owner.status NOT IN ('withdraw', 'black')`
     ) as [any[], any];
 
     // 내가 등록한 지인만

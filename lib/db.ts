@@ -10,6 +10,7 @@
 // =============================================================
 
 import mysql from "mysql2/promise";
+import { soloTierToNewMemberMmr } from "./scrim";
 import { hashPassword } from "@/lib/auth";
 
 const globalForDb = globalThis as unknown as { _pool?: mysql.Pool };
@@ -350,7 +351,7 @@ async function createSchema(): Promise<void> {
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS promoted_at DATETIME NULL`);
   await pool.query(`ALTER TABLE members ADD COLUMN IF NOT EXISTS withdrew_at DATE NULL`);
 
-  // 블랙리스트 테이블
+  // 추방 테이블
   await pool.query(`
     CREATE TABLE IF NOT EXISTS blacklist (
       id         INT AUTO_INCREMENT PRIMARY KEY,
@@ -460,6 +461,19 @@ async function createSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // 경매 참여자 소개사진 (입찰 시작 전에 보여주는 이미지)
+  // - 폴링 쿼리가 가벼워지도록 auction_roster와 분리해서 보관한다.
+  // - ver: 업로드 시각(ms). 이미지 URL에 붙여 브라우저 캐시를 갱신한다.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auction_intro (
+      member_id  INT NOT NULL PRIMARY KEY,
+      mime       VARCHAR(50) NOT NULL,
+      data       MEDIUMBLOB NOT NULL,
+      ver        BIGINT NOT NULL,
+      CONSTRAINT fk_intro_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // 경매 세션
   await pool.query(`
     CREATE TABLE IF NOT EXISTS auction_sessions (
@@ -492,6 +506,19 @@ async function createSchema(): Promise<void> {
   await pool.query(`ALTER TABLE auction_sessions ADD COLUMN IF NOT EXISTS timer_started TINYINT NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE auction_sessions ADD COLUMN IF NOT EXISTS timer_started_at BIGINT NULL`);
   await pool.query(`ALTER TABLE auction_sessions ADD COLUMN IF NOT EXISTS awarded_player_id INT NULL`);
+  // 경매 방식: member = 팀원 경매(참여자 중 팀장, 팀장 라인 제외 4명 경매), team = 팀 경매(참여자가 아닌 클랜원이 팀장, 5라인 전부 경매)
+  await pool.query(`ALTER TABLE auction_sessions ADD COLUMN IF NOT EXISTS auction_type VARCHAR(10) NOT NULL DEFAULT 'member'`);
+
+  // 경매 플랜카드 (경매 시작 전 대기 화면에 크게 보여주는 이미지, 세션별 1장)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auction_banner (
+      session_id INT NOT NULL PRIMARY KEY,
+      mime       VARCHAR(50) NOT NULL,
+      data       MEDIUMBLOB NOT NULL,
+      ver        BIGINT NOT NULL,
+      CONSTRAINT fk_banner_session FOREIGN KEY (session_id) REFERENCES auction_sessions(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
 
   // 경매 입찰 기록
   await pool.query(`
@@ -546,6 +573,109 @@ async function createSchema(): Promise<void> {
 
   await pool.query(`ALTER TABLE solorank_sessions ADD COLUMN IF NOT EXISTS start_at DATETIME NULL`);
 
+  // 솔랭 티어 전체 동기화 실행 기록 (자동 스케줄러 / 운영진 전체 동기화)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS solo_sync_runs (
+      id            INT AUTO_INCREMENT PRIMARY KEY,
+      trigger_type  VARCHAR(10) NOT NULL,          -- auto | manual
+      started_at    DATETIME NOT NULL,
+      finished_at   DATETIME NULL,                 -- NULL 이면 진행 중(또는 서버가 도중에 꺼짐)
+      total         INT NOT NULL DEFAULT 0,
+      processed     INT NOT NULL DEFAULT 0,
+      error_count   INT NOT NULL DEFAULT 0,
+      errors        TEXT NULL,
+      rate_limited  TINYINT NOT NULL DEFAULT 0,
+      KEY idx_started (started_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 클랜 공유 캘린더 일정 (운영진이 추가/수정, 전원 조회)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS calendar_events (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      title       VARCHAR(100) NOT NULL,
+      start_date  DATE NOT NULL,
+      end_date    DATE NOT NULL,                 -- 하루 일정이면 start_date와 같음
+      start_time  VARCHAR(5) NULL,               -- 'HH:MM', NULL이면 종일
+      end_time    VARCHAR(5) NULL,
+      color       VARCHAR(10) NOT NULL DEFAULT 'blue',
+      memo        VARCHAR(500) NULL,
+      created_by  INT NULL,
+      created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at  DATETIME NULL,
+      KEY idx_range (start_date, end_date)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 미니게임 > 에임 연습 기록 (한 판마다 한 줄, 랭킹은 1인 최고점)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS aim_records (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      user_id     INT NOT NULL,                  -- users.id
+      nickname    VARCHAR(100) NOT NULL,         -- 기록 당시 닉네임
+      score       INT NOT NULL,
+      hits        INT NOT NULL,
+      misses      INT NOT NULL,
+      avg_ms      INT NOT NULL,                  -- 맞힌 간격 평균(ms)
+      created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_user_score (user_id, score),
+      KEY idx_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 미니게임 > 테트리스 40줄 기록 (한 판마다 한 줄, 랭킹은 1인 최단 시간)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tetris_records (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      user_id     INT NOT NULL,                  -- users.id
+      nickname    VARCHAR(100) NOT NULL,         -- 기록 당시 닉네임
+      time_ms     INT NOT NULL,                  -- 40줄 지우는 데 걸린 시간
+      pieces      INT NOT NULL,                  -- 놓은 블록 수
+      created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_user_time (user_id, time_ms),
+      KEY idx_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 미니게임 > 사과게임 기록 (한 판마다 한 줄, 랭킹은 1인 최고점)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS apple_records (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      user_id     INT NOT NULL,                  -- users.id
+      nickname    VARCHAR(100) NOT NULL,         -- 기록 당시 닉네임
+      score       INT NOT NULL,                  -- 없앤 사과 수
+      moves       INT NOT NULL,                  -- 묶은 횟수
+      created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_user_score (user_id, score),
+      KEY idx_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 방꾸미기 > 산 물건 (가구 · 벽지 · 바닥 · 프로필 테두리). 한 번 살 때마다 한 줄
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_items (
+      id          INT AUTO_INCREMENT PRIMARY KEY,
+      user_id     INT NOT NULL,                  -- users.id
+      item_key    VARCHAR(40) NOT NULL,          -- lib/roomShared.ts CATALOG의 key
+      price       INT NOT NULL DEFAULT 0,        -- 살 때 쓴 포인트
+      created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_user_item (user_id, item_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 방꾸미기 > 사용자별 방 배치 + 끼고 있는 프로필 테두리
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_rooms (
+      user_id     INT NOT NULL PRIMARY KEY,      -- users.id
+      wallpaper   VARCHAR(40) NULL,
+      flooring    VARCHAR(40) NULL,
+      items       TEXT NULL,                     -- 배치 JSON [{k,x,y,r} | {k,wall,u}]
+      frame       VARCHAR(40) NULL,              -- 프로필 테두리 key
+      updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await pool.query(`ALTER TABLE user_rooms ADD COLUMN IF NOT EXISTS icon VARCHAR(40) NULL`); // 프로필 아이콘 key
+
   await seedDefaultAdmin(pool);
   await seedScrimRatings(pool);
 }
@@ -571,10 +701,6 @@ async function seedDefaultAdmin(pool: mysql.Pool): Promise<void> {
 
 // 솔랭 티어 기반으로 scrim_ratings 초기값 세팅 (이미 있는 행은 건드리지 않음)
 async function seedScrimRatings(pool: mysql.Pool): Promise<void> {
-  const TIER_MMR: Record<string, number> = {
-    SILVER: 100, GOLD: 200, PLATINUM: 300,
-    EMERALD: 400, DIAMOND: 500, MASTER: 500, GRANDMASTER: 500, CHALLENGER: 500,
-  };
   const [accRows] = await pool.query(
     `SELECT member_id, solo_tier, is_main FROM accounts ORDER BY is_main DESC, id ASC`
   ) as [any[], any];
@@ -583,7 +709,7 @@ async function seedScrimRatings(pool: mysql.Pool): Promise<void> {
     if (!tierMap.has(r.member_id)) tierMap.set(r.member_id, r.solo_tier ?? null);
   }
   for (const [memberId, tier] of tierMap) {
-    const mmr = TIER_MMR[(tier ?? "").toUpperCase()] ?? 0;
+    const mmr = soloTierToNewMemberMmr(tier);
     await pool.query(
       `INSERT IGNORE INTO scrim_ratings (member_id, mmr) VALUES (?, ?)`,
       [memberId, mmr]

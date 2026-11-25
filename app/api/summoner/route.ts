@@ -17,6 +17,7 @@ import {
   getLeagueEntries,
   getMatchIds,
   getMatch,
+  isMatchCached,
   RiotApiError,
   type MatchParticipant,
 } from "@/lib/riot";
@@ -51,8 +52,18 @@ const QUEUE_NAMES: Record<number, string> = {
 };
 
 // 큐 ID를 한국어 이름으로. 표에 없으면 게임 모드 문자열을 그대로 사용.
-function queueName(queueId: number, gameMode: string): string {
-  return QUEUE_NAMES[queueId] || gameMode;
+// 사용자 설정 게임(내전·사설겜)인지. queueId가 0이 아닌 값으로 오는 경우도 있어서
+// gameType(CUSTOM_GAME)도 같이 본다.
+function isCustomGame(queueId: number, gameType?: string): boolean {
+  return queueId === 0 || gameType === "CUSTOM_GAME";
+}
+
+function queueName(queueId: number, gameMode: string, gameType?: string): string {
+  // 사용자 설정 게임은 클랜 내전으로 표시. (CLASSIC으로 나오던 문제)
+  if (isCustomGame(queueId, gameType)) return gameMode === "ARAM" ? "칼바람 내전" : "내전";
+  const name = QUEUE_NAMES[queueId];
+  if (!name) console.log(`[summoner] 알 수 없는 큐: queueId=${queueId}, gameMode=${gameMode}, gameType=${gameType}`);
+  return name || gameMode;
 }
 
 // 참가자의 아이템 슬롯 7칸을 이미지 URL 배열로 변환한다.
@@ -106,25 +117,43 @@ function runeIcons(
   };
 }
 
-// 많은 비동기 작업을 한꺼번에 다 던지면 초당 요청 한도(20/초)를 넘길 수 있어서,
-// size개씩 나눠서 순차적으로 처리한다.
-async function inBatches<T, R>(
-  items: T[],
-  size: number,
-  fn: (item: T) => Promise<R>
-): Promise<R[]> {
-  const out: R[] = [];
-  for (let i = 0; i < items.length; i += size) {
-    const batch = items.slice(i, i + size);
-    out.push(...(await Promise.all(batch.map(fn))));
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// 경기 상세를 순서대로 가져온다.
+// - 캐시에 있는 경기는 API 호출이 없으므로 바로 처리
+// - 새로 받아야 하는 경기는 10개씩 묶고, 묶음 사이에 쉬어서 초당 한도(20/초)를 넘지 않게 함
+// - 중간에 실패(한도 초과 등)하면 거기서 멈추고, 성공한 앞부분만 돌려준다.
+//   (프론트는 nextStart부터 다시 요청하면 빠진 경기 없이 이어서 받을 수 있음)
+async function fetchMatchesInOrder(ids: string[]) {
+  const out: Awaited<ReturnType<typeof getMatch>>[] = [];
+  let i = 0;
+  while (i < ids.length) {
+    // 캐시된 경기는 바로 넣는다.
+    if (isMatchCached(ids[i])) { out.push(await getMatch(ids[i])); i++; continue; }
+    const batch: string[] = [];
+    for (let j = i; j < ids.length && batch.length < 10; j++) {
+      if (isMatchCached(ids[j])) break;
+      batch.push(ids[j]);
+    }
+    const results = await Promise.allSettled(batch.map((id) => getMatch(id)));
+    for (const r of results) {
+      if (r.status === "rejected") return { matches: out, failed: true, reason: r.reason };
+      out.push(r.value);
+    }
+    i += batch.length;
+    if (i < ids.length) await sleep(600);
   }
-  return out;
+  return { matches: out, failed: false, reason: null };
 }
 
-// 분석할 최근 경기 수. (함께 플레이한 소환사 집계에도 사용)
-// 개인 API 키는 2분당 100회 한도라, 검색당 호출(=경기수+4)을 낮춰 여러 번
-// 검색해도 한도에 덜 걸리도록 10으로 둔다. (필요하면 늘릴 수 있음)
-const MATCH_COUNT = 10;
+// 한 번에 불러올 경기 수. (함께 플레이한 소환사 집계에도 사용)
+// 검색 시 20판, 더 보기를 누를 때마다 20판씩 추가로 받는다.
+// (계정/소환사/랭크/경기목록 4회 + 경기 상세 20회 = 최대 24회. 개인 키 한도: 2분당 100회)
+const MATCH_COUNT = 20;
+// 조회 기간: 최근 2년. (Riot도 대략 2년치까지만 보관)
+const HISTORY_DAYS = 730;
+// 비정상 요청 방지용 상한.
+const MAX_START = 5000;
 
 // GET /api/summoner?gameName=옵타론&tagLine=3000[&refresh=1]
 export async function GET(req: NextRequest) {
@@ -135,11 +164,15 @@ export async function GET(req: NextRequest) {
   const gameName = searchParams.get("gameName")?.trim(); // 게임 이름
   const tagLine = searchParams.get("tagLine")?.trim(); // 태그
   const fresh = searchParams.get("refresh") === "1"; // 전적 갱신 여부(캐시 무시)
+  // 더 보기: start>0 이고 puuid가 있으면 계정/랭크 조회 없이 경기 목록만 돌려준다.
+  const start = Math.min(Math.max(Number(searchParams.get("start")) || 0, 0), MAX_START);
+  const puuidParam = searchParams.get("puuid")?.trim();
+  const moreOnly = start > 0 && !!puuidParam;
 
   console.log(`[summoner] 요청 수신: gameName=${gameName}, tagLine=${tagLine}, refresh=${fresh}`);
 
   // 필수 파라미터 검증.
-  if (!gameName || !tagLine) {
+  if (!moreOnly && (!gameName || !tagLine)) {
     console.warn("[summoner] 필수 파라미터 누락");
     return NextResponse.json(
       { error: "소환사명과 태그가 필요합니다. (예: Faker#KR1)" },
@@ -157,17 +190,30 @@ export async function GET(req: NextRequest) {
     const runes = await getRuneLookup(version);
 
     // 1) Riot ID → 계정(puuid). 이후 모든 조회의 기준이 된다.
-    const account = await getAccountByRiotId(gameName, tagLine, fresh);
+    //    (더 보기 요청이면 이미 알고 있는 puuid를 그대로 쓴다)
+    const account = moreOnly
+      ? { puuid: puuidParam as string, gameName: gameName ?? "", tagLine: tagLine ?? "" }
+      : await getAccountByRiotId(gameName as string, tagLine as string, fresh);
 
     // 2) puuid → 소환사 프로필(레벨, 아이콘).
-    const summoner = await getSummonerByPuuid(account.puuid, fresh);
+    const summoner = moreOnly ? null : await getSummonerByPuuid(account.puuid, fresh);
 
     // 3) puuid → 랙크 정보(솔랭/자랭 등).
-    const league = await getLeagueEntries(account.puuid, fresh);
+    const league = moreOnly ? [] : await getLeagueEntries(account.puuid, fresh);
 
     // 4) 최근 경기: 경기 ID를 받고, 각 ID의 상세를 10개씩 나눠서 조회.
-    const matchIds = await getMatchIds(account.puuid, MATCH_COUNT);
-    const matches = await inBatches(matchIds, 10, (id) => getMatch(id));
+    const since = Math.floor(Date.now() / 1000) - HISTORY_DAYS * 86400; // 초 단위
+    const matchIds = await getMatchIds(account.puuid, MATCH_COUNT, since, undefined, start);
+    const fetched = await fetchMatchesInOrder(matchIds);
+    const matches = fetched.matches;
+    // 한 판도 못 받았는데 실패했다면 에러로 돌려준다. (보통 요청 한도 초과)
+    if (fetched.failed && matches.length === 0) throw fetched.reason;
+    // 다음 요청 시작 위치와 더 받을 게 있는지
+    const nextStart = start + matches.length;
+    const hasMore = fetched.failed || matchIds.length === MATCH_COUNT;
+    const notice = fetched.failed
+      ? "요청 한도에 걸려 일부만 불러왔어요. 잠시 후 더 보기를 다시 눌러주세요."
+      : null;
 
     // 각 경기를 화면에서 바로 쓰기 좋은 형태로 가공한다.
     const recent = matches.map((m) => {
@@ -213,7 +259,9 @@ export async function GET(req: NextRequest) {
 
       return {
         matchId: m.metadata.matchId,
-        queue: queueName(m.info.queueId, m.info.gameMode), // 한국어 큐 이름
+        queue: queueName(m.info.queueId, m.info.gameMode, m.info.gameType), // 한국어 큐 이름
+        queueId: m.info.queueId, // 큐 필터용
+        isCustom: isCustomGame(m.info.queueId, m.info.gameType), // 내전·사설겜 여부
         isArena, // 아레나 여부(프론트 분기용)
         durationSec: m.info.gameDuration,
         createdAt: m.info.gameCreation,
@@ -226,6 +274,7 @@ export async function GET(req: NextRequest) {
         deaths: me?.deaths ?? 0,
         assists: me?.assists ?? 0,
         cs,
+        damage: me?.totalDamageDealtToChampions ?? 0,
         items: me ? itemIcons(version, me) : [], // 본인 아이템(기본 행 표시용)
         spells: me ? spellIcons(version, spells, me) : [], // 소환사 주문 2개
         runes: me
@@ -279,6 +328,11 @@ export async function GET(req: NextRequest) {
       }))
       .sort((a, b) => b.games - a.games || b.winrate - a.winrate);
 
+    // 더 보기 요청은 경기 목록만 돌려준다. (함께한 소환사는 프론트에서 누적 집계)
+    if (moreOnly) {
+      return NextResponse.json({ matches: recent, hasMore, nextStart, notice });
+    }
+
     console.log(`[summoner] 조회 성공: ${account.gameName}#${account.tagLine}, 경기 ${recent.length}건`);
 
     // 최종 응답. 프론트가 그대로 화면에 그릴 수 있는 형태.
@@ -290,12 +344,15 @@ export async function GET(req: NextRequest) {
         puuid: account.puuid,
       },
       summoner: {
-        level: summoner.summonerLevel,
-        profileIconId: summoner.profileIconId,
-        profileIcon: profileIconUrl(version, summoner.profileIconId),
+        level: summoner!.summonerLevel,
+        profileIconId: summoner!.profileIconId,
+        profileIcon: profileIconUrl(version, summoner!.profileIconId),
       },
       league,
       matches: recent,
+      hasMore, // 더 불러올 경기가 있는지
+      nextStart, // 더 보기 시 시작 위치
+      notice, // 일부만 불러왔을 때 안내 문구
       playedWith, // 함께 플레이한 소환사 목록
     });
   } catch (err) {

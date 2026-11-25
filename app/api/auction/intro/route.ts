@@ -1,0 +1,70 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getPool, ensureSchema } from "@/lib/db";
+import { requireAuth, requireAdmin } from "@/lib/auth";
+
+// 경매 참여자 소개사진 API
+// - 이미지는 auction_intro 테이블(MEDIUMBLOB)에 저장한다.
+//   (public 폴더는 빌드 이후 추가된 파일을 서빙하지 않으므로 DB에 둔다.)
+
+const MAX_BYTES = 8 * 1024 * 1024; // 8MB
+const ALLOWED = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+// GET /api/auction/intro?memberId=N(&v=ver) → 이미지 바이너리
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.response;
+  await ensureSchema();
+  const memberId = Number(req.nextUrl.searchParams.get("memberId"));
+  if (!memberId) return NextResponse.json({ error: "memberId 필요" }, { status: 400 });
+
+  const [[row]] = await getPool().query(
+    `SELECT mime, data FROM auction_intro WHERE member_id = ?`, [memberId]
+  ) as any[];
+  if (!row) return NextResponse.json({ error: "소개사진 없음" }, { status: 404 });
+
+  const buf: Buffer = row.data;
+  return new NextResponse(new Uint8Array(buf), {
+    headers: {
+      "Content-Type": row.mime,
+      "Content-Length": String(buf.length),
+      // URL에 ?v=ver 가 붙어 있으므로 사진이 바뀌면 URL도 바뀐다 → 오래 캐시해도 된다.
+      "Cache-Control": "private, max-age=31536000, immutable",
+    },
+  });
+}
+
+// PUT /api/auction/intro  (multipart/form-data: memberId, file) → 업로드/교체
+export async function PUT(req: NextRequest) {
+  const auth = await requireAdmin(req);
+  if (!auth.ok) return auth.response;
+  await ensureSchema();
+
+  const form = await req.formData().catch(() => null);
+  if (!form) return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
+  const memberId = Number(form.get("memberId"));
+  const file = form.get("file");
+  if (!memberId) return NextResponse.json({ error: "memberId 필요" }, { status: 400 });
+  if (!file || typeof file === "string") return NextResponse.json({ error: "파일이 없습니다." }, { status: 400 });
+  if (!ALLOWED.has(file.type)) return NextResponse.json({ error: "PNG/JPG/WEBP/GIF 이미지만 올릴 수 있어요." }, { status: 400 });
+  if (file.size > MAX_BYTES) return NextResponse.json({ error: "이미지가 너무 커요. (최대 8MB)" }, { status: 400 });
+
+  const data = Buffer.from(await file.arrayBuffer());
+  const ver = Date.now();
+  await getPool().query(
+    `INSERT INTO auction_intro (member_id, mime, data, ver) VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE mime = VALUES(mime), data = VALUES(data), ver = VALUES(ver)`,
+    [memberId, file.type, data, ver]
+  );
+  return NextResponse.json({ ok: true, ver });
+}
+
+// DELETE /api/auction/intro  body: { memberId } → 소개사진 삭제
+export async function DELETE(req: NextRequest) {
+  const auth = await requireAdmin(req);
+  if (!auth.ok) return auth.response;
+  await ensureSchema();
+  const { memberId } = await req.json().catch(() => ({}));
+  if (!memberId) return NextResponse.json({ error: "memberId 필요" }, { status: 400 });
+  await getPool().query(`DELETE FROM auction_intro WHERE member_id = ?`, [memberId]);
+  return NextResponse.json({ ok: true });
+}

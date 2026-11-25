@@ -1,0 +1,51 @@
+.page { display: flex; flex-direction: column; gap: 14px; }
+
+/* ---------- 방 목록 ---------- */
+.listHead { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px; }
+.title { margin: 0; font-size: 22px; font-weight: 800; }
+.sub { margin: 6px 0 0; color: var(--muted); font-size: 14px; max-width: 560px; line-height: 1.5; }
+.createForm { display: flex; gap: 8px; }
+.input {
+  height: 38px; padding: 0 12px; min-width: 200px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--card); color: var(--text); font: inherit; font-size: 14px;
+}
+.input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent); outline-offset: 1px; }
+.roomList { display: flex; flex-direction: column; gap: 8px; }
+.roomRow { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+.roomMain { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.roomName { font-weight: 700; }
+.roomMeta { color: var(--muted); font-size: 13px; }
+.badge { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: var(--card-2); color: var(--muted); }
+.lobby { color: #2f9e5b; background: color-mix(in srgb, #2f9e5b 14%, transparent); }
+.countdown, .playing, .boom { color: #e0503f; background: color-mix(in srgb, #e0503f 14%, transparent); }
+.done { color: var(--muted); }
+.error {
+  padding: 10px 14px; border-radius: 8px; font-size: 14px;
+  background: var(--loss-bg); color: var(--loss-text);
+}
+
+/* ---------- 게임 방 ---------- */
+.roomBar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.roomTitle { font-weight: 800; font-size: 17px; }
+.round { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+.spacer { flex: 1; }
+.status { min-height: 22px; font-size: 15px; font-weight: 600; }
+.arenaWrap {
+  border-radius: 16px; overflow: hidden; border: 1px solid rgba(122, 162, 247, 0.25);
+  line-height: 0; background: #0b0f17;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35), 0 0 0 4px rgba(122, 162, 247, 0.06);
+}
+.arena { width: 100%; height: auto; display: block; aspect-ratio: 960 / 560; }
+.players { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+  border-radius: 999px; background: var(--card); border: 1px solid var(--border); font-size: 13px;
+}
+.chip i {
+  width: 12px; height: 12px; border-radius: 50%; display: inline-block;
+  box-shadow: inset -2px -2px 3px rgba(0, 0, 0, 0.35), inset 2px 2px 3px rgba(255, 255, 255, 0.35);
+}
+.chip em { font-style: normal; font-size: 11px; color: var(--accent-text); font-weight: 700; }
+.dead { opacity: 0.45; text-decoration: line-through; }
+.help { margin: 0; color: var(--muted); font-size: 13px; }

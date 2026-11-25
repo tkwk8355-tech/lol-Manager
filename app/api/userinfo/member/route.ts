@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPool, ensureSchema } from "@/lib/db";
 import { getAccountByRiotId, getLeagueEntries, RiotApiError } from "@/lib/riot";
 import { requireAdmin } from "@/lib/auth";
+import { soloTierToNewMemberMmr } from "@/lib/scrim";
 
 // POST: 클랜원 신규 등록 (본계정 Riot ID 기반)
 export async function POST(req: NextRequest) {
@@ -58,11 +59,7 @@ export async function POST(req: NextRequest) {
          VALUES (?, ?, ?, ?, 1, ?, ?, ?, NOW())`,
         [memberId, name, tag, puuid, soloTier, soloRank, soloLp]
       );
-      const TIER_MMR: Record<string, number> = {
-        SILVER: 100, GOLD: 200, PLATINUM: 300,
-        EMERALD: 400, DIAMOND: 500, MASTER: 500, GRANDMASTER: 500, CHALLENGER: 500,
-      };
-      const initMmr = TIER_MMR[(soloTier ?? "").toUpperCase()] ?? 0;
+      const initMmr = soloTierToNewMemberMmr(soloTier);
       await conn.query(`INSERT IGNORE INTO scrim_ratings (member_id, mmr) VALUES (?, ?)`, [memberId, initMmr]);
       await conn.commit();
       return NextResponse.json({ id: memberId });

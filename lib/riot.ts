@@ -139,15 +139,22 @@ export function getLeagueEntries(puuid: string, _fresh = false) {
 }
 
 // MATCH-V5: puuid → 최근 경기 ID 목록
-export function getMatchIds(puuid: string, count = 20, startTime?: number, type?: string) {
-  let url = `${REGION_HOST}/lol/match/v5/matches/by-puuid/${puuid}/ids?start=0&count=${count}`;
+export function getMatchIds(puuid: string, count = 20, startTime?: number, type?: string, start = 0) {
+  let url = `${REGION_HOST}/lol/match/v5/matches/by-puuid/${puuid}/ids?start=${start}&count=${count}`;
   if (startTime) url += `&startTime=${startTime}`;
   if (type) url += `&type=${type}`;
   return riotFetch<string[]>(url);
 }
 
 // 경기 상세 메모리 캐시 (끝난 경기는 결과가 안 바뀌므로 영구 캐시)
+// 전적을 2년치까지 넘겨볼 수 있어서 메모리가 무한정 늘지 않도록 개수 상한을 둔다.
 const matchCache = new Map<string, MatchDto>();
+const MATCH_CACHE_MAX = 3000;
+
+// 이미 캐시에 있는 경기인지 (캐시된 경기는 API 호출 없이 바로 나옴)
+export function isMatchCached(matchId: string) {
+  return matchCache.has(matchId);
+}
 
 // MATCH-V5: 경기 ID → 경기 상세 (캐시 활용)
 export async function getMatch(matchId: string): Promise<MatchDto> {
@@ -157,5 +164,11 @@ export async function getMatch(matchId: string): Promise<MatchDto> {
   const url = `${REGION_HOST}/lol/match/v5/matches/${matchId}`;
   const data = await riotFetch<MatchDto>(url);
   matchCache.set(matchId, data);
+  // 상한을 넘으면 가장 오래 전에 넣은 것부터 지운다.
+  while (matchCache.size > MATCH_CACHE_MAX) {
+    const oldest = matchCache.keys().next().value;
+    if (oldest === undefined) break;
+    matchCache.delete(oldest);
+  }
   return data;
 }

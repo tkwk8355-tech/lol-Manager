@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../components/AuthProvider";
 import { lineIconUrl, LINE_MAP } from "@/lib/lines";
+import RouletteTab from "../components/scrim/RouletteTab";
 
 const TIER_KO: Record<string, string> = {
   IRON: "아이언", BRONZE: "브론즈", SILVER: "실버", GOLD: "골드",
@@ -95,8 +96,9 @@ function filterMembers(members: Member[], q: string): Member[] {
 
 // ===== 내전 신청 명단 붙여넣기 파서 =====
 // 예) "3. 나 욤 원딜, 미드" / "2. 멜 로 서폿(고정)(주최자)" / "8. 범 남는 곳"
-// (고정) → 주라인 고정 버튼, 남는 곳 → ALL 버튼. 나머지는 회원 정보 라인 그대로.
-interface RosterEntry { raw: string; name: string; fixed: boolean; any: boolean; }
+// (고정) → 주라인 고정 버튼, 남는 곳 → ALL 버튼, (정글제외) → ALL(정글 제외).
+// 나머지는 회원 정보 라인 그대로.
+interface RosterEntry { raw: string; name: string; fixed: boolean; any: boolean; exclude: string[]; }
 
 const LINE_TOKEN: Record<string, string> = {
   "탑": "TOP", "top": "TOP",
@@ -105,15 +107,25 @@ const LINE_TOKEN: Record<string, string> = {
   "원딜": "ADC", "ad": "ADC", "adc": "ADC", "바텀": "ADC", "bot": "ADC",
   "서폿": "SUP", "서포터": "SUP", "서포트": "SUP", "sup": "SUP", "support": "SUP",
 };
+// 괄호 안의 "(정글제외)", "(탑빼고)", "(서폿x)" 형태 인식 (제외 라인은 1개만)
+const EXCLUDE_LINE_RE = /[(\[（]\s*(탑|정글|미드|원딜|바텀|서폿|서포터|서포트|top|jg|jungle|jug|mid|adc|ad|bot|sup|support)\s*(?:제외|빼고|빼구|말고|불가|x)\s*[)\]）]/i;
+// "1." "10." "3)" 처럼 번호로 시작하는 줄
+const NUMBERED_RE = /^\s*\d+\s*[.)\]:\-]/;
 const ANY_LINE_RE = /(남는\s*(곳|데|라인|자리)|아무\s*(거나|데나|곳|라인|자리)|상관\s*(없음|x)|노상관|올\s*라인|\ball\b)/gi;
 
 function parseRoster(text: string): RosterEntry[] {
   const out: RosterEntry[] = [];
-  for (const rawLine of text.split(/\r?\n/)) {
+  const allLines = text.split(/\r?\n/);
+  // 번호 붙은 줄이 있으면 번호 줄만 명단으로 본다 (제목·시간·티어·구분선 등 공지 줄 무시)
+  const hasNumbered = allLines.some((l) => NUMBERED_RE.test(l));
+  for (const rawLine of hasNumbered ? allLines.filter((l) => NUMBERED_RE.test(l)) : allLines) {
     const raw = rawLine.trim();
     if (!raw) continue;
     let s = raw.replace(/^\d+\s*[.)\]:\-]?\s*/, "");      // 앞 번호 "1." 제거
     const fixed = /고정/.test(s);
+    // 라인 제외 표기는 괄호 안에 있을 수 있으므로 괄호 제거 전에 먼저 읽는다
+    const exMatch = s.match(EXCLUDE_LINE_RE);
+    const exclude = exMatch ? LINE_TOKEN[exMatch[1].toLowerCase()] : null;
     s = s.replace(/[(\[（][^)\]）]*[)\]）]/g, " ");         // (고정)(주최자) 등 괄호 제거
     const any = ANY_LINE_RE.test(s);
     ANY_LINE_RE.lastIndex = 0;
@@ -122,7 +134,8 @@ function parseRoster(text: string): RosterEntry[] {
     const firstLine = tokens.findIndex((t) => LINE_TOKEN[t.toLowerCase()]);
     const name = (firstLine === -1 ? tokens : tokens.slice(0, firstLine)).join(" ").trim();
     if (!name) continue;
-    out.push({ raw, name, fixed, any: any && !fixed });
+    const ex = !fixed && exclude ? [exclude] : [];
+    out.push({ raw, name, fixed, any: (any || ex.length > 0) && !fixed, exclude: ex });
   }
   return out;
 }
@@ -433,13 +446,60 @@ function HistorySearch({ members, onSelect }: { members: Member[]; onSelect: (id
 
 
 // 팀 생성 모달
-function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClose: () => void; isAdmin: boolean }) {
+// 클립보드 복사. navigator.clipboard는 HTTPS(또는 localhost)에서만 동작해서
+// http로 접속하면 아무 반응이 없었다 → 실패 시 예전 방식(execCommand)으로 한 번 더 시도한다.
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* 아래 방식으로 재시도 */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [state, setState] = useState<"idle" | "ok" | "fail">("idle");
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        const ok = await copyText(text);
+        setState(ok ? "ok" : "fail");
+        setTimeout(() => setState("idle"), 1500);
+      }}
+      title={state === "fail" ? "복사에 실패했어요. 코드를 길게 눌러 직접 복사해주세요." : undefined}
+    >
+      {state === "ok" ? "복사됨 ✓" : state === "fail" ? "복사 실패" : "복사"}
+    </button>
+  );
+}
+
+function BalanceModal({ members, onClose, onSynced, isAdmin, showTeamSum }: { members: Member[]; onClose: () => void; onSynced?: () => void; isAdmin: boolean; showTeamSum: boolean }) {
   const SLOT_COUNT = 10;
   interface Slot { memberId: number; memberName: string; }
   const emptySlots = (): Slot[] => Array.from({ length: SLOT_COUNT }, () => ({ memberId: 0, memberName: "" }));
   const [slots, setSlots] = useState<Slot[]>(emptySlots);
   const [overrideAll, setOverrideAll] = useState<Set<number>>(new Set());
   const [overrideMain, setOverrideMain] = useState<Set<number>>(new Set());
+  // ALL(특정 라인 제외): { 회원id: ["JG"] }
+  const [overrideExclude, setOverrideExclude] = useState<Record<number, string[]>>({});
+  const clearExclude = (id: number) => setOverrideExclude((prev) => { if (!(id in prev)) return prev; const n = { ...prev }; delete n[id]; return n; });
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [pasteReport, setPasteReport] = useState<{ raw: string; name: string; matched: string | null }[]>([]);
@@ -456,6 +516,8 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
   const [codeErr, setCodeErr] = useState("");
   const [notifyLoading, setNotifyLoading] = useState(false);
   const [notifyMsg, setNotifyMsg] = useState("");
+  const [autoSyncMsg, setAutoSyncMsg] = useState("");
+  const autoSyncing = useRef(false);
   const inputRefs = useRef<(HTMLInputElement | null)[]>(Array(SLOT_COUNT).fill(null));
 
   // 프리셋
@@ -485,7 +547,7 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
       if (m) newSlots[i] = { memberId: m.id, memberName: m.nickname };
     });
     setSlots(newSlots);
-    setOverrideAll(new Set());
+    setOverrideAll(new Set()); setOverrideMain(new Set()); setOverrideExclude({});
     setResults([]); setSelectedIdx(-1); setSavedResult(null);
     setPresetOpen(false);
   }
@@ -504,13 +566,17 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
     const newSlots = emptySlots();
     const allSet = new Set<number>();
     const mainSet = new Set<number>();
+    const excludeMap: Record<number, string[]> = {};
     const report: typeof pasteReport = [];
     entries.forEach((e, i) => {
       const m = matched[i];
       if (m) {
         newSlots[i] = { memberId: m.id, memberName: m.nickname };
         if (e.fixed) mainSet.add(m.id);      // (고정) → 주라인 버튼
-        else if (e.any) allSet.add(m.id);    // 남는 곳 → ALL 버튼
+        else if (e.any) {                    // 남는 곳 → ALL 버튼
+          allSet.add(m.id);
+          if (e.exclude.length > 0) excludeMap[m.id] = e.exclude;  // 정글 제외 → ALL(정글 제외)
+        }
       } else {
         // 못 찾은 사람은 이름만 채워두고 직접 선택하게 한다
         newSlots[i] = { memberId: 0, memberName: e.name };
@@ -518,7 +584,7 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
       report.push({ raw: e.raw, name: e.name, matched: m?.nickname ?? null });
     });
     setSlots(newSlots);
-    setOverrideAll(allSet); setOverrideMain(mainSet);
+    setOverrideAll(allSet); setOverrideMain(mainSet); setOverrideExclude(excludeMap);
     setResults([]); setSelectedIdx(-1); setSavedResult(null);
     setPasteReport(report);
     setPasteOpen(false);
@@ -535,21 +601,41 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
     finally { setCodeLoading(false); }
   }
 
-  async function generate(ids: number[], keepSaved = false) {
-    setErr(""); setLoading(true); setTournamentCode(""); setCodeErr("");
+  // 팀 생성 / 다시 생성 때마다 오늘(새벽 6시 기준) 내전 경기를 백그라운드로 동기화.
+  // 서버가 명단 순서대로 시도해서 계정 조회에 성공한 클랜원 한 명 기준으로 동기화한다.
+  async function autoSync() {
+    const ids = slots.map((s) => s.memberId).filter((id) => id > 0);
+    if (ids.length === 0 || autoSyncing.current) return;
+    autoSyncing.current = true;
+    setAutoSyncMsg("⟳ 오늘 경기 동기화 중...");
     try {
-      const count = 3;
-      const responses = await Promise.all(
-        Array.from({ length: count }, () =>
-          fetch("/api/scrim/balance", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ memberIds: ids, overrideAll: [...overrideAll], overrideMain: [...overrideMain] }),
-          }).then((r) => r.json())
-        )
-      );
-      const valid = responses.filter((j) => j.team1);
-      if (valid.length === 0) { setErr(responses[0]?.error || "팀 생성 실패"); return; }
+      const res = await fetch("/api/scrim/match/sync-today", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberIds: ids }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { setAutoSyncMsg(`❌ 동기화 실패: ${json.error ?? res.status}`); return; }
+      const added = json.syncResult?.addedMatches ?? 0;
+      setAutoSyncMsg(added > 0 ? `✅ 경기 ${added}건 동기화됨` : "✅ 동기화 완료 (새 경기 없음)");
+      if (added > 0) onSynced?.();
+    } catch { setAutoSyncMsg("❌ 동기화 네트워크 오류"); }
+    finally { autoSyncing.current = false; }
+  }
+
+  async function generate(ids: number[], keepSaved = false) {
+    setErr(""); setLoading(true); setTournamentCode(""); setCodeErr(""); setNotifyMsg("");
+    autoSync();
+    try {
+      // 서버가 점수차가 가장 작은 순으로 서로 다른 후보 3개를 돌려줌
+      const res = await fetch("/api/scrim/balance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberIds: ids, overrideAll: [...overrideAll], overrideMain: [...overrideMain], overrideExclude, count: 4 }),
+      });
+      const json = await res.json();
+      const valid: BResult[] = (json.candidates ?? (json.team1 ? [json] : [])).filter((j: BResult) => j.team1);
+      if (valid.length === 0) { setErr(json?.error || "팀 생성 실패"); return; }
       if (!keepSaved) setSavedResult(null);
       // 저장된 결과와 팀 구성이 동일한 중복 제거
       const savedIds = keepSaved && savedResult
@@ -561,7 +647,7 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
             return ![...savedIds].every((id) => ids.has(id)) || ids.size !== savedIds.size;
           })
         : valid;
-      setResults(deduped.length > 0 ? deduped : valid);
+      setResults((deduped.length > 0 ? deduped : valid).slice(0, 3));
       setSelectedIdx(-1);
     } catch { setErr("네트워크 오류"); }
     finally { setLoading(false); }
@@ -594,9 +680,9 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
           <span className="sc-cand-diff">점수차 <b>{r.diff}</b></span>
         </div>
         <div className="sc-cand-teams">
-          <span className="blue">블루</span>
+          <span className="blue">블루{showTeamSum && <small> {r.sum1}점</small>}</span>
           <span />
-          <span className="red">레드</span>
+          <span className="red">{showTeamSum && <small>{r.sum2}점 </small>}레드</span>
         </div>
         <div className="sc-cand-rows">
           {LINE_KEYS.map((line) => {
@@ -673,12 +759,12 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
                   value={pasteText}
                   onChange={(e) => setPasteText(e.target.value)}
                   rows={10}
-                  placeholder={"1. 닉네임 서폿\n2. 닉네임 서폿(고정)\n3. 닉네임 원딜, 미드\n4. 닉네임 남는 곳\n..."}
+                  placeholder={"1. 닉네임 서폿\n2. 닉네임 서폿(고정)\n3. 닉네임 원딜, 미드\n4. 닉네임 남는 곳\n5. 닉네임 all (정글 제외)\n..."}
                   autoFocus
                 />
                 <div className="sc-paste-help">
-                  한 줄에 한 명씩 붙여넣으면 비슷한 닉네임의 클랜원을 찾아 채워요.
-                  <b>(고정)</b>이면 <b>주라인</b>, <b>남는 곳</b>이면 <b>ALL</b>이 켜지고, 나머지는 회원 정보 라인을 그대로 써요.
+                  한 줄에 한 명씩 붙여넣으면(번호 붙은 줄만 읽어서 공지 제목·시간 줄은 무시해요) 비슷한 닉네임의 클랜원을 찾아 채워요.
+                  <b>(고정)</b>이면 <b>주라인</b>, <b>남는 곳</b>이면 <b>ALL</b>, <b>(정글제외)</b>·<b>(정글빼고)</b>면 <b>ALL(정글 제외)</b>가 켜지고, 나머지는 회원 정보 라인을 그대로 써요.
                 </div>
                 <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                   <button className="btn-secondary" onClick={() => setPasteOpen(false)}>취소</button>
@@ -695,7 +781,7 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
 
             <div className="sc-slot-head">
               <span>클랜원</span>
-              <span className="r">회원 라인 · <b className="all">ALL</b> 아무 라인 · <b className="main">주라인</b> 주라인만</span>
+              <span className="r">회원 라인 · <b className="all">ALL</b> 아무 라인(제외 라인 선택 가능) · <b className="main">주라인</b> 주라인만</span>
             </div>
             <div className="sc-slots">
               {slots.map((slot, idx) => {
@@ -714,6 +800,14 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
                     isOverrideAll={overrideAll.has(slot.memberId)}
                     isOverrideMain={overrideMain.has(slot.memberId)}
                     showAllBtn={mem?.subLine?.toUpperCase() !== "ALL"}
+                    // ALL 상태(ALL 버튼 켜짐 또는 회원 정보가 ALL)이면 제외 라인 선택 표시
+                    showExclude={!overrideMain.has(slot.memberId) && (overrideAll.has(slot.memberId) || !mem?.subLine || mem.subLine.toUpperCase() === "ALL")}
+                    excludeLines={overrideExclude[slot.memberId] ?? []}
+                    onChangeExclude={(lines) => {
+                      const id = slot.memberId;
+                      if (!id) return;
+                      setOverrideExclude((prev) => { const n = { ...prev }; if (lines.length) n[id] = lines; else delete n[id]; return n; });
+                    }}
                     inputRef={(el) => { inputRefs.current[idx] = el; }}
                     onSelect={(m) => {
                       setSlots((prev) => prev.map((s, i) => i === idx ? { memberId: m.id, memberName: m.nickname } : s));
@@ -727,11 +821,13 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
                       if (cleared) {
                         setOverrideAll((prev) => { const n = new Set(prev); n.delete(cleared); return n; });
                         setOverrideMain((prev) => { const n = new Set(prev); n.delete(cleared); return n; });
+                        clearExclude(cleared);
                       }
                     }}
                     onToggleAll={() => {
                       const id = slot.memberId;
                       if (!id) return;
+                      if (overrideAll.has(id)) clearExclude(id);  // ALL 끄면 제외 라인도 해제
                       setOverrideAll((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
                       setOverrideMain((prev) => { const n = new Set(prev); n.delete(id); return n; });
                     }}
@@ -740,6 +836,7 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
                       if (!id) return;
                       setOverrideMain((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
                       setOverrideAll((prev) => { const n = new Set(prev); n.delete(id); return n; });
+                      clearExclude(id);
                     }}
                     nextRef={() => {
                       const nextEmpty = slots.findIndex((s, i) => i > idx && s.memberId === 0);
@@ -751,7 +848,7 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
             </div>
             {err && <div className="error" style={{ marginTop: 10 }}>{err}</div>}
             <div className="sc-bm-foot">
-              <button className="btn-secondary" onClick={() => { setSlots(emptySlots()); setOverrideAll(new Set()); setOverrideMain(new Set()); setPasteReport([]); }}>전체 지우기</button>
+              <button className="btn-secondary" onClick={() => { setSlots(emptySlots()); setOverrideAll(new Set()); setOverrideMain(new Set()); setOverrideExclude({}); setPasteReport([]); }}>전체 지우기</button>
               <div className="r">
                 <button className="btn-secondary" onClick={onClose}>닫기</button>
                 <button className="btn-primary" disabled={!canGenerate || loading} onClick={() => generate(filledIds)}>
@@ -785,11 +882,11 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
             ) : (
               <div className="sc-matchup">
                 <div className="sc-mu-head">
-                  <div className="blue">블루팀{isAdmin && <small>{result.sum1}</small>}</div>
+                  <div className="blue">블루팀{showTeamSum && <small>{result.sum1}</small>}</div>
                   <div className="mid">
-                    {isAdmin && <span className={`sc-mu-diff ${result.diff <= 5 ? "good" : ""}`}>점수차 {result.diff}</span>}
+                    {showTeamSum && <span className={`sc-mu-diff ${result.diff <= 5 ? "good" : ""}`}>점수차 {result.diff}</span>}
                   </div>
-                  <div className="red">{isAdmin && <small>{result.sum2}</small>}레드팀</div>
+                  <div className="red">{showTeamSum && <small>{result.sum2}</small>}레드팀</div>
                 </div>
                 {LINE_KEYS.map((line) => {
                   const b = result.team1.find((x) => x.line === line);
@@ -823,9 +920,10 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
               <div className="sc-code">
                 <span className="l">토너먼트 코드</span>
                 <span className="v">{tournamentCode}</span>
-                <button onClick={() => navigator.clipboard.writeText(tournamentCode)}>복사</button>
+                <CopyButton text={tournamentCode} />
               </div>
             )}
+            {/* 오늘 경기 자동 동기화는 백그라운드로만 돌리고 결과 메시지는 표시하지 않음 (전적 목록에서 바로 보이므로) */}
             {notifyMsg && <div className={`sc-notify ${notifyMsg.startsWith("✅") ? "ok" : "bad"}`}>{notifyMsg}</div>}
 
             <div className="sc-bm-foot">
@@ -845,7 +943,7 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
                       const res = await fetch("/api/scrim/notify", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ team1: result!.team1, team2: result!.team2, sum1: result!.sum1, sum2: result!.sum2, diff: result!.diff, slotMemberIds: slots.slice(0, 5).map(s => s.memberId).filter(id => id > 0) }),
+                        body: JSON.stringify({ team1: result!.team1, team2: result!.team2, sum1: result!.sum1, sum2: result!.sum2, diff: result!.diff }),
                       });
                       const json = await res.json();
                       setNotifyMsg(res.ok ? "✅ 디스코드 전송 완료" : `❌ ${json.error}`);
@@ -863,7 +961,63 @@ function BalanceModal({ members, onClose, isAdmin }: { members: Member[]; onClos
 }
 
 // 팀생성 모달용 슬롯 입력
-function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, onToggleAll, onToggleMain, nextRef, isOverrideAll, isOverrideMain, showAllBtn, lineInfo }: {
+const EXCLUDE_LINE_OPTS = [["TOP", "탑"], ["JG", "정글"], ["MID", "미드"], ["ADC", "원딜"], ["SUP", "서폿"]] as const;
+
+// ALL(특정 라인 제외) 선택: 작은 버튼 → 라인 아이콘 팝오버에서 1개 선택
+function ExcludePicker({ value, onChange }: { value: string | null; onChange: (line: string | null) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", h); document.addEventListener("keydown", k);
+    return () => { document.removeEventListener("mousedown", h); document.removeEventListener("keydown", k); };
+  }, [open]);
+  const label = value ? EXCLUDE_LINE_OPTS.find(([k]) => k === value)?.[1] ?? value : null;
+  return (
+    <span ref={ref} className="sc-ex">
+      <button
+        type="button"
+        className={`sc-ex-btn ${value ? "on" : ""}`}
+        onClick={() => setOpen((o) => !o)}
+        title={value ? `${label} 제외 중 (비주라인 배정 시 -150) · 클릭해서 변경` : "ALL에서 뺄 라인 선택 (비주라인 배정 시 -150)"}
+      >
+        {value ? (
+          <>
+            <img src={lineIconUrl(LINE_MAP[value].icon)} alt="" width={12} height={12} />
+            <span>{label} 제외</span>
+          </>
+        ) : (
+          <span>－ 제외</span>
+        )}
+      </button>
+      {open && (
+        <div className="sc-ex-pop" role="menu">
+          <div className="sc-ex-title">ALL에서 뺄 라인</div>
+          <div className="sc-ex-grid">
+            {EXCLUDE_LINE_OPTS.map(([k, l]) => (
+              <button
+                key={k}
+                type="button"
+                className={value === k ? "on" : ""}
+                onClick={() => { onChange(value === k ? null : k); setOpen(false); }}
+              >
+                <img src={lineIconUrl(LINE_MAP[k].icon)} alt="" width={18} height={18} />
+                <span>{l}</span>
+              </button>
+            ))}
+          </div>
+          {value && (
+            <button type="button" className="sc-ex-clear" onClick={() => { onChange(null); setOpen(false); }}>제외 해제</button>
+          )}
+        </div>
+      )}
+    </span>
+  );
+}
+
+function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, onToggleAll, onToggleMain, nextRef, isOverrideAll, isOverrideMain, showAllBtn, lineInfo, showExclude, excludeLines = [], onChangeExclude }: {
   index: number;
   members: Member[];
   value: { memberId: number; memberName: string };
@@ -877,6 +1031,9 @@ function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, o
   isOverrideMain?: boolean;
   showAllBtn?: boolean;
   lineInfo?: string;
+  showExclude?: boolean;
+  excludeLines?: string[];
+  onChangeExclude?: (lines: string[]) => void;
 }) {
   const [query, setQuery] = useState(value.memberName);
   const [open, setOpen] = useState(false);
@@ -931,6 +1088,9 @@ function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, o
             {showAllBtn && (
               <button className={`pill all ${isOverrideAll ? "on" : ""}`} onClick={onToggleAll} title="ALL 라인으로 임시 처리">ALL</button>
             )}
+            {showExclude && (
+              <ExcludePicker value={excludeLines[0] ?? null} onChange={(l) => onChangeExclude?.(l ? [l] : [])} />
+            )}
             <button className={`pill main ${isOverrideMain ? "on" : ""}`} onClick={onToggleMain} title="주라인 고정">주라인</button>
             <button className="x" onClick={onClear} title="비우기">×</button>
           </span>
@@ -950,15 +1110,19 @@ function SlotMemberInput({ index, members, value, inputRef, onSelect, onClear, o
 export default function ScrimPage() {
   const { user, loading: authLoading, openAuthModal } = useAuth();
   const [players, setPlayers] = useState<Player[]>([]);
+  // 탈퇴(withdraw)·블랙(black) 처리된 멤버 id — 이번 주 카드(MVP·승률)에서 제외
+  const [inactiveIds, setInactiveIds] = useState<Set<number>>(new Set());
   const [members, setMembers] = useState<Member[]>([]);
   const [champions, setChampions] = useState<ChampionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<Player | null>(null);
   const [ddragonVersion, setDdragonVersion] = useState<string | null>(null);
-  const [tab, setTab] = useState<"matches" | "ranking" | "stats">("matches");
+  const [tab, setTab] = useState<"matches" | "ranking" | "stats" | "roulette">("matches");
   const [matches, setMatches] = useState<MatchRecord[]>([]);
   const [matchesLoading, setMatchesLoading] = useState(false);
+  // 첫 로딩이 끝나기 전에는 요약 숫자를 0 대신 '-'로 보여준다.
+  const [matchesLoaded, setMatchesLoaded] = useState(false);
   const [matchPage, setMatchPage] = useState(0);
   const MATCH_PAGE_SIZE = 20;
   const [editMatch, setEditMatch] = useState<MatchRecord | null>(null);
@@ -1006,7 +1170,7 @@ export default function ScrimPage() {
       const json = await res.json();
       if (res.ok) setMatches(json.matches ?? []);
     } catch {}
-    finally { setMatchesLoading(false); }
+    finally { setMatchesLoading(false); setMatchesLoaded(true); }
   }, []);
 
   
@@ -1023,6 +1187,7 @@ export default function ScrimPage() {
       const champsJson = await champsRes.json();
       if (!statsRes.ok) setError(statsJson.error || "불러오기 실패");
       else setPlayers(statsJson.players);
+      if (membersRes.ok) setInactiveIds(new Set(membersJson.members.filter((m: any) => m.status === 'withdraw' || m.status === 'black').map((m: any) => Number(m.id))));
       if (membersRes.ok) setMembers(membersJson.members.filter((m: any) => m.mainLine !== 'ARAM' && m.status !== 'withdraw' && m.status !== 'black').map((m: any) => ({ id: m.id, nickname: m.nickname, subLine: m.subLine ?? null, mainLine: m.mainLine ?? null })));
       if (champsRes.ok && champsJson.champions)
         setChampions(champsJson.champions.map((c: any) => ({ id: c.name_en, name: c.name_ko })));
@@ -1217,22 +1382,49 @@ export default function ScrimPage() {
 
   // ===== 화면 표시용 파생 데이터 =====
   const KST_OFFSET = 9 * 60 * 60 * 1000;
-  // 이번 주 월요일 00:00 (KST) 시각
+  // 이번 주 시작 = 월요일 06:00 (KST). 하루는 06시 ~ 다음날 06시 기준이라
+  // 일요일 밤 ~ 월요일 새벽 게임은 지난주로 친다 (포인트 지급 기준과 동일)
+  const DAY_START_HOUR = 6;
   const weekStartMs = (() => {
-    const k = new Date(Date.now() + KST_OFFSET);
+    const k = new Date(Date.now() + KST_OFFSET - DAY_START_HOUR * 60 * 60 * 1000);
     const dow = (k.getUTCDay() + 6) % 7; // 월요일 = 0
-    return Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate() - dow) - KST_OFFSET;
+    return Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate() - dow, DAY_START_HOUR) - KST_OFFSET;
   })();
   const doneMatches = matches.filter((m) => m.status === "done");
   const weekMatches = doneMatches.filter((m) => new Date(m.playedAt).getTime() >= weekStartMs);
   const weekMvp = (() => {
-    const cnt = new Map<string, number>();
+    const cnt = new Map<number, { name: string; count: number }>();
     for (const m of weekMatches) for (const p of [...m.team1, ...m.team2]) {
-      if (p.isMvp) cnt.set(p.nickname, (cnt.get(p.nickname) ?? 0) + 1);
+      if (!p.isMvp || inactiveIds.has(p.memberId)) continue;
+      const c = cnt.get(p.memberId) ?? { name: p.nickname, count: 0 };
+      c.count++;
+      cnt.set(p.memberId, c);
     }
     let best: { name: string; count: number } | null = null;
-    cnt.forEach((count, name) => { if (!best || count > best.count) best = { name, count }; });
+    cnt.forEach((c) => { if (!best || c.count > best.count) best = { ...c }; });
     return best as { name: string; count: number } | null;
+  })();
+  // 이번 주 승률 1등 (이번 주 WEEK_WINRATE_MIN_GAMES판 이상, 동률이면 승수 → 판수 많은 순)
+  const WEEK_WINRATE_MIN_GAMES = 3;
+  const weekWinRate = (() => {
+    const stat = new Map<number, { name: string; wins: number; games: number }>();
+    for (const m of weekMatches) {
+      if (!m.winnerTeam) continue;
+      // 참가자 데이터에 team 값이 없으므로 team1/team2 배열 위치로 팀을 판단
+      ([[1, m.team1], [2, m.team2]] as const).forEach(([t, team]) => {
+        for (const p of team) {
+          if (inactiveIds.has(p.memberId)) continue;
+          const s = stat.get(p.memberId) ?? { name: p.nickname, wins: 0, games: 0 };
+          s.games++;
+          if (t === m.winnerTeam) s.wins++;
+          stat.set(p.memberId, s);
+        }
+      });
+    }
+    const list = [...stat.values()].filter((s) => s.games >= WEEK_WINRATE_MIN_GAMES);
+    list.sort((a, b) => b.wins / b.games - a.wins / a.games || b.wins - a.wins || b.games - a.games);
+    const top = list[0];
+    return top ? { ...top, rate: Math.round((top.wins / top.games) * 100) } : null;
   })();
   const activePlayerCount = players.filter((p) => p.games > 0).length;
 
@@ -1271,7 +1463,7 @@ export default function ScrimPage() {
       <div className="sc-head">
         <div>
           <h2 className="scrim-title">내전</h2>
-          <p className="sc-sub">누적 {doneMatches.length}경기 · 참여 클랜원 {activePlayerCount}명</p>
+          <p className="sc-sub">{matchesLoaded && !loading ? <>누적 {doneMatches.length}경기 · 참여 클랜원 {activePlayerCount}명</> : "불러오는 중..."}</p>
         </div>
         <div className="sc-actions">
           {isAdmin && (
@@ -1289,20 +1481,25 @@ export default function ScrimPage() {
       <div className="sc-kpis">
         <div className="sc-kpi">
           <div className="l">이번 주 경기</div>
-          <div className="v">{weekMatches.length}<small>경기</small></div>
+          <div className="v">{matchesLoaded ? <>{weekMatches.length}<small>경기</small></> : <span className="sc-muted">-</span>}</div>
         </div>
         <div className="sc-kpi">
           <div className="l">이번 주 최다 MVP</div>
           <div className="v">{weekMvp ? <>{weekMvp.name}<small>{weekMvp.count}회</small></> : <span className="sc-muted">-</span>}</div>
         </div>
+        <div className="sc-kpi">
+          <div className="l">이번 주 승률 1등<small className="sc-muted"> ({WEEK_WINRATE_MIN_GAMES}판 이상)</small></div>
+          <div className="v">{weekWinRate ? <>{weekWinRate.name}<small>{weekWinRate.rate}% · {weekWinRate.wins}승 {weekWinRate.games - weekWinRate.wins}패</small></> : <span className="sc-muted">-</span>}</div>
+        </div>
       </div>
 
       <div className="sc-tabs">
         <button className={tab === "matches" ? "on" : ""} onClick={() => { setTab("matches"); setMatchPage(0); }}>
-          경기 목록<span className="sc-count">{doneMatches.length}</span>
+          경기 목록{matchesLoaded && <span className="sc-count">{doneMatches.length}</span>}
         </button>
         <button className={tab === "ranking" ? "on" : ""} onClick={() => setTab("ranking")}>순위표</button>
         <button className={tab === "stats" ? "on" : ""} onClick={() => setTab("stats")}>통계</button>
+        <button className={tab === "roulette" ? "on" : ""} onClick={() => setTab("roulette")}>룰렛</button>
       </div>
 
       {/* 내전 결과 입력 폼 */}
@@ -1639,7 +1836,7 @@ export default function ScrimPage() {
                                       <img className="sc-ln" src={lineIconUrl(LINE_MAP[p.line].icon)} alt={p.line} width={14} height={14} />
                                     )}
                                   </span>
-                                  <span className={`sc-name ${player ? "sc-pn" : ""}`} onClick={() => player && setDetail(player)}>
+                                  <span className={`sc-name ${player ? "sc-pn" : ""}`} onClick={() => player && setDetail(player)} {...(player ? { role: "button", tabIndex: 0, onKeyDown: (e: React.KeyboardEvent<HTMLSpanElement>) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDetail(player); } } } : {})}>
                                     <span className="txt">{p.nickname}</span>
                                     {p.isMvp && <span className="sc-mvp">MVP</span>}
                                   </span>
@@ -1751,7 +1948,7 @@ export default function ScrimPage() {
                       const maxLine = Math.max(1, ...LINES.map((l) => p.lineCounts[l]));
                       return (
                         <tr key={p.memberId}>
-                          <td><span className="sc-pn" onClick={() => setDetail(p)}>{p.nickname}</span></td>
+                          <td><span className="sc-pn" role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); } }} onClick={() => setDetail(p)}>{p.nickname}</span></td>
                           <td>
                             {p.scrimTier
                               ? <>
@@ -1800,12 +1997,16 @@ export default function ScrimPage() {
         </>
       )}
 
+      {tab === "roulette" && <RouletteTab />}
+
       {/* 팀 생성 모달 */}
       {showBalanceModal && (
         <BalanceModal
           members={members}
           onClose={() => setShowBalanceModal(false)}
+          onSynced={() => { loadMatches(); load(); }}
           isAdmin={isAdmin}
+          showTeamSum={isAdmin || !!user.scrimOnly}
         />
       )}
 

@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import SoloSyncStatus from "../components/SoloSyncStatus";
 import { useAuth } from "../components/AuthProvider";
-import { mmrToScrimTier, SCRIM_TIERS, SCRIM_TIER_KO } from "../../lib/scrim";
+import { mmrToScrimTier, SCRIM_TIERS, SCRIM_TIER_KO, SCRIM_TIER_MIN } from "../../lib/scrim";
 
-const SCRIM_TIER_INITIAL: Record<string, number> = {
-  BRONZE: 0, SILVER: 200, GOLD: 400, PLATINUM: 600, EMERALD: 800, DIAMOND: 1000, MASTER: 1200,
-};
+// 내전 티어 선택 시 넣어줄 점수 = 해당 티어 시작 점수 (lib/scrim.ts 기준)
+const SCRIM_TIER_INITIAL: Record<string, number> = SCRIM_TIER_MIN;
 
 // 연동된 게임 계정 정보 (본계정 여부, 게임 수, 마지막 동기화 시각 포함)
 interface Account {
@@ -111,6 +111,22 @@ function syncedTime(iso: string | null) {
   return `${mo}.${da} ${hh}:${mm}`;
 }
 
+// ── 정렬 ──
+type SortKey = "default" | "nickname" | "birth" | "points" | "solo" | "position" | "status";
+// 처음 클릭했을 때의 방향 (포인트·솔로랭크는 높은 순부터)
+const SORT_FIRST_DIR: Record<SortKey, "asc" | "desc"> = {
+  default: "asc", nickname: "asc", birth: "asc", points: "desc", solo: "desc", position: "asc", status: "asc",
+};
+const SOLO_TIER_ORDER = ["IRON","BRONZE","SILVER","GOLD","PLATINUM","EMERALD","DIAMOND","MASTER","GRANDMASTER","CHALLENGER"];
+// 솔로랭크 비교용 점수 (티어 > 디비전 > LP). 언랭은 null
+function soloScore(t: TierInfo | null): number | null {
+  if (!t) return null;
+  const ti = SOLO_TIER_ORDER.indexOf(t.tier);
+  if (ti < 0) return null;
+  const div = ({ IV: 1, III: 2, II: 3, I: 4 } as Record<string, number>)[t.rank] ?? 0;
+  return ti * 100000 + div * 10000 + (t.lp ?? 0);
+}
+
 // 페이지당 표시 인원 선택지
 const PAGE_SIZES = [10, 20]; 
 // 라인 필터 키 목록
@@ -126,6 +142,9 @@ interface LinkedUser {
   showRoster: boolean;
   status: string;
   createdAt?: string;
+  memberId?: number | null;       // 연동된 클랜원
+  memberNickname?: string | null;
+  riotId?: string | null;         // 연동된 클랜원의 롤 계정 (가입 승인 때 확인용)
 }
 
 // 클랜원 목록 페이지 메인 컴포넌트
@@ -168,9 +187,48 @@ export default function UserInfoPage() {
   }
 
   
+// 연동 안 된 클랜원 목록 (계정 탭에서 수동 연동용)
+  const [freeMembers, setFreeMembers] = useState<{ id: number; nickname: string }[]>([]);
+  async function loadFreeMembers() {
+    try {
+      const res = await fetch("/api/auth/available-members");
+      const json = await res.json();
+      if (res.ok) setFreeMembers(json.members ?? []);
+    } catch { /* 무시 */ }
+  }
+
+// 계정 ↔ 클랜원 연동 바꾸기 (null = 해제)
+  async function linkMember(u: LinkedUser, memberId: number | null) {
+    if (memberId === null && !confirm(`"${u.username}" 계정의 클랜원 연동을 해제할까요?`)) return;
+    setLinkMsg("");
+    try {
+      const res = await fetch("/api/userinfo/link", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: u.id, linkMemberId: memberId }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setLinkMsg(json.error || "연동 실패"); return; }
+      loadUsers(); loadFreeMembers();
+    } catch { setLinkMsg("네트워크 오류"); }
+  }
+
+// 가입 신청 거절 (계정 삭제)
+  async function rejectUser(u: LinkedUser) {
+    if (!confirm(`"${u.username}" 가입 신청을 거절할까요? 계정이 삭제되고, 클랜원 명단은 그대로 남아요.`)) return;
+    setLinkMsg("");
+    try {
+      const res = await fetch(`/api/userinfo/link?id=${u.id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok) { setLinkMsg(json.error || "거절 실패"); return; }
+      loadUsers(); loadFreeMembers();
+    } catch { setLinkMsg("네트워크 오류"); }
+  }
+
 // 대기 중인 계정 승인 처리
-  async function approveUser(userId: number, username: string) {
-    if (!confirm(`"${username}" 계정을 승인하시겠습니까?`)) return;
+  async function approveUser(userId: number, username: string, memberNickname?: string | null) {
+    if (!memberNickname && !confirm(`"${username}" 계정은 연동된 클랜원이 없어요. 그래도 승인할까요? (포인트 · 방꾸미기 구매를 못 써요)`)) return;
+    if (memberNickname && !confirm(`"${username}" 계정을 클랜원 '${memberNickname}'(으)로 승인할까요?`)) return;
     setLinkMsg("");
     try {
       const res = await fetch("/api/userinfo/link", {
@@ -219,7 +277,20 @@ export default function UserInfoPage() {
 
   
   const [specialFilter, setSpecialFilter] = useState<"" | "rookie" | "leave" | "warn" | "withdraw">("");
-  const [sortBy, setSortBy] = useState<"birth" | "activityTier">("birth");
+  // 정렬 기준: default = 직책→출생연도→이름 (헤더 클릭: 1번 정방향 → 2번 역방향 → 3번 기본)
+  const [sortKey, setSortKey] = useState<SortKey>("default");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  function toggleSort(key: SortKey) {
+    const firstDir = SORT_FIRST_DIR[key];
+    if (sortKey !== key) { setSortKey(key); setSortDir(firstDir); }
+    else if (sortDir === firstDir) { setSortDir(firstDir === "asc" ? "desc" : "asc"); }
+    else { setSortKey("default"); setSortDir("asc"); }
+    setPage(0);
+  }
+  function sortMark(key: SortKey) {
+    if (sortKey !== key) return <span style={{ opacity: 0.35, marginLeft: 4 }}>↕</span>;
+    return <span style={{ marginLeft: 4, color: "var(--win-text)" }}>{sortDir === "asc" ? "▲" : "▼"}</span>;
+  }
 
 // ── 페이지네이션 state ──
   // 초기화
@@ -241,6 +312,7 @@ export default function UserInfoPage() {
 // ── 티어 동기화 state ──
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [syncMsg, setSyncMsg] = useState("");
+  const [syncStatusKey, setSyncStatusKey] = useState(0); // 전체 동기화 후 상단 상태 새로고침
 
 // ── 계정 추가 모달 state ──
   
@@ -298,7 +370,7 @@ export default function UserInfoPage() {
     else alert("탈퇴 처리 실패");
   }
 
-// ── 블랙리스트 모달 state ──
+// ── 추방 모달 state ──
   const [blacklistModal, setBlacklistModal] = useState<{ memberId: number; nickname: string; entries: any[] } | null>(null);
   const [blacklistForm, setBlacklistForm] = useState({ reason: "", addedAt: new Date(Date.now() + 9*60*60*1000).toISOString().slice(0, 10) });
 
@@ -378,6 +450,8 @@ export default function UserInfoPage() {
 // ── 필터링 / 정렬 로직 ──
   
 // 검색어, 라인 필터, 특수 필터(수습/외출/판수미달) 적용
+  // 탈퇴·추방을 뺀 실제 클랜원 수 (상단 '전체' 칩과 같은 기준)
+  const activeMemberCount = members.filter((m) => m.status !== "withdraw" && m.status !== "black").length;
   const filteredMembers = members.filter((m) => {
     
     if (showInactive && m.position === "수습") return false;
@@ -417,17 +491,39 @@ export default function UserInfoPage() {
 // 정렬: 수습이면 가입일순 / 활동티어면 포인트순 / 기본은 직책→출생연도→이름순
   const TIER_ORDER = ["CHALLENGER","GRANDMASTER","MASTER","DIAMOND","EMERALD","PLATINUM","GOLD","SILVER","BRONZE","IRON"];
   const positionOrder = (p: string) => p === "운영진" ? 0 : p === "부운영진" ? 1 : 2;
+  const defaultCompare = (a: Member, b: Member) => {
+    const po = positionOrder(a.position) - positionOrder(b.position);
+    if (po !== 0) return po;
+    const ay = a.birthYear ?? 9999;
+    const by = b.birthYear ?? 9999;
+    if (ay !== by) return ay - by;
+    return a.nickname.localeCompare(b.nickname, "ko");
+  };
+  const posRank = (p: string) => p === "운영진" ? 0 : p === "부운영진" ? 1 : p === "수습" ? 3 : 2;
+  // 값이 없는 사람(언랭, 생년 미입력)은 방향과 관계없이 항상 맨 아래
+  const keyValue = (m: Member): number | string | null => {
+    switch (sortKey) {
+      case "nickname": return m.nickname;
+      case "birth":    return m.birthDate ?? (m.birthYear ? String(m.birthYear) : null);
+      case "points":   return m.totalPoints;
+      case "solo":     return soloScore(m.tier);
+      case "position": return posRank(m.position);
+      case "status":   return m.status === "leave" ? 1 : 0;
+      default:         return 0;
+    }
+  };
   const sortedMembers = specialFilter === "rookie"
     ? [...filteredMembers].sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""))
-    : sortBy === "activityTier"
-    ? [...filteredMembers].sort((a, b) => b.totalPoints - a.totalPoints || a.nickname.localeCompare(b.nickname, "ko"))
+    : sortKey === "default"
+    ? [...filteredMembers].sort(defaultCompare)
     : [...filteredMembers].sort((a, b) => {
-        const po = positionOrder(a.position) - positionOrder(b.position);
-        if (po !== 0) return po;
-        const ay = a.birthYear ?? 9999;
-        const by = b.birthYear ?? 9999;
-        if (ay !== by) return ay - by;
-        return a.nickname.localeCompare(b.nickname, "ko");
+        const va = keyValue(a), vb = keyValue(b);
+        if (va === null && vb === null) return defaultCompare(a, b);
+        if (va === null) return 1;
+        if (vb === null) return -1;
+        const c = typeof va === "string" ? va.localeCompare(vb as string, "ko") : va - (vb as number);
+        if (c !== 0) return sortDir === "asc" ? c : -c;
+        return defaultCompare(a, b);
       });
 // 페이지네이션 계산
   const totalPages = Math.max(1, Math.ceil(filteredMembers.length / pageSize));
@@ -518,7 +614,7 @@ export default function UserInfoPage() {
 
 // 관리자 로그인 시 로그인 계정 목록 로드
   useEffect(() => {
-    if (isAdmin) loadUsers();
+    if (isAdmin) { loadUsers(); loadFreeMembers(); }
   }, [isAdmin]);
 
 // 클랜원 추가 모달 제출: gameName#tagLine 파싱 후 POST
@@ -627,6 +723,7 @@ export default function UserInfoPage() {
       const json = await res.json();
       if (!res.ok) { setSyncMsg(json.error || "동기화 실패"); return; }
       await loadMembers();
+      if (!memberId) setSyncStatusKey((k) => k + 1);
       if (memberId) {
         setMembers((prev) => {
           const fresh = prev.find((m) => m.id === memberId);
@@ -660,35 +757,14 @@ export default function UserInfoPage() {
   }
 
 
-// ── 탭 state (클랜원 / 로그인계정 / 파티내역) ──
-  const [tab, setTab] = useState<"members" | "accounts" | "party-history">("members");
+// ── 탭 state (클랜원 / 로그인계정) ── 파티 내역은 파티 모집 페이지(/party)로 이동
+  const [tab, setTab] = useState<"members" | "accounts">("members");
 
 // 관리자는 기본 탭을 로그인계정 탭으로 설정
   useEffect(() => {
     if (user?.role === "admin") setTab("accounts");
   }, [user?.role]);
 
-// ── 파티 내역 state ──
-  
-  const [historyData, setHistoryData] = useState<{
-    parties: { id:number; mode:string; note:string|null; status:string; startAt:string|null; endedBy:string|null; participants:string[]; pastParticipants:string[] }[];
-  } | null>(null);
-  const [historyLoading, setHistoryLoading] = useState(false);
-
-// 펑한 파티 내역 불러오기
-  async function loadHistory() {
-    setHistoryLoading(true);
-    try {
-      const res = await fetch(`/api/party/history`);
-      const json = await res.json();
-      if (res.ok) setHistoryData(json);
-    } catch {}
-    finally { setHistoryLoading(false); }
-  }
-
-  useEffect(() => {
-    if (isAdmin && tab === "party-history") loadHistory();
-  }, [isAdmin, tab]);
 
  
   const [rookieLogModal, setRookieLogModal] = useState<{ memberId: number; nickname: string; logs: { id?: number; games: number; partyCount: number; comment: string; date: string; startAt: string; mode: string; members: string[] }[] } | null>(null);
@@ -959,12 +1035,12 @@ export default function UserInfoPage() {
           </div>
         </div>
       )}
-      {/* 블랙리스트 모달 */}
+      {/* 추방 모달 */}
       {blacklistModal && (
         <div className="modal-backdrop">
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
             <div className="modal-head">
-              <span>💀 {blacklistModal.nickname} 블랙리스트</span>
+              <span>💀 {blacklistModal.nickname} 추방 내역</span>
               <button className="modal-close" onClick={() => setBlacklistModal(null)}>×</button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
@@ -984,10 +1060,10 @@ export default function UserInfoPage() {
                 const j2 = await r2.json();
                 setBlacklistModal((p) => p ? { ...p, entries: j2.blacklist } : null);
                 loadMembers();
-              }}>블랙 추가</button>
+              }}>추방 추가</button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {blacklistModal.entries.length === 0 && <p className="empty">블랙 내역이 없습니다.</p>}
+              {blacklistModal.entries.length === 0 && <p className="empty">추방 내역이 없습니다.</p>}
               {blacklistModal.entries.map((b) => (
                 <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--card-2)", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
                   {editingBlackId === b.id ? (
@@ -1111,7 +1187,7 @@ export default function UserInfoPage() {
                   <option value="active">활동</option>
                   <option value="leave">외출/예외</option>
                   <option value="withdraw">탈퇴</option>
-                  <option value="black">블랙</option>
+                  <option value="black">추방</option>
                 </select>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1480,6 +1556,7 @@ export default function UserInfoPage() {
         <div>
           <h2>{isAdmin ? "클랜원 관리" : "클랜원"}</h2>
           <p>클랜원 명단 · 티어 · 활동 상태{isAdmin ? " · 경고 / 탈퇴 관리" : ""}</p>
+          {isAdmin && <div className="solo-sync-line"><SoloSyncStatus refreshKey={syncStatusKey} /></div>}
         </div>
         {isAdmin && tab === "members" && (
           <div className="ui-page-actions">
@@ -1491,9 +1568,8 @@ export default function UserInfoPage() {
         )}
       </div>
       <div className="ui-tabs">
-        {user?.role === "admin" && <button className={tab === "accounts" ? "on" : ""} onClick={() => setTab("accounts")}>로그인 계정</button>}
+        {user?.role === "admin" && <button className={tab === "accounts" ? "on" : ""} onClick={() => setTab("accounts")}>로그인 계정{users.some(u => u.status === "pending") ? ` (승인 대기 ${users.filter(u => u.status === "pending").length})` : ""}</button>}
         <button className={tab === "members" ? "on" : ""} onClick={() => setTab("members")}>클랜원</button>
-        <button className={tab === "party-history" ? "on" : ""} onClick={() => setTab("party-history")}>파티 내역</button>
       </div>
       {linkMsg && <div className="error">{linkMsg}</div>}
       {error && <div className="error">{error}</div>}
@@ -1537,12 +1613,23 @@ export default function UserInfoPage() {
       {/* 로그인 계정 탭 */}
       {isAdmin && user?.role === "admin" && tab === "accounts" && (
         <div className="home-panel">
-          <div className="home-panel-head"><h3>계정 목록</h3></div>
+          <div className="home-panel-head">
+            <h3>계정 목록</h3>
+            {users.some(u => u.status === "pending") && (
+              <span style={{ fontSize: 12, fontWeight: 800, padding: "3px 10px", borderRadius: 999, background: "rgba(231,76,60,0.18)", color: "#f1948a" }}>
+                승인 대기 {users.filter(u => u.status === "pending").length}명
+              </span>
+            )}
+          </div>
+          <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--muted)" }}>
+            가입 신청은 롤 계정으로 클랜원 확인을 거쳐 들어와요. 연동 클랜원과 롤 계정이 본인이 맞는지 보고 승인해 주세요. (클랜원 1명당 계정 1개)
+          </p>
           <table className="ui-table">
             <thead>
               <tr>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>아이디</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>닉네임</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>연동 클랜원</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>상태</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>권한</th>
                 <th style={{ textAlign: "right", padding: "6px 8px" }}>관리</th>
@@ -1553,6 +1640,24 @@ export default function UserInfoPage() {
                 <tr key={u.id} style={{ borderBottom: "1px solid var(--border)", background: u.status === "pending" ? "rgba(231,76,60,0.06)" : undefined }}>
                   <td style={{ padding: "8px", fontWeight: 700 }}>{u.username}</td>
                   <td style={{ padding: "8px" }}>{u.nickname}</td>
+                  <td style={{ padding: "8px" }}>
+                    {u.memberNickname ? (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <span>
+                          <b>{u.memberNickname}</b>
+                          {u.riotId && <span style={{ display: "block", fontSize: 11, color: "var(--muted)" }}>{u.riotId}</span>}
+                        </span>
+                        <button title="연동 해제" onClick={() => linkMember(u, null)}
+                          style={{ border: "none", background: "transparent", color: "var(--muted)", cursor: "pointer", fontSize: 13 }}>✕</button>
+                      </span>
+                    ) : (
+                      <select value="" onChange={(e) => e.target.value && linkMember(u, Number(e.target.value))}
+                        style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(232,184,74,0.5)", background: "var(--card)", color: "#e8b84a", fontSize: 12.5, maxWidth: 160 }}>
+                        <option value="">⚠ 연동 안 됨 · 선택</option>
+                        {freeMembers.map(m => <option key={m.id} value={m.id}>{m.nickname}</option>)}
+                      </select>
+                    )}
+                  </td>
                   <td style={{ padding: "8px" }}>
                     {u.status === "pending" ? (
                       <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5, background: "rgba(231,76,60,0.18)", color: "#f1948a" }}>승인 대기</span>
@@ -1576,7 +1681,10 @@ export default function UserInfoPage() {
                   </td>
                   <td style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>
                     {u.status === "pending" && (
-                      <><button className="sync-btn" style={{ fontSize: 11, padding: "3px 10px" }} onClick={() => approveUser(u.id, u.username)}>승인</button>{" "}</>
+                      <>
+                        <button className="sync-btn" style={{ fontSize: 11, padding: "3px 10px" }} onClick={() => approveUser(u.id, u.username, u.memberNickname)}>승인</button>{" "}
+                        <button className="del-btn small" onClick={() => rejectUser(u)}>거절</button>{" "}
+                      </>
                     )}
                     <button
                       onClick={async () => {
@@ -1588,54 +1696,15 @@ export default function UserInfoPage() {
                     {" "}
                     <button className="reset-pw-btn" onClick={() => resetPassword(u.id, u.username)}>비밀번호 초기화</button>
                     {" "}
-                    <button className="del-btn small" onClick={() => deleteUser(u.id, u.username)}>삭제</button>
+                    {u.status !== "pending" && <button className="del-btn small" onClick={() => deleteUser(u.id, u.username)}>삭제</button>}
                   </td>
                 </tr>
               ))}
               {users.length === 0 && (
-                <tr><td colSpan={5} style={{ padding: "12px 8px", color: "var(--muted)" }}>로그인 계정이 없습니다.</td></tr>
+                <tr><td colSpan={6} style={{ padding: "12px 8px", color: "var(--muted)" }}>로그인 계정이 없습니다.</td></tr>
               )}
             </tbody>
           </table>
-        </div>
-      )}
-      {/* 파티 내역 탭 */}
-      {/* 파티 내역 탭 */}
-      {isAdmin && tab === "party-history" && (
-        <div>
-          {historyLoading && <p className="party-empty">불러오는 중...</p>}
-          {!historyLoading && historyData && (
-            historyData.parties.length === 0
-              ? <p className="empty">펑한 파티 내역이 없습니다.</p>
-              : <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
-                  {historyData.parties.map((p) => (
-                    <div key={p.id} className="home-panel" style={{ padding: "12px 16px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                        <span className={`party-mode-badge mode-${p.mode}`}>{MODE_KO[p.mode] ?? p.mode}</span>
-                        {p.note && <span style={{ fontWeight: 700, fontSize: 13 }}>{p.note}</span>}
-                        <span style={{ fontSize: 11, color: "var(--muted)", marginLeft: "auto" }}>{p.startAt ? p.startAt.slice(5, 16).replace("T", " ") : "-"}</span>
-                        <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 7px", borderRadius: 5, background: "rgba(231,76,60,0.18)", color: "#f1948a" }}>펑{p.endedBy ? ` (${p.endedBy})` : ""}</span>
-                      </div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                        {p.participants.map((nick) => (
-                          <span key={nick} style={{ fontSize: 12, padding: "2px 8px", borderRadius: 12, background: "var(--card-2)", color: "var(--text)" }}>{nick}</span>
-                        ))}
-                        {p.participants.length === 0 && <span style={{ fontSize: 12, color: "var(--muted)" }}>참가자 없음</span>}
-                        {p.pastParticipants.length > 0 && (
-                          <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid var(--border)", width: "100%" }}>
-                            <span style={{ fontSize: 11, color: "var(--muted)", marginBottom: 4, display: "block" }}>이전 참가자</span>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                              {p.pastParticipants.map((nick) => (
-                                <span key={nick} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 12, background: "var(--card-2)", color: "var(--muted)", textDecoration: "line-through" }}>{nick}</span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-          )}
         </div>
       )}
       {/* 클랜원 목록 */}
@@ -1667,11 +1736,19 @@ export default function UserInfoPage() {
             );
           })()}
           <button
-            style={{ marginLeft: "auto", padding: "4px 14px", borderRadius: 8, border: "1px solid #27ae60", background: sortBy === "activityTier" ? "#27ae60" : "transparent", color: sortBy === "activityTier" ? "#fff" : "#2ecc71", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
-            onClick={() => { setSortBy(sortBy === "activityTier" ? "birth" : "activityTier"); setPage(0); }}
+            style={{ marginLeft: "auto", padding: "4px 14px", borderRadius: 8, border: "1px solid #27ae60", background: sortKey === "points" ? "#27ae60" : "transparent", color: sortKey === "points" ? "#fff" : "#2ecc71", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+            onClick={() => { if (sortKey === "points") { setSortKey("default"); setSortDir("asc"); } else { setSortKey("points"); setSortDir("desc"); } setPage(0); }}
           >
             활동티어
           </button>
+          {sortKey !== "default" && (
+            <button
+              style={{ padding: "4px 12px", borderRadius: 8, border: "1px solid var(--muted)", background: "transparent", color: "var(--muted)", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+              onClick={() => { setSortKey("default"); setSortDir("asc"); setPage(0); }}
+            >
+              정렬 초기화
+            </button>
+          )}
         </div>
       )}
       {/* 클랜원 추가 + 전체 티어 동기화 버튼 */}
@@ -1705,7 +1782,7 @@ export default function UserInfoPage() {
               ‹
             </button>
             <span>
-              {safePage + 1} / {totalPages}{showInactive ? ` (판수미달 ${filteredMembers.length} / 전체 ${members.length})` : specialFilter === "rookie" ? ` (신입 ${filteredMembers.length} / 전체 ${members.length})` : specialFilter === "leave" ? ` (외출 ${filteredMembers.length} / 전체 ${members.length})` : lineFilter ? ` (${lineFilter} ${filteredMembers.length} / 전체 ${members.length})` : searchQuery ? ` (검색 ${filteredMembers.length} / 전체 ${members.length})` : ` (전체 ${members.length})`}
+              {safePage + 1} / {totalPages}{showInactive ? ` (판수미달 ${filteredMembers.length} / 전체 ${activeMemberCount})` : specialFilter === "rookie" ? ` (신입 ${filteredMembers.length} / 전체 ${activeMemberCount})` : specialFilter === "leave" ? ` (외출 ${filteredMembers.length} / 전체 ${activeMemberCount})` : lineFilter ? ` (${lineFilter} ${filteredMembers.length} / 전체 ${activeMemberCount})` : searchQuery ? ` (검색 ${filteredMembers.length} / 전체 ${activeMemberCount})` : ` (전체 ${activeMemberCount})`}
             </span>
             <button
               disabled={safePage >= totalPages - 1}
@@ -1883,7 +1960,7 @@ export default function UserInfoPage() {
                 <th style={{ textAlign: "left", padding: "6px 10px" }}>닉네임</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>탈퇴일</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>탈퇴사유</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>블랙</th>
+                <th style={{ textAlign: "center", padding: "6px 10px" }}>추방</th>
                 <th style={{ textAlign: "center", padding: "6px 10px" }}>관리</th>
               </tr>
             </thead>
@@ -1905,7 +1982,7 @@ export default function UserInfoPage() {
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "center" }}>
                     <button className={`black-btn${(m as any).isBlacklisted ? " on" : ""}`} onClick={() => openBlacklistModal(m)}>
-                      {(m as any).isBlacklisted ? "💀 블랙" : "+ 블랙"}
+                      {(m as any).isBlacklisted ? "💀 추방" : "+ 추방"}
                     </button>
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "center", whiteSpace: "nowrap" }}>
@@ -1933,12 +2010,15 @@ export default function UserInfoPage() {
         <table className="ui-table">
           <thead>
             <tr>
-                <th style={{ textAlign: "left", padding: "6px 10px" }}>닉네임</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>활동티어</th>
-                <th style={{ textAlign: "right", padding: "6px 10px" }}>포인트</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>솔로랭크</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>직책</th>
-                <th style={{ textAlign: "center", padding: "6px 10px" }}>활동상태</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>
+                  <span onClick={() => toggleSort("nickname")} title="이름순">닉네임{sortMark("nickname")}</span>
+                  <span onClick={() => toggleSort("birth")} title="나이순" style={{ marginLeft: 10, fontSize: 11, color: "var(--muted)" }}>생년{sortMark("birth")}</span>
+                </th>
+                <th onClick={() => toggleSort("points")} style={{ textAlign: "center", padding: "6px 10px", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>활동티어{sortMark("points")}</th>
+                <th onClick={() => toggleSort("points")} style={{ textAlign: "right", padding: "6px 10px", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>포인트{sortMark("points")}</th>
+                <th onClick={() => toggleSort("solo")} style={{ textAlign: "center", padding: "6px 10px", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>솔로랭크{sortMark("solo")}</th>
+                <th onClick={() => toggleSort("position")} style={{ textAlign: "center", padding: "6px 10px", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>직책{sortMark("position")}</th>
+                <th onClick={() => toggleSort("status")} style={{ textAlign: "center", padding: "6px 10px", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>활동상태{sortMark("status")}</th>
                 <th style={{ textAlign: "right", padding: "6px 10px" }}>관리</th>
             </tr>
           </thead>
@@ -1994,7 +2074,7 @@ export default function UserInfoPage() {
                   <td style={{ padding: "8px 10px", textAlign: "right", whiteSpace: "nowrap" }}>
                     <button className="warn-btn" onClick={() => openWarnModal(m)}>경고</button>
                     {" "}
-                    <button className="black-btn" onClick={() => openBlacklistModal(m)}>블랙</button>
+                    <button className="black-btn" onClick={() => openBlacklistModal(m)}>추방</button>
                     {" "}
                     <button className="withdraw-btn" onClick={() => { setWithdrawReason(""); setWithdrawModal({ member: m }); }}>탈퇴</button>
                     {" "}

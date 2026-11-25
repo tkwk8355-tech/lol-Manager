@@ -11,10 +11,12 @@ export async function GET(req: NextRequest) {
   const [rows] = await pool.query(
     `SELECT m.id AS member_id, m.nickname, m.main_line, m.sub_line,
             a.solo_tier, a.solo_rank,
-            r.line, r.champ1, r.champ2, r.champ3
+            r.line, r.champ1, r.champ2, r.champ3,
+            ai.ver AS intro_ver
      FROM auction_roster r
      JOIN members m ON m.id = r.member_id
      LEFT JOIN accounts a ON a.member_id = m.id AND a.is_main = 1
+     LEFT JOIN auction_intro ai ON ai.member_id = m.id
      WHERE m.status NOT IN ('withdraw', 'black')
      ORDER BY m.nickname ASC`
   ) as any[];

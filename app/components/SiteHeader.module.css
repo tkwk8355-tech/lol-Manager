@@ -1,0 +1,93 @@
+/* 상단 메뉴: 데스크톱은 가로 메뉴 + 드롭다운, 좁은 화면은 햄버거 → 펼침 메뉴 */
+
+.nav { display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; }
+
+.group { position: relative; }
+.groupBtn {
+  background: none; border: none; font: inherit; cursor: pointer;
+}
+.chev { width: 14px; height: 14px; transition: transform .15s; flex-shrink: 0; }
+.open .chev { transform: rotate(180deg); }
+
+/* 드롭다운: 버튼과 패널 사이에 마우스가 지나가도 닫히지 않게 padding으로 이어 둔다 */
+.menu { position: absolute; top: 100%; left: 0; padding-top: 6px; z-index: 100; }
+.menuInner {
+  min-width: 190px; padding: 6px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  display: flex; flex-direction: column; gap: 2px;
+  animation: menuIn .12s ease-out;
+}
+@keyframes menuIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+.menuItem {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 8px;
+  font-size: 14px; font-weight: 600; color: var(--muted); white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.menuItem:hover { color: var(--text); background: rgba(var(--fg-rgb), 0.05); }
+.menuItem.active { color: var(--text); background: rgba(var(--fg-rgb), 0.08); font-weight: 700; }
+.menuIcon { width: 20px; text-align: center; font-size: 15px; }
+
+/* ---------- 햄버거 버튼 ---------- */
+.burger {
+  display: none; width: 38px; height: 38px; flex-shrink: 0;
+  align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 8px; color: var(--text); cursor: pointer;
+}
+.burger:hover { background: rgba(var(--fg-rgb), 0.06); }
+.burger svg { width: 22px; height: 22px; }
+
+/* ---------- 펼침 메뉴 (좁은 화면) ---------- */
+.drawer {
+  position: fixed; top: 60px; left: 0; right: 0; bottom: 0; z-index: 89;
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: 8px 8px calc(24px + env(safe-area-inset-bottom));
+  background: var(--bg); border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 2px;
+  animation: drawerIn .15s ease-out;
+}
+@keyframes drawerIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+.dItem {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 13px 14px; border-radius: 10px;
+  background: none; border: none; border-bottom: 2px solid transparent;
+  font: inherit; font-size: 15px; font-weight: 600; color: var(--muted);
+  text-align: left; cursor: pointer;
+}
+.dItem:hover { color: var(--text); background: rgba(var(--fg-rgb), 0.04); }
+.dItem.active {
+  color: var(--accent-text); font-weight: 700;
+  background: color-mix(in srgb, var(--accent-text) 10%, transparent);
+  border-bottom-color: var(--accent-text);
+}
+.dItem.groupOn { color: var(--text); }
+.dItem .chev { margin-left: auto; }
+.dIcon { width: 22px; text-align: center; font-size: 17px; }
+.dSub { display: flex; flex-direction: column; gap: 2px; padding-left: 22px; }
+.dSub .dItem { padding: 11px 14px; font-size: 14px; }
+
+@media (max-width: 960px) {
+  .nav { display: none; }
+  .burger { display: inline-flex; }
+}
+@media (min-width: 961px) {
+  .drawer { display: none; }
+}
+
+/* ---------- 프로필 (테마 전환 오른쪽, 누르면 프로필 팝업) ---------- */
+.profile {
+  display: inline-flex; align-items: center; gap: 8px; height: 34px; max-width: 160px;
+  padding: 0 10px 0 4px; border-radius: 999px; border: 1px solid var(--border);
+  background: transparent; color: var(--text); font: inherit; font-size: 13px; font-weight: 700; text-decoration: none; cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.profile:hover { background: rgba(var(--fg-rgb), 0.05); }
+.profileOn { border-color: var(--accent-text); background: color-mix(in srgb, var(--accent-text) 10%, transparent); }
+.profileName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) {
+  .profile { padding: 0 3px; }
+  .profileName { display: none; }
+}

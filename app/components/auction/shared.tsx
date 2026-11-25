@@ -12,26 +12,57 @@ export interface AuctionPlayer {
   team_id: number | null; sort_order: number; main_line: string | null; sub_line: string | null; user_id: number | null;
   champ1: string | null; champ2: string | null; champ3: string | null;
   roster_line: string | null; solo_tier: string | null; solo_rank: string | null;
+  intro_ver?: number | string | null;
 }
 export interface AuctionBid {
   id: number; session_id: number; player_id: number; captain_id: number; points: number; captain_name: string;
 }
+/** member = 팀원 경매(참여자 중 팀장, 팀장 라인 제외), team = 팀 경매(참여자가 아닌 클랜원이 팀장, 5라인 모두 경매) */
+export type AuctionType = "member" | "team";
+export const AUCTION_TYPE_LABEL: Record<AuctionType, string> = { member: "팀원 경매", team: "팀 경매" };
+
 export interface AuctionSession {
-  id: number; status: string; current_idx: number; timer_started: number; timer_started_at: number | null;
+  id: number; status: string; auction_type?: AuctionType; current_idx: number; timer_started: number; timer_started_at: number | null;
+  banner_ver?: number | string | null;
 }
 export interface SessionListItem {
-  id: number; name: string | null; status: string; current_idx: number; created_at: string; player_count: number;
+  id: number; name: string | null; status: string; auction_type?: AuctionType; current_idx: number; created_at: string; player_count: number;
 }
 export interface Member { id: number; nickname: string; }
 export interface RosterEntry {
   member_id: number; nickname: string; main_line: string | null; sub_line: string | null;
   solo_tier: string | null; solo_rank: string | null; line: string | null;
   champ1: string | null; champ2: string | null; champ3: string | null;
+  intro_ver?: number | string | null;
+}
+
+/** 소개사진 URL (없으면 null). ver를 붙여 사진이 바뀌면 캐시가 갱신되게 한다. */
+export function introUrl(memberId: number, ver: number | string | null | undefined): string | null {
+  return ver == null ? null : `/api/auction/intro?memberId=${memberId}&v=${ver}`;
+}
+
+/** 경매 플랜카드 URL (없으면 null). */
+export function bannerUrl(sessionId: number, ver: number | string | null | undefined): string | null {
+  return ver == null ? null : `/api/auction/banner?sessionId=${sessionId}&v=${ver}`;
+}
+
+/** 큰 이미지는 가로 1920px 이하 WEBP로 줄여서 올린다. (원본이 더 작으면 원본 사용) */
+export async function shrinkImage(file: File): Promise<Blob> {
+  if (file.type === "image/gif" || file.size <= 1.5 * 1024 * 1024) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, 1920 / bmp.width);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext("2d")!.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const out = await new Promise<Blob | null>(r => canvas.toBlob(r, "image/webp", 0.92));
+    return out && out.type === "image/webp" && out.size < file.size ? out : file;
+  } catch { return file; }
 }
 
 export const LINES = ["TOP", "JG", "MID", "ADC", "SUP"] as const;
 export const LINE_LABEL: Record<string, string> = { TOP: "탑", JG: "정글", MID: "미드", ADC: "원딜", SUP: "서폿" };
-const LINE_ICON_BASE = "https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-";
+const LINE_ICON_BASE = "/lines/icon-position-"; // 로컬 PNG (public/lines)
 export const LINE_ICON: Record<string, string> = {
   TOP: LINE_ICON_BASE + "top.png",
   JG: LINE_ICON_BASE + "jungle.png",

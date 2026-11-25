@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool, ensureSchema } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
-import { pickMvpIds, MvpParticipant } from "@/lib/scrim";
+import { pickMvpIds, calcMmrDeltas, MvpParticipant } from "@/lib/scrim";
 
 // POST /api/scrim/match/resync
 // 완료된 경기 중 is_mvp 미설정 경기에 MVP 플래그 및 MMR 소급 적용
@@ -64,22 +64,19 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // MMR 업데이트
-      for (const p of participants) {
-        const isWin = p.team === m.winner_team;
-        const isMvp = p.memberId === mvp1 || p.memberId === mvp2;
-        const delta = isWin ? (isMvp ? 20 : 10) : (isMvp ? 0 : -10);
+      // MMR 업데이트: 승패 ±20 + 팀 내 MVP 순위 보너스(+8/+4/0/-4/-8), 0점 아래로는 내려가지 않음
+      for (const { memberId, delta } of calcMmrDeltas(participants, m.winner_team)) {
         await pool.query(
           `UPDATE scrim_ratings SET mmr = GREATEST(0, mmr + ?), updated_at = NOW() WHERE member_id = ?`,
-          [delta, p.memberId]
+          [delta, memberId]
         );
         const [ratingRows] = await pool.query(
-          `SELECT mmr FROM scrim_ratings WHERE member_id = ?`, [p.memberId]
+          `SELECT mmr FROM scrim_ratings WHERE member_id = ?`, [memberId]
         ) as [any[], any];
         const mmrAfter = ratingRows[0]?.mmr ?? 0;
         await pool.query(
           `INSERT IGNORE INTO scrim_mmr_logs (member_id, match_id, delta, mmr_after) VALUES (?, ?, ?, ?)`,
-          [p.memberId, m.id, delta, mmrAfter]
+          [memberId, m.id, delta, mmrAfter]
         );
       }
       updated++;

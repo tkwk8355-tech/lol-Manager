@@ -1,7 +1,13 @@
 require('dotenv').config();
+const path = require('path');
+
+// deno PATH 등록 (yt-dlp JS 런타임용)
+const denoDir = path.join(process.env.USERPROFILE || process.env.HOME, '.deno', 'bin');
+process.env.PATH = denoDir + path.delimiter + (process.env.PATH || '');
+
 const { Client, GatewayIntentBits } = require('discord.js');
 const { handleTicket } = require('./tickets');
-const { handlePlay, handleSkip, handleStop, handleQueue } = require('./music');
+const { handlePlay, handleSkip, handleStop, handleQueue, initDistube } = require('./music');
 
 process.on('uncaughtException', e => {
   if (e.code === 'EPIPE') return;
@@ -19,17 +25,18 @@ const client = new Client({
 
 client.once('clientReady', () => {
   console.log(`✅ ${client.user.tag} 봇 온라인!`);
+  initDistube(client);
 });
 
 client.on('interactionCreate', async interaction => {
   try {
     if (interaction.isChatInputCommand()) {
       const cmd = interaction.commandName;
-      console.log(`[cmd] /${cmd}`);
-      if (cmd === '재생') await handlePlay(interaction);
-      else if (cmd === '스킵') await handleSkip(interaction);
-      else if (cmd === '정지') await handleStop(interaction);
-      else if (cmd === '큐') await handleQueue(interaction);
+      console.log(`[cmd] ${cmd}`);
+      if (cmd === 'p') await handlePlay(interaction);
+      else if (cmd === 's') await handleSkip(interaction);
+      else if (cmd === 'e') await handleStop(interaction);
+      else if (cmd === 'q') await handleQueue(interaction);
       else await handleTicket(interaction);
     } else {
       await handleTicket(interaction);

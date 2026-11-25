@@ -40,57 +40,71 @@
 
 ---
 
-## 3. 기존 데이터 마이그레이션
+## 3. 기존 데이터 마이그레이션 (확정: 2배)
 
 ### 방법
-기존 내전 MMR을 2.5배 스케일 변환 (티어 위치 유지, 상대 순위 보존)
+기존 내전 MMR을 2배 변환 (상대 순위 보존)
+- 티어 간격은 500점 유지 → 변환 후 기존보다 티어가 낮게 표시될 수 있음 (예: 기존 마스터 1200 → 2400 에메랄드)
 
 ```sql
-UPDATE scrim_ratings SET mmr = ROUND(mmr * 2.5);
+-- scripts/migrate-scrim-mmr-x2.sql
+CREATE TABLE IF NOT EXISTS scrim_ratings_backup_x2 AS SELECT * FROM scrim_ratings;
+UPDATE scrim_ratings SET mmr = GREATEST(0, mmr * 2), updated_at = NOW();
 ```
-
-### 변환 예시
-| 닉네임   | 현재 MMR | 변환 후 MMR | 티어     |
-|----------|----------|-------------|----------|
-| 기 류    | 1600     | 4000        | 마스터   |
-| 중위권   | 800      | 2000        | 에메랄드 |
-| 하위권   | 400      | 1000        | 골드     |
 
 - scrim_mmr_logs 과거 기록은 변경하지 않음 (참고용 보존)
 
 ---
 
-## 4. 코드 수정 목록
+## 4. 코드 수정 내역 (반영 완료)
 
 1. lib/scrim.ts
-   - mmrToScrimTier() 구간 변경 (200 간격 → 500 간격)
-   - soloBadgeToInitialMmr() 초기값 × 2.5 반영
-   - SCRIM_MMR_DELTA 변경: [10,5,0,-5,-10] → [8,4,0,-4,-8]
+   - mmrToScrimTier() 500점 간격으로 변경
+   - soloBadgeToInitialMmr() 초기값 × 2 (브론즈 이하 200 / 실버 400 / 골드 700 / 플래 900 / 에메 1100 / 다이아+ 1300)
+   - SCRIM_MMR_WIN_BASE = 20 추가, SCRIM_MMR_DELTA [10,5,0,-5,-10] → [8,4,0,-4,-8]
+   - calcMmrDeltas()가 승패 기본점수 + 순위 보너스를 합산해서 반환
 
-2. app/api/scrim/match/resync/route.ts
-   - MMR delta 계산 로직 변경
-   - 승리 기본 +20 / 패배 기본 -20 추가
-   - 순위 보너스 [8,4,0,-4,-8] 적용
+2. lib/syncScrim.ts (자동 동기화), app/api/scrim/match/resync/route.ts (소급)
+   - 기존 "승 +10 / 승MVP +20 / 패 -10 / 패MVP 0" → calcMmrDeltas() 사용으로 통일
+   - syncScrim의 MVP 계산에 시야점수(visionScore) 전달 누락 수정 (resync와 동일하게)
 
-3. DB 마이그레이션 실행
-   - UPDATE scrim_ratings SET mmr = ROUND(mmr * 2.5);
-
----
-
-## 5. 팀 생성 수치 변경 (app/api/scrim/balance/route.ts)
-
-현재 → 변경 (모두 × 2.5)
-
-| 항목                  | 현재  | 변경  | 설명                                      |
-|-----------------------|-------|-------|-------------------------------------------|
-| tolerance             | 200   | 300   | 두 팀 합산 점수 차이 허용 범위            |
-| 라인 보정 (ALL/미지정) | -150  | -375  | 주라인 아닌 라인 배정 시 패널티           |
-| 라인 보정 (명시 부라인) | -300  | -750  | 명시적 부라인 아닌 라인 배정 시 패널티    |
-| 팀1 가산점            | +50   | +125  | 팀1 합산에 더해서 균형 보정               |
+3. DB 마이그레이션: scripts/migrate-scrim-mmr-x2.sql
 
 ---
 
-## 6. 미결 사항
+## 5. 팀 생성 변경 (app/api/scrim/balance/route.ts)
 
-- MMR 하한선 설정 여부 (0점 이하 방지 → 현재 GREATEST(0, mmr+delta) 로직 유지 예정)
-- 서폿 MVP 가중치 별도 적용 여부 (현재는 전 라인 동일 가중치)
+- 기존: 무작위 10000회 셔플 후 차이 200 이내 조합 중 무작위 선택
+- 변경: 가능한 조합 252가지를 전부 계산 → 점수 차이가 작은 순으로 서로 다른 후보를 반환 (응답의 candidates, 기본 3개)
+  - 블루/레드만 바뀐 같은 구성은 하나로 취급, 점수차가 같으면 순서 무작위
+  - 내전 페이지(app/scrim/page.tsx)는 API를 3번 부르던 방식 → 1번 호출해서 후보 3개를 받는 방식으로 변경
+  - 2단계(override 없이 재시도)로 만들어진 경우 라인 배정도 같은 기준으로 계산 (usedOverride 값도 실제대로)
+
+| 항목                    | 기존  | 변경  |
+|-------------------------|-------|-------|
+| 허용 범위(tolerance)    | 200   | 없음 (최소 차이 조합) |
+| 라인 보정 (ALL/미지정)  | -150  | -300  |
+| 라인 보정 (명시 부라인) | -300  | -600  |
+| 팀1 가산점              | +50   | +100  |
+
+---
+
+## 6. 결정 사항
+
+- MMR 하한선: 0점 (GREATEST(0, mmr+delta) 유지)
+- MVP 산정: 서폿 포함 전 라인 동일 가중치 그대로 사용 (KDA 0.25 / 딜 0.20 / CS 0.05 / KP 0.35 / 시야 0.15)
+
+## 7. 내전 티어 사용처 정리 (반영 완료)
+
+- lib/scrim.ts
+  - SCRIM_TIER_MIN 추가: 티어별 시작 점수를 한 곳에서 관리 (mmrToScrimTier도 이 값을 사용)
+  - soloTierToNewMemberMmr() 추가: 신규 멤버 초기 점수 (기존 100/200/300/400/500 → 200/400/600/800/1000)
+- app/userInfo/page.tsx: 관리자 수정 화면의 내전 티어 선택값 (0/200/…/1200 → SCRIM_TIER_MIN 사용, 0/500/…/3000)
+- app/api/userinfo/member/route.ts: 클랜원 신규 등록 시 초기 점수 → soloTierToNewMemberMmr()
+- lib/db.ts seedScrimRatings(): 초기 점수 → soloTierToNewMemberMmr()
+- app/api/scrim/route.ts, app/scrim/page.tsx 티어 표시: mmrToScrimTier()를 쓰므로 자동 반영
+
+### 수정하지 않은 곳
+- scripts/init-scrim-data.sql, scripts/migrate-prod.sql: 예전 1회성 초기 데이터 스크립트 (다시 실행하지 않음)
+- app/userInfo/page.tsx ACTIVITY_TIERS: 활동 포인트 티어 (내전 티어와 무관)
+- discord/index.js: 팀 생성 결과의 점수/점수차를 그대로 보여주기만 함

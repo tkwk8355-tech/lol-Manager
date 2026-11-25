@@ -7,7 +7,7 @@ import { givePoints, updateLastAchieved } from "@/lib/points";
 
 export const dynamic = "force-dynamic";
 
-const MODES = ["aram", "normal", "flex", "solo", "scrim"];
+const MODES = ["aram", "arena", "normal", "flex", "solo", "scrim"];
 
 interface PartyRow {
   id: number;
@@ -121,9 +121,29 @@ export async function GET(req: NextRequest) {
       histByParty.get(h.party_id)!.push(h.nickname);
     }
 
+    // arena 모드면 참가자 puuid도 같이 내려줌 (로컬 LCU 도구용)
+    const isArenaReq = mode === "arena";
+    let puuidByNick: Map<string, string> = new Map();
+    if (isArenaReq && parties.length > 0) {
+      const allNicks = [...new Set([...participants.map(p => p.nickname), ...histRows.map((h: any) => h.nickname)])];
+      if (allNicks.length > 0) {
+        const nickPh = allNicks.map(() => "?").join(",");
+        const [puuidRows] = await pool.query(
+          `SELECT a.game_name, a.puuid FROM accounts a WHERE a.is_main = 1 AND a.game_name IN (${nickPh}) AND a.puuid IS NOT NULL`,
+          allNicks
+        ) as [any[], any];
+        for (const r of puuidRows) puuidByNick.set(r.game_name, r.puuid);
+      }
+    }
+
     const result = parties.map((p) => ({
       ...shapeParty(p, byParty.get(p.id) ?? []),
       historyParticipants: histByParty.get(p.id) ?? [],
+      ...(isArenaReq ? {
+        participantPuuids: Object.fromEntries(
+          (histByParty.get(p.id) ?? []).map(n => [n, puuidByNick.get(n) ?? null])
+        )
+      } : {}),
     }));
     return NextResponse.json({ parties: result });
   } catch (err) {
@@ -254,8 +274,8 @@ export async function PATCH(req: NextRequest) {
         [partyId]
       ) as [any[], any];
       const prevNicks = new Set(prevRows.map((r: any) => r.nickname));
-      const newNicks = new Set(nicknames);
-      const changed = prevNicks.size !== newNicks.size || nicknames.some(n => !prevNicks.has(n));
+      // 새로운 사람이 들어온 경우에만 "새 파티"로 본다 (빠지기만 하거나 순서만 바뀐 건 같은 파티)
+      const changed = nicknames.some(n => !prevNicks.has(n));
 
       // 기존 참가자 삭제 후 새 명단으로 교체
       await conn.query("DELETE FROM party_participants WHERE party_id = ?", [partyId]);
@@ -264,7 +284,7 @@ export async function PATCH(req: NextRequest) {
           `INSERT INTO party_participants (party_id, user_id, nickname, line) VALUES (?, NULL, ?, NULL)`,
           [partyId, nick]
         );
-        // 명단이 실제로 바뀐 경우에만 history 기록
+        // 새로운 사람이 들어온 경우에만 history에 새 명단 전체를 기록 (= 수습 참여 파티 +1)
         if (changed) {
           await conn.query(
             `INSERT INTO party_participant_history (party_id, nickname) VALUES (?, ?)`,
@@ -323,7 +343,7 @@ export async function DELETE(req: NextRequest) {
     const givenBy = auth.session.userId;
     (async () => {
       try {
-        if (party.mode === "aram") {
+        if (party.mode === "aram" || party.mode === "arena") {
           if (memberGames) await awardAramPoints(pool, id, party, memberGames, givenBy);
         } else {
           await awardPartyPoints(pool, id, party, givenBy);
@@ -387,6 +407,42 @@ function partyLabel(party: PartyRow): string {
   return ` (${dt}${notePart})`;
 }
 
+// 수습이 이 파티 안에서 몇 "파티"를 했는지 센다.
+// history에는 파티 생성 때, 그리고 명단이 바뀔 때마다 그 시점 명단 전체가 한 묶음(스냅샷)으로 쌓인다.
+// 새로운 사람이 들어온 스냅샷만 새 파티로 보고, 그중 수습이 들어 있던 스냅샷 수를 센다.
+// (예전 데이터에는 빠지기만 한 스냅샷도 섞여 있어서 COUNT(*) 대신 스냅샷을 복원해서 센다)
+async function countRookieParties(pool: mysql.Pool, partyId: number, nickname: string): Promise<number> {
+  const [rows] = await pool.query(
+    `SELECT nickname, added_at FROM party_participant_history WHERE party_id = ? ORDER BY id`,
+    [partyId]
+  ) as [any[], any];
+  return countPartiesFromHistory(rows, nickname);
+}
+
+function countPartiesFromHistory(rows: { nickname: string; added_at: string | Date }[], nickname: string): number {
+  // 스냅샷 복원: 같은 이름이 다시 나오거나 기록 시각이 2초 넘게 벌어지면 새 묶음
+  const snaps: Set<string>[] = [];
+  let cur: Set<string> | null = null;
+  let curStart = 0;
+  for (const r of rows) {
+    const t = new Date(r.added_at).getTime();
+    if (!cur || cur.has(r.nickname) || Math.abs(t - curStart) > 2000) {
+      cur = new Set<string>();
+      curStart = t;
+      snaps.push(cur);
+    }
+    cur.add(r.nickname);
+  }
+  let count = 0;
+  let prev: Set<string> | null = null;
+  for (const s of snaps) {
+    const isNewParty = !prev || [...s].some((n) => !prev!.has(n));
+    if (isNewParty && s.has(nickname)) count++;
+    prev = s;
+  }
+  return count;
+}
+
 async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRow, memberGames: Record<string,number>, givenBy: number) {
   const [settingRows] = await pool.query(`SELECT points, min_games FROM party_point_settings WHERE mode = 'aram'`) as [any[], any];
   const cfg = settingRows[0] ?? { points: 5, min_games: 4 };
@@ -405,13 +461,14 @@ async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRo
     if (isRookie) continue;
     const partyDate = toKstDateString(party.start_at ?? party.created_at);
     const [prevLogs] = await pool.query(
-      `SELECT pl.points, pl.games FROM point_logs pl JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party' WHERE pl.member_id = ? AND pl.type = 'aram' AND DATE(COALESCE(p.start_at, p.created_at) - INTERVAL 6 HOUR) = ?`,
+      `SELECT pl.points, pl.games, pl.comment FROM point_logs pl JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party' WHERE pl.member_id = ? AND pl.type = 'aram' AND DATE(COALESCE(p.start_at, p.created_at) - INTERVAL 6 HOUR) = ?`,
       [memberId, partyDate]
     ) as [any[], any];
     let prevGames = 0, alreadyGotPoints = false;
     for (const pl of prevLogs) {
       prevGames += Number(pl.games ?? 0);
-      if (Number(pl.points) > 0) alreadyGotPoints = true;
+      // 수습 동반 보너스(+10)는 하루 판수 포인트가 아니므로 '이미 받음' 판정에서 제외한다
+      if (Number(pl.points) > 0 && !String(pl.comment ?? "").includes("수습 동반 보너스")) alreadyGotPoints = true;
     }
     let rookieBonus = 0;
     if (hasRookie) {
@@ -437,7 +494,8 @@ async function awardAramPoints(pool: mysql.Pool, partyId: number, party: PartyRo
       await givePoints(pool, memberId, cfg.points, "aram", games, `칼바람 ${totalGames}판 달성${partyLabel(party)}`, givenBy, partyId, 0, null, "party", withMembersAram);
     } else if (totalGames < cfg.min_games && games > 0) {
       await givePoints(pool, memberId, 0, "aram", games, `칼바람 ${totalGames}판 누적 (미달)${partyLabel(party)}`, givenBy, partyId, 0, null, "party", withMembersAram);
-    } else if (alreadyGotPoints && games > 0 && rookieBonus === 0) {
+    } else if (alreadyGotPoints && games > 0) {
+      // 수습 보너스가 같이 나가는 파티여도 판수 기록은 남긴다 (예전엔 rookieBonus>0이면 이 판수가 빠졌음)
       await givePoints(pool, memberId, 0, "aram", games, `칼바람 ${totalGames}판 누적 (추가)${partyLabel(party)}`, givenBy, partyId, 0, null, "party", withMembersAram);
     }
     if (rookieBonus > 0) {
@@ -499,12 +557,13 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
     let prevGames = 0, alreadyGotPoints = false;
     if (!isRookie) {
       const [prevLogs] = await pool.query(
-        `SELECT pl.points, pl.games FROM point_logs pl JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party' WHERE pl.member_id = ? AND pl.type = ? AND DATE(COALESCE(p.start_at, p.created_at) - INTERVAL 6 HOUR) = ?`,
+        `SELECT pl.points, pl.games, pl.comment FROM point_logs pl JOIN parties p ON p.id = pl.ref_id AND pl.ref_table = 'party' WHERE pl.member_id = ? AND pl.type = ? AND DATE(COALESCE(p.start_at, p.created_at) - INTERVAL 6 HOUR) = ?`,
         [memberId, checkType, partyDate]
       ) as [any[], any];
       for (const pl of prevLogs) {
         prevGames += Number(pl.games ?? 0);
-        if (Number(pl.points) > 0) alreadyGotPoints = true;
+        // 수습 동반 보너스(+10)는 하루 판수 포인트가 아니므로 '이미 받음' 판정에서 제외한다
+        if (Number(pl.points) > 0 && !String(pl.comment ?? "").includes("수습 동반 보너스")) alreadyGotPoints = true;
       }
       if (alreadyGotPoints && rookiePuuids.size === 0) {
         console.log(`[award] skip memberId=${memberId}: already got ${checkType} on ${partyDate}`);
@@ -539,11 +598,7 @@ async function awardPartyPoints(pool: mysql.Pool, partyId: number, party: PartyR
     }
     console.log(`[award] memberId=${memberId} validGames=${validGames} minGames=${minGames} isRookie=${isRookie} playedWithRookie=${playedWithRookie}`);
     if (isRookie) {
-      const [snapRows] = await pool.query(
-        `SELECT 1 FROM party_participant_history WHERE party_id = ? AND nickname = (SELECT game_name FROM accounts WHERE member_id = ? AND is_main = 1 LIMIT 1) LIMIT 1`,
-        [partyId, memberId]
-      ) as [any[], any];
-      const snapCount = snapRows.length > 0 ? 1 : 0;
+      const snapCount = await countRookieParties(pool, partyId, nickname);
       if (snapCount > 0) {
         const countableMode = party.mode === 'flex' || party.mode === 'scrim';
         const withMembers = histRows.filter((h: any) => h.nickname !== nickname).map((h: any) => h.nickname).join(",") || null;

@@ -11,13 +11,20 @@ export async function GET(req: NextRequest) {
   try {
     await ensureSchema();
     const pool = getPool();
+    // 승인 대기 계정을 맨 위에. 연동된 클랜원 이름과 롤 계정(본계정 우선)도 같이 보여준다 (가입 승인 때 확인용)
     const [rows] = await pool.query(
-      `SELECT id, username, nickname, role, scrim_only, show_roster, status, created_at FROM users ORDER BY id ASC`
+      `SELECT u.id, u.username, u.nickname, u.role, u.scrim_only, u.show_roster, u.status, u.created_at,
+              u.member_id, m.nickname AS member_nickname,
+              (SELECT CONCAT(a.game_name, '#', a.tag_line) FROM accounts a WHERE a.member_id = u.member_id ORDER BY a.is_main DESC, a.id ASC LIMIT 1) AS riot_id
+       FROM users u
+       LEFT JOIN members m ON m.id = u.member_id
+       ORDER BY (u.status = 'pending') DESC, u.id ASC`
     ) as [any[], any];
     return NextResponse.json({
       users: rows.map((r) => ({
         id: r.id, username: r.username, nickname: r.nickname,
         role: r.role, scrimOnly: !!r.scrim_only, showRoster: !!r.show_roster, status: r.status ?? "active", createdAt: r.created_at,
+        memberId: r.member_id ?? null, memberNickname: r.member_nickname ?? null, riotId: r.riot_id ?? null,
       })),
     });
   } catch (err) {
@@ -35,7 +42,22 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "최고 운영진만 역할을 변경할 수 있습니다." }, { status: 403 });
   }
   try {
-    const { userId, role, approve, showRoster } = await req.json();
+    const { userId, role, approve, showRoster, linkMemberId } = await req.json();
+    // 클랜원 연동 바꾸기 (null이면 연동 해제). 클랜원 1명당 계정 1개만 가능
+    if (linkMemberId !== undefined) {
+      await ensureSchema();
+      const pool = getPool();
+      const mid = linkMemberId === null ? null : Number(linkMemberId);
+      if (mid !== null) {
+        const [mrows] = await pool.query("SELECT id FROM members WHERE id = ?", [mid]) as [any[], any];
+        if (!mrows[0]) return NextResponse.json({ error: "없는 클랜원입니다." }, { status: 404 });
+        const [urows] = await pool.query("SELECT username FROM users WHERE member_id = ? AND id <> ?", [mid, Number(userId)]) as [any[], any];
+        if (urows[0]) return NextResponse.json({ error: `이미 "${urows[0].username}" 계정과 연동된 클랜원입니다.` }, { status: 409 });
+      }
+      await pool.query("UPDATE users SET member_id = ? WHERE id = ?", [mid, Number(userId)]);
+      invalidateUserState(Number(userId));
+      return NextResponse.json({ ok: true });
+    }
     // 승인 처리
     if (approve) {
       await ensureSchema();

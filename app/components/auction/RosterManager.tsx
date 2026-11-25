@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  ChampImg, LineIcon, TierText, LINES, LINE_LABEL, searchMembers,
+  ChampImg, LineIcon, TierText, LINES, LINE_LABEL, searchMembers, introUrl, shrinkImage,
   type Member, type RosterEntry,
 } from "./shared";
 
@@ -15,15 +15,53 @@ async function saveRoster(memberId: number, line: string, champs: string[]) {
   });
 }
 
-/** 참여자 추가/수정 공용 모달: 라인 1개 + 주챔피언 최대 3개 선택. */
-function RosterEntryModal({ title, initialLine, initialChamps, champList, submitLabel, onSubmit, onClose }: {
-  title: string; initialLine: string; initialChamps: string[]; champList: Champ[];
-  submitLabel: string; onSubmit: (line: string, champs: string[]) => Promise<void>; onClose: () => void;
+/** 소개사진 변경 내용: 새 파일 업로드 / 삭제 / 변경 없음 */
+type IntroChange = { file: Blob } | { remove: true } | null;
+
+async function saveIntro(memberId: number, change: IntroChange): Promise<string | null> {
+  if (!change) return null;
+  if ("remove" in change) {
+    await fetch("/api/auction/intro", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ memberId }) });
+    return null;
+  }
+  const fd = new FormData();
+  fd.append("memberId", String(memberId));
+  fd.append("file", change.file, "intro");
+  const res = await fetch("/api/auction/intro", { method: "PUT", body: fd });
+  if (!res.ok) { const j = await res.json().catch(() => ({})); return j.error || "소개사진 업로드 실패"; }
+  return null;
+}
+
+/** 참여자 추가/수정 공용 모달: 라인 1개 + 주챔피언 최대 3개 + 소개사진. */
+function RosterEntryModal({ title, initialLine, initialChamps, initialIntro, champList, submitLabel, onSubmit, onClose }: {
+  title: string; initialLine: string; initialChamps: string[]; initialIntro: string | null; champList: Champ[];
+  submitLabel: string; onSubmit: (line: string, champs: string[], intro: IntroChange) => Promise<void>; onClose: () => void;
 }) {
   const [line, setLine] = useState(initialLine);
   const [champs, setChamps] = useState<string[]>(initialChamps);
   const [q, setQ] = useState("");
   const [saving, setSaving] = useState(false);
+  const [intro, setIntro] = useState<IntroChange>(null);
+  const [introPreview, setIntroPreview] = useState<string | null>(initialIntro);
+  const [introErr, setIntroErr] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+  // 미리보기용 object URL 정리
+  useEffect(() => () => { if (introPreview?.startsWith("blob:")) URL.revokeObjectURL(introPreview); }, [introPreview]);
+  async function pickIntro(file: File | undefined) {
+    setIntroErr("");
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setIntroErr("이미지 파일만 올릴 수 있어요."); return; }
+    const blob = await shrinkImage(file);
+    if (blob.size > 8 * 1024 * 1024) { setIntroErr("이미지가 너무 커요. (최대 8MB)"); return; }
+    setIntro({ file: blob });
+    setIntroPreview(URL.createObjectURL(blob));
+  }
+  function removeIntro() {
+    setIntroErr("");
+    setIntro(initialIntro ? { remove: true } : null);
+    setIntroPreview(null);
+    if (fileRef.current) fileRef.current.value = "";
+  }
   const filtered = q ? champList.filter(c => c.name_en.toLowerCase().includes(q.toLowerCase()) || c.name_ko.includes(q)) : champList;
   function toggle(name: string) {
     if (champs.includes(name)) setChamps(prev => prev.filter(x => x !== name));
@@ -31,7 +69,7 @@ function RosterEntryModal({ title, initialLine, initialChamps, champList, submit
   }
   async function submit() {
     setSaving(true);
-    try { await onSubmit(line, champs); } finally { setSaving(false); }
+    try { await onSubmit(line, champs, intro); } finally { setSaving(false); }
   }
   return (
     <div className="modal-backdrop">
@@ -77,6 +115,22 @@ function RosterEntryModal({ title, initialLine, initialChamps, champList, submit
           </div>
         </div>
 
+        <div className="auc-field">
+          <span className="auc-label">소개사진 <em>입찰 시작 전에 경매방에 크게 보여져요</em></span>
+          <div className="auc-intro-pick">
+            {introPreview
+              ? <img className="auc-intro-thumb" src={introPreview} alt="소개사진 미리보기" />
+              : <div className="auc-intro-thumb empty" onClick={() => fileRef.current?.click()}>사진 없음<br /><small>눌러서 선택</small></div>}
+            <div className="auc-intro-actions">
+              <button className="btn-secondary" onClick={() => fileRef.current?.click()}>{introPreview ? "사진 변경" : "사진 선택"}</button>
+              {introPreview && <button className="btn-secondary" onClick={removeIntro}>삭제</button>}
+              {introErr && <span className="auc-intro-err">{introErr}</span>}
+            </div>
+            <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden
+              onChange={e => pickIntro(e.target.files?.[0])} />
+          </div>
+        </div>
+
         <div className="auc-modal-foot">
           <button className="btn-secondary" onClick={onClose}>취소</button>
           <button className="btn-primary" onClick={submit} disabled={saving}>{saving ? "저장 중…" : submitLabel}</button>
@@ -92,7 +146,7 @@ function RosterCard({ r, isAdmin, onEdit, onRemove }: { r: RosterEntry; isAdmin:
     <div className="auc-roster-card">
       <div className="auc-roster-top">
         <div className="auc-roster-name">
-          <strong>{r.nickname}</strong>
+          <strong>{r.nickname}{r.intro_ver != null && <span className="auc-intro-badge" title="소개사진 등록됨">📷</span>}</strong>
           <TierText tier={r.solo_tier} rank={r.solo_rank} />
         </div>
         {isAdmin && (
@@ -185,9 +239,15 @@ export default function RosterManager({ members, roster, isAdmin, onSaved }: {
         <RosterEntryModal
           key={"add-" + adding.id}
           title={`${adding.nickname} 추가`} submitLabel="추가"
-          initialLine="" initialChamps={[]} champList={champList}
+          initialLine="" initialChamps={[]} initialIntro={null} champList={champList}
           onClose={() => setAdding(null)}
-          onSubmit={async (line, champs) => { await saveRoster(adding.id, line, champs); setAdding(null); onSaved(); }}
+          onSubmit={async (line, champs, intro) => {
+            await saveRoster(adding.id, line, champs);
+            const err = await saveIntro(adding.id, intro);
+            onSaved();
+            if (err) { alert(err); return; }
+            setAdding(null);
+          }}
         />
       )}
       {editTarget && (
@@ -196,9 +256,16 @@ export default function RosterManager({ members, roster, isAdmin, onSaved }: {
           title={`${editTarget.nickname} 수정`} submitLabel="저장"
           initialLine={editTarget.line ?? ""}
           initialChamps={[editTarget.champ1, editTarget.champ2, editTarget.champ3].filter(Boolean) as string[]}
+          initialIntro={introUrl(editTarget.member_id, editTarget.intro_ver)}
           champList={champList}
           onClose={() => setEditTarget(null)}
-          onSubmit={async (line, champs) => { await saveRoster(editTarget.member_id, line, champs); setEditTarget(null); onSaved(); }}
+          onSubmit={async (line, champs, intro) => {
+            await saveRoster(editTarget.member_id, line, champs);
+            const err = await saveIntro(editTarget.member_id, intro);
+            onSaved();
+            if (err) { alert(err); return; }
+            setEditTarget(null);
+          }}
         />
       )}
     </div>

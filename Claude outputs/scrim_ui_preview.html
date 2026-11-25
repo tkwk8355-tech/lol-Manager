@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>내전 UI 개선안</title>
+<style>
+:root{
+  --bg:#0a0a0a;--card:#111;--card-2:#1a1a1a;--border:#2a2a2a;--text:#e4e6eb;--muted:#8a93a6;
+  --accent:#5383e8;--win-bg:#28344e;--win-text:#7aa2f7;--loss-bg:#3a2730;--loss-accent:#e84057;--loss-text:#f17a8a;--fg-rgb:255,255,255;
+  --gold:#e8b84a;--silver:#aab4c0;--bronze:#c98552;
+}
+:root[data-theme="light"]{
+  --bg:#fff;--card:#f4f5f7;--card-2:#eef0f4;--border:#d9dee6;--text:#1f2328;--muted:#5f6b7a;
+  --accent:#4171d6;--win-bg:#e1eafc;--win-text:#2f5fc4;--loss-bg:#fbe5e9;--loss-accent:#d93650;--loss-text:#c42d45;--fg-rgb:0,0,0;
+  --gold:#b8860b;--silver:#7a8696;--bronze:#a0612f;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:"Pretendard",-apple-system,"Malgun Gothic",sans-serif;font-size:14px}
+.demo-bar{display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:8px 16px;font-size:12px;color:var(--muted);border-bottom:1px dashed var(--border)}
+.demo-bar label{display:flex;gap:4px;align-items:center;cursor:pointer}
+.wrap{max-width:1180px;margin:0 auto;padding:24px 16px 60px}
+
+/* header */
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.head h1{margin:0;font-size:24px;font-weight:800;letter-spacing:-.3px}
+.head p{margin:4px 0 0;color:var(--muted);font-size:13px}
+.actions{display:flex;gap:8px}
+.btn{height:34px;padding:0 14px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);font-weight:700;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.admin-only{display:none}
+body.admin .admin-only{display:revert}
+
+/* kpi */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+.kpi .l{font-size:12px;color:var(--muted)}
+.kpi .v{font-size:18px;font-weight:800;margin-top:4px}
+.kpi .v small{font-size:12px;color:var(--muted);font-weight:600;margin-left:4px}
+
+/* tabs */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:16px}
+.tabs button{background:none;border:none;color:var(--muted);font-weight:700;font-size:14px;padding:10px 14px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--text);border-bottom-color:var(--accent)}
+.tabs .count{font-size:11px;background:var(--card-2);border-radius:10px;padding:1px 7px;margin-left:4px;color:var(--muted)}
+.panel{display:none}.panel.on{display:block}
+
+/* toolbar */
+.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.input,.select{height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px}
+.input{width:200px}
+.chips{display:flex;gap:6px}
+.chip{height:28px;padding:0 10px;border-radius:14px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer}
+.chip.on{background:var(--card-2);color:var(--text);border-color:var(--muted)}
+
+/* match card */
+.match{background:var(--card);border:1px solid var(--border);border-radius:12px;margin-bottom:10px;overflow:hidden}
+.m-meta{display:flex;align-items:center;gap:10px;padding:10px 16px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border)}
+.m-meta b{color:var(--text);font-weight:700}
+.badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:var(--card-2);color:var(--muted)}
+.badge.pending{background:rgba(232,184,74,.15);color:var(--gold)}
+.badge.auto{background:rgba(83,131,232,.14);color:var(--win-text)}
+.m-menu{margin-left:auto;display:flex;gap:4px}
+.icon-btn{height:26px;padding:0 9px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:12px;cursor:pointer}
+.icon-btn:hover{color:var(--text)}
+.icon-btn.danger:hover{color:var(--loss-text);border-color:var(--loss-accent)}
+.teams{display:grid;grid-template-columns:1fr 1fr}
+.team{padding:10px 14px 12px}
+.team+.team{border-left:1px solid var(--border)}
+.team.win{background:linear-gradient(180deg,rgba(83,131,232,.08),transparent 60%)}
+.team.loss{background:linear-gradient(180deg,rgba(232,64,87,.06),transparent 60%)}
+.t-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;margin-bottom:6px}
+.dot{width:8px;height:8px;border-radius:50%}
+.dot.blue{background:#5383e8}.dot.red{background:#e84057}
+.res{font-size:11px;padding:1px 7px;border-radius:5px}
+.res.w{background:rgba(83,131,232,.18);color:var(--win-text)}
+.res.l{background:rgba(232,64,87,.15);color:var(--loss-text)}
+.t-sum{margin-left:auto;color:var(--muted);font-weight:600}
+.row{display:grid;grid-template-columns:30px minmax(0,1fr) 92px 96px 140px;gap:10px;align-items:center;padding:4px 0}
+.champ{position:relative;width:30px;height:30px}
+.champ img,.champ .ph{width:30px;height:30px;border-radius:7px;display:block;background:var(--card-2)}
+.champ .ln{position:absolute;right:-4px;bottom:-4px;width:14px;height:14px;border-radius:4px;background:var(--card);padding:1px;border:1px solid var(--border)}
+.name{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:5px}
+.mvp{font-size:10px;font-weight:800;color:#1a1a1a;background:var(--gold);border-radius:4px;padding:1px 5px;flex-shrink:0}
+.kda{font-size:13px;font-weight:700;white-space:nowrap}
+.kda em{font-style:normal;color:var(--loss-text)}
+.kda small{display:block;font-size:11px;color:var(--muted);font-weight:600}
+.dmg{font-size:11px;color:var(--muted)}
+.bar{height:5px;border-radius:3px;background:rgba(var(--fg-rgb),.08);margin-top:3px;overflow:hidden}
+.bar i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+.team.loss .bar i{background:var(--loss-accent)}
+.items{display:flex;gap:2px;justify-content:flex-end}
+.items img,.items span{width:19px;height:19px;border-radius:4px;background:var(--card-2);display:block}
+.pager{display:flex;justify-content:center;align-items:center;gap:12px;margin-top:16px;color:var(--muted);font-size:13px}
+
+/* ranking */
+.rank-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.rank-col{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.rank-head{display:flex;align-items:center;gap:8px;padding:12px 14px;font-weight:800;border-bottom:1px solid var(--border)}
+.rank-head img,.rank-head .ph{width:18px;height:18px;display:block}
+.champ .ph.ln{width:14px;height:14px}
+.rank-head span{margin-left:auto;font-size:12px;color:var(--muted);font-weight:600}
+.rank-row{display:flex;align-items:center;gap:10px;padding:8px 14px;cursor:pointer}
+.rank-row:hover{background:var(--card-2)}
+.no{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font-size:12px;font-weight:800;color:var(--muted);flex-shrink:0}
+.no.n1{background:rgba(232,184,74,.18);color:var(--gold)}
+.no.n2{background:rgba(170,180,192,.18);color:var(--silver)}
+.no.n3{background:rgba(201,133,82,.18);color:var(--bronze)}
+.rank-row .nm{flex:1;font-weight:700;font-size:13px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rank-row .sub{font-size:11px;color:var(--muted);text-align:right}
+.tier{font-size:11px;font-weight:800;padding:2px 7px;border-radius:5px;color:#fff;white-space:nowrap}
+.tier.gold{background:#cf9b41}.tier.platinum{background:#3aa6a0}.tier.emerald{background:#2f9e6b}.tier.diamond{background:#4f7bd0}.tier.master{background:#9d4dc3}.tier.silver{background:#7e93a3}.tier.bronze{background:#8c5230}
+.rank-note{font-size:12px;color:var(--muted);margin-top:10px}
+
+/* stats table */
+.tbl-wrap{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{position:sticky;top:0;background:var(--card-2);color:var(--muted);font-size:12px;font-weight:700;padding:10px 12px;text-align:center;white-space:nowrap;cursor:pointer;user-select:none}
+th:first-child,td:first-child{text-align:left}
+th.sorted{color:var(--text)}
+td{padding:9px 12px;text-align:center;border-top:1px solid var(--border);white-space:nowrap}
+tbody tr:hover{background:rgba(var(--fg-rgb),.03)}
+td .pn{font-weight:700;cursor:pointer}
+td .pn:hover{color:var(--accent)}
+.lines{display:inline-flex;gap:3px;align-items:flex-end;height:22px}
+.lines i{width:7px;border-radius:2px;background:var(--accent);opacity:.85;display:block;min-height:2px}
+.lines i.z{background:rgba(var(--fg-rgb),.12)}
+.wr{display:inline-flex;align-items:center;gap:8px}
+.wr .bar{width:60px;margin:0}
+.wr.up{color:var(--win-text)}.wr.dn{color:var(--loss-text)}
+.wr.up .bar i{background:var(--win-text)}.wr.dn .bar i{background:var(--loss-text)}
+.kda-good{color:var(--win-text);font-weight:800}
+.mmr-adj{display:inline-flex;gap:4px}
+.mmr-adj input{width:54px;height:26px;border-radius:6px;border:1px solid var(--border);background:var(--card-2);color:var(--text);text-align:center;font-size:12px}
+.mmr-adj button{width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text);font-weight:800;cursor:pointer}
+.mmr-adj button:first-of-type:hover{border-color:#2f9e6b;color:#2f9e6b}
+.mmr-adj button:last-of-type:hover{border-color:var(--loss-accent);color:var(--loss-text)}
+
+@media (max-width:900px){
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .teams{grid-template-columns:1fr}.team+.team{border-left:none;border-top:1px solid var(--border)}
+  .rank-grid{grid-template-columns:1fr 1fr}
+  .row{grid-template-columns:30px minmax(0,1fr) 84px 80px}.items{display:none}
+}
+</style>
+</head>
+<body class="admin">
+<div class="demo-bar">
+  <span>미리보기 옵션 ·</span>
+  <label><input type="checkbox" id="adminToggle" checked> 관리자 보기</label>
+  <label><input type="checkbox" id="themeToggle"> 라이트 모드</label>
+</div>
+
+<div class="wrap">
+  <div class="head">
+    <div>
+      <h1>내전</h1>
+      <p>2026 시즌 · 누적 128경기 · 참여 클랜원 42명</p>
+    </div>
+    <div class="actions">
+      <button class="btn admin-only">⟳ 전적 동기화</button>
+      <button class="btn primary">＋ 팀 생성</button>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="l">이번 주 경기</div><div class="v">9<small>경기</small></div></div>
+    <div class="kpi"><div class="l">블루팀 승률</div><div class="v">53.1<small>%</small></div></div>
+    <div class="kpi"><div class="l">이번 주 MVP 최다</div><div class="v">별빛소환사<small>3회</small></div></div>
+    <div class="kpi"><div class="l">최근 경기</div><div class="v">10/20<small>22:41</small></div></div>
+  </div>
+
+  <div class="tabs">
+    <button data-tab="matches" class="on">경기 목록<span class="count">128</span></button>
+    <button data-tab="ranking">순위표</button>
+    <button data-tab="stats">통계</button>
+  </div>
+
+  <section class="panel on" id="matches">
+    <div class="toolbar">
+      <input class="input" placeholder="클랜원 / 챔피언 검색">
+      <div class="chips">
+        <button class="chip on">전체</button><button class="chip">이번 주</button><button class="chip">결과 미등록</button>
+      </div>
+    </div>
+    <div id="matchList"></div>
+    <div class="pager"><button class="btn">‹</button><span>1 / 13</span><button class="btn">›</button></div>
+  </section>
+
+  <section class="panel" id="ranking">
+    <div class="rank-grid" id="rankGrid"></div>
+    <div class="rank-note">5경기 이상 참여한 클랜원만 주 라인 기준으로 표시됩니다.</div>
+  </section>
+
+  <section class="panel" id="stats">
+    <div class="toolbar">
+      <input class="input" id="statSearch" placeholder="클랜원 검색">
+      <span style="font-size:12px;color:var(--muted)">열 제목을 누르면 정렬됩니다</span>
+    </div>
+    <div class="tbl-wrap"><table id="statTable"></table></div>
+  </section>
+</div>
+
+<script>
+const DD="https://ddragon.leagueoflegends.com/cdn/14.20.1/img";
+const CD="https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions";
+const LINES=[["TOP","탑","top"],["JG","정글","jungle"],["MID","미드","middle"],["ADC","원딜","bottom"],["SUP","서폿","utility"]];
+const lineIcon=k=>`${CD}/icon-position-${LINES.find(l=>l[0]===k)[2]}.png`;
+const img=(src,cls="")=>`<img class="${cls}" src="${src}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'ph '+this.className}))">`;
+const NAMES=["별빛소환사","탑신병자","정글의왕","미드몬스터","원딜장인","서폿천사","바론스틸러","한타요정","라인전괴물","와드지킴이","블루버프","레드버프","강철심장","점멸장인","갱킹러버","딜찍누","카정러","포탑수호자","드래곤사냥꾼","궁쿨대기"];
+const CH={TOP:["Darius","Garen","Jax","Camille","Ornn"],JG:["LeeSin","Viego","Kayn","Graves","Vi"],MID:["Ahri","Syndra","Zed","Orianna","Yasuo"],ADC:["Jinx","Kaisa","Ezreal","Jhin","Caitlyn"],SUP:["Thresh","Nautilus","Lulu","Leona","Rakan"]};
+const ITEMS=[3031,3071,6672,3153,3006,3157,3089,6653,3065,3075,3190,3111,6694,3036];
+let seed=7;const r=n=>{seed=(seed*9301+49297)%233280;return Math.floor(seed/233280*n)};
+
+function makeTeam(off){return LINES.map(([k],i)=>({line:k,name:NAMES[(off+i*3)%NAMES.length],champ:CH[k][r(5)],k:r(12),d:r(9),a:r(16),dmg:k==="SUP"?6000+r(9000):14000+r(26000),items:[...Array(6)].map(()=>ITEMS[r(ITEMS.length)])}))}
+const matches=[0,1,2,3].map(i=>{const t1=makeTeam(i*2),t2=makeTeam(i*2+1);const w=i===2?0:(r(2)+1);const all=[...t1,...t2];if(w){const win=w===1?t1:t2;win.reduce((a,b)=>(b.k+b.a)/(b.d||1)>(a.k+a.a)/(a.d||1)?b:a).mvp=true}return{date:["10/20 22:41","10/20 21:58","10/19 23:10","10/18 22:05"][i],note:["정기 내전 1경기","정기 내전 2경기","","주말 내전"][i],auto:i!==3,w,t1,t2,max:Math.max(...all.map(p=>p.dmg))}});
+
+function teamHtml(team,idx,m){
+  const sum=team.reduce((a,p)=>[a[0]+p.k,a[1]+p.d,a[2]+p.a],[0,0,0]);
+  const st=!m.w?"":m.w===idx?"win":"loss";
+  return `<div class="team ${st}"><div class="t-head"><span class="dot ${idx===1?"blue":"red"}"></span>${idx===1?"블루팀":"레드팀"}
+  ${m.w?`<span class="res ${m.w===idx?"w":"l"}">${m.w===idx?"승리":"패배"}</span>`:""}<span class="t-sum">${sum.join(" / ")}</span></div>
+  ${team.map(p=>{const ratio=((p.k+p.a)/Math.max(p.d,1)).toFixed(2);return `<div class="row">
+    <div class="champ">${img(`${DD}/champion/${p.champ}.png`)}${img(lineIcon(p.line),"ln")}</div>
+    <div class="name">${p.name}${p.mvp?'<span class="mvp">MVP</span>':""}</div>
+    <div class="kda">${p.k} / <em>${p.d}</em> / ${p.a}<small>${ratio} KDA</small></div>
+    <div class="dmg">${p.dmg.toLocaleString()}<div class="bar"><i style="width:${Math.round(p.dmg/m.max*100)}%"></i></div></div>
+    <div class="items">${p.items.map(it=>img(`${DD.replace("14.20.1","14.20.1")}/item/${it}.png`)).join("")}</div>
+  </div>`}).join("")}</div>`;
+}
+document.getElementById("matchList").innerHTML=matches.map(m=>`<div class="match">
+  <div class="m-meta"><b>${m.date}</b>${m.note?`<span>${m.note}</span>`:""}
+  ${m.w?"":'<span class="badge pending">결과 미등록</span>'}${m.auto?'<span class="badge auto">자동 동기화</span>':""}
+  <div class="m-menu admin-only">${m.auto?"":'<button class="icon-btn">수정</button>'}<button class="icon-btn danger">삭제</button></div></div>
+  <div class="teams">${teamHtml(m.t1,1,m)}${teamHtml(m.t2,2,m)}</div></div>`).join("");
+
+/* players */
+const TIERS=[["마스터","master"],["다이아","diamond"],["에메랄드","emerald"],["플래티넘","platinum"],["골드","gold"],["실버","silver"]];
+const players=NAMES.map((n,i)=>{const lc=LINES.map(()=>r(14));lc[i%5]+=10+r(10);const g=lc.reduce((a,b)=>a+b,0);const mmr=900+r(900);const t=TIERS[Math.min(5,Math.floor((1800-mmr)/160))];return{n,main:LINES[i%5][0],lc,g,wr:Math.round(35+r(35)),kda:(1.5+r(300)/100).toFixed(2),mmr,tier:t}});
+
+document.getElementById("rankGrid").innerHTML=LINES.map(([k,lab])=>{const ps=players.filter(p=>p.main===k).sort((a,b)=>b.mmr-a.mmr);return `<div class="rank-col">
+ <div class="rank-head">${img(lineIcon(k))}${lab}<span>${ps.length}명</span></div>
+ ${ps.map((p,i)=>`<div class="rank-row"><span class="no ${i<3?"n"+(i+1):""}">${i+1}</span><span class="nm">${p.n}</span>
+ <div class="sub"><span class="tier ${p.tier[1]}">${p.tier[0]}</span><div class="admin-only" style="margin-top:3px">${p.mmr}점</div></div></div>`).join("")}</div>`}).join("");
+
+let sortKey="mmr",sortDir=-1;
+function renderStats(){
+  const q=document.getElementById("statSearch").value.trim();
+  const cols=[["n","클랜원"],["mmr","내전 티어"],["lc","라인 분포"],["g","판수"],["wr","승률"],["kda","KDA"]];
+  const rows=players.filter(p=>!q||p.n.includes(q)).sort((a,b)=>{const x=sortKey==="lc"?0:(typeof a[sortKey]==="string"&&sortKey!=="kda"?a[sortKey].localeCompare(b[sortKey]):a[sortKey]-b[sortKey]);return x*sortDir});
+  document.getElementById("statTable").innerHTML=`<thead><tr>${cols.map(([k,l])=>`<th data-k="${k}" class="${sortKey===k?"sorted":""}">${l}${sortKey===k?(sortDir<0?" ↓":" ↑"):""}</th>`).join("")}<th class="admin-only">MMR 조정</th></tr></thead>
+  <tbody>${rows.map(p=>{const mx=Math.max(...p.lc);return `<tr><td><span class="pn">${p.n}</span></td>
+  <td><span class="tier ${p.tier[1]}">${p.tier[0]}</span> <span class="admin-only" style="font-size:11px;color:var(--muted)">${p.mmr}</span></td>
+  <td><span class="lines" title="${LINES.map((l,i)=>l[1]+" "+p.lc[i]).join(" · ")}">${p.lc.map(c=>`<i class="${c?"":"z"}" style="height:${Math.max(2,Math.round(c/mx*22))}px"></i>`).join("")}</span></td>
+  <td>${p.g}판</td>
+  <td><span class="wr ${p.wr>=50?"up":"dn"}">${p.wr}%<span class="bar"><i style="width:${p.wr}%"></i></span></span></td>
+  <td class="${p.kda>=3?"kda-good":""}">${p.kda}</td>
+  <td class="admin-only"><span class="mmr-adj"><input placeholder="점수"><button>+</button><button>−</button></span></td></tr>`}).join("")}</tbody>`;
+  document.querySelectorAll("#statTable th[data-k]").forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(k==="lc")return;sortDir=sortKey===k?-sortDir:-1;sortKey=k;renderStats()});
+}
+renderStats();
+document.getElementById("statSearch").oninput=renderStats;
+
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tabs button").forEach(x=>x.classList.toggle("on",x===b));document.querySelectorAll(".panel").forEach(p=>p.classList.toggle("on",p.id===b.dataset.tab))});
+document.querySelectorAll(".chips .chip").forEach(c=>c.onclick=()=>document.querySelectorAll(".chips .chip").forEach(x=>x.classList.toggle("on",x===c)));
+document.getElementById("adminToggle").onchange=e=>document.body.classList.toggle("admin",e.target.checked);
+document.getElementById("themeToggle").onchange=e=>document.documentElement.dataset.theme=e.target.checked?"light":"";
+</script>
+</body>
+</html>

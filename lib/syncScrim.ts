@@ -2,7 +2,7 @@ import mysql from "mysql2/promise";
 import { getPool, ensureSchema } from "@/lib/db";
 import { getAccountByRiotId, getMatchIds, getMatch, RiotApiError } from "@/lib/riot";
 import { givePoints, updateLastAchieved } from "@/lib/points";
-import { pickMvpIds, matchDurationSec } from "@/lib/scrim";
+import { pickMvpIds, calcMmrDeltas, matchDurationSec } from "@/lib/scrim";
 
 function kstDateTimeString(ms: number): string {
   const d = new Date(ms);
@@ -21,6 +21,12 @@ function getDayWindow(playedAtMs: number): { windowStart: string; windowEnd: str
   };
 }
 
+// Riot ID 비교용 키: 공백 제거 + 소문자 + 유니코드 정규화
+function riotIdKey(gameName?: string | null, tagLine?: string | null): string {
+  const norm = (v?: string | null) => (v ?? "").normalize("NFC").replace(/\s+/g, "").toLowerCase();
+  return `${norm(gameName)}#${norm(tagLine)}`;
+}
+
 export async function syncScrimMatches(memberId: number, startAt: string, givenByUserId: number) {
   const startMs = new Date(startAt).getTime();
   if (!Number.isFinite(startMs)) throw new Error("시작 시각 형식이 올바르지 않습니다.");
@@ -35,10 +41,31 @@ export async function syncScrimMatches(memberId: number, startAt: string, givenB
   ) as [any[], any];
   if (accounts.length === 0) throw new Error("이 클랜원은 등록된 계정이 없습니다.");
 
-  const [allAccounts] = await pool.query("SELECT member_id, game_name, tag_line FROM accounts") as [any[], any];
-  const memberByRiotId = new Map<string, number>();
+  // 경기 참가자 → 클랜원 매칭용 (본계정 + 부계정 전부)
+  // 1순위 puuid(닉네임을 바꿔도 그대로), 2순위 Riot ID.
+  // Riot ID는 띄어쓰기/대소문자 차이로 놓치지 않도록 공백 제거 + 소문자로 비교한다.
+  //   예) 등록 "따거#KR1" ↔ 경기 "따 거#KR1"
+  const [allAccounts] = await pool.query("SELECT id, member_id, game_name, tag_line, puuid FROM accounts") as [any[], any];
+  const memberByPuuid = new Map<string, number>();
+  const accountByRiotId = new Map<string, { id: number; memberId: number; puuid: string | null }>();
   for (const a of allAccounts) {
-    memberByRiotId.set(`${a.game_name}#${a.tag_line}`.toLowerCase(), a.member_id);
+    if (a.puuid) memberByPuuid.set(a.puuid, a.member_id);
+    accountByRiotId.set(riotIdKey(a.game_name, a.tag_line), { id: a.id, memberId: a.member_id, puuid: a.puuid ?? null });
+  }
+  async function findMemberId(p: any): Promise<number | null> {
+    const byPuuid = p.puuid ? memberByPuuid.get(p.puuid) : undefined;
+    if (byPuuid) return byPuuid;
+    const acc = accountByRiotId.get(riotIdKey(p.riotIdGameName, p.riotIdTagline));
+    if (!acc) return null;
+    // 이름으로 찾았는데 puuid가 비어 있으면 채워둔다. (다음부터는 닉변해도 매칭됨)
+    if (!acc.puuid && p.puuid) {
+      try {
+        await pool.query("UPDATE accounts SET puuid = ? WHERE id = ? AND puuid IS NULL", [p.puuid, acc.id]);
+        acc.puuid = p.puuid;
+        memberByPuuid.set(p.puuid, acc.memberId);
+      } catch { /* puuid 저장 실패는 무시 */ }
+    }
+    return acc.memberId;
   }
   const [memberRows] = await pool.query("SELECT id, nickname, position FROM members") as [any[], any];
   const nicknameByMemberId = new Map<number, string>(memberRows.map((m: any) => [m.id, m.nickname]));
@@ -97,14 +124,15 @@ export async function syncScrimMatches(memberId: number, startAt: string, givenB
         if (info.gameCreation < startMs) continue;
         if (info.gameType !== "CUSTOM_GAME") { skippedNoCustom++; continue; }
 
-        const matched = info.participants
-          .map((p: any) => {
-            const riotId = `${p.riotIdGameName}#${p.riotIdTagline}`.toLowerCase();
-            const mId = memberByRiotId.get(riotId);
-            if (!mId) return null;
-            return { p, memberId: mId };
-          })
-          .filter((x: any): x is { p: any; memberId: number } => x !== null);
+        const matched: { p: any; memberId: number }[] = [];
+        const usedMemberIds = new Set<number>();
+        for (const p of info.participants as any[]) {
+          const mId = await findMemberId(p);
+          // 같은 클랜원이 두 번 잡히는 경우(잘못 등록된 계정 등)는 첫 번째만 사용
+          if (!mId || usedMemberIds.has(mId)) continue;
+          usedMemberIds.add(mId);
+          matched.push({ p, memberId: mId });
+        }
 
         if (matched.length === 0) continue;
 
@@ -136,6 +164,7 @@ export async function syncScrimMatches(memberId: number, startAt: string, givenB
             kills: p.kills, deaths: p.deaths, assists: p.assists,
             damage: p.totalDamageDealtToChampions,
             cs: (p.totalMinionsKilled ?? 0) + (p.neutralMinionsKilled ?? 0),
+            visionScore: p.visionScore ?? 0,
           }));
           const { mvp1, mvp2 } = pickMvpIds(mvpParticipants, winnerTeam);
           for (const mvpId of [mvp1, mvp2]) {
@@ -143,10 +172,8 @@ export async function syncScrimMatches(memberId: number, startAt: string, givenB
             await conn.query(`UPDATE scrim_participants SET is_mvp = 1 WHERE match_id = ? AND member_id = ?`, [newMatchId, mvpId]);
           }
 
-          for (const { p, memberId: mId } of matched) {
-            const isWin = p.win;
-            const isMvp = mId === mvp1 || mId === mvp2;
-            const delta = isWin ? (isMvp ? 20 : 10) : (isMvp ? 0 : -10);
+          // MMR 변동: 승패 ±20 + 팀 내 MVP 순위 보너스(+8/+4/0/-4/-8), 0점 아래로는 내려가지 않음
+          for (const { memberId: mId, delta } of calcMmrDeltas(mvpParticipants, winnerTeam)) {
             await conn.query(`UPDATE scrim_ratings SET mmr = GREATEST(0, mmr + ?), updated_at = NOW() WHERE member_id = ?`, [delta, mId]);
             const [ratingRows] = await conn.query(`SELECT mmr FROM scrim_ratings WHERE member_id = ?`, [mId]) as [any[], any];
             await conn.query(`INSERT INTO scrim_mmr_logs (member_id, match_id, delta, mmr_after) VALUES (?, ?, ?, ?)`, [mId, newMatchId, delta, ratingRows[0]?.mmr ?? 0]);

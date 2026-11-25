@@ -9,14 +9,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import AuctionTimer from "./AuctionTimer";
 import {
-  ChampImg, LineIcon, TierText, LINES, LINE_LABEL, TEAM_COLORS,
+  LineIcon, LINES, LINE_LABEL, TEAM_COLORS, introUrl, bannerUrl, shrinkImage,
   type AuctionBid, type AuctionPlayer, type AuctionSession,
 } from "./shared";
 
 const BID_STEPS = [5, 10, 50, 100] as const;
 const teamVar = (color: string) => ({ ["--team" as string]: color }) as React.CSSProperties;
 
-export default function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:number;isAdmin:boolean;myUserId:number|null}){
+export default function AuctionRoom({sessionId,isAdmin,isOwner,myUserId}:{sessionId:number;isAdmin:boolean;isOwner:boolean;myUserId:number|null}){
   const [session,setSession]=useState<AuctionSession|null>(null);
   const [players,setPlayers]=useState<AuctionPlayer[]>([]);
   const [bids,setBids]=useState<AuctionBid[]>([]);
@@ -44,8 +44,6 @@ export default function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:numb
   const bidSourcePlayer=awarded?frozenPlayer:currentPlayer;
   const currentBids=bidSourcePlayer?bids.filter(b=>b.player_id===bidSourcePlayer.id):[];
   const topBid=awarded?awardedTopBid:currentBids.reduce<AuctionBid|null>((top,b)=>(!top||b.points>top.points)?b:top,null);
-  // 챔피언 공개 조건: 어드민은 awarded&&awardedTopBid, 팀장은 awarded&&topBid
-  const champRevealed=awarded&&(awardedTopBid??topBid)!=null;
   const topBidRef=useRef(topBid);topBidRef.current=topBid;
   const sessionRef=useRef(session);sessionRef.current=session;
   const myCaptain=myUserId?captains.find(c=>c.user_id===myUserId)??null:null;
@@ -94,7 +92,10 @@ export default function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:numb
       setAwarded(false);setAwardedTopBid(null);setFrozenPlayer(null);setAwardCd(null);prevTopRef.current=0;
     }
   },[currentPlayer?.id]);
-  function onTimerEnd(){if(sessionRef.current?.status==="running"){if(topBidRef.current)setAwardCd(1);else setAwarded(true);}}
+  // 타이머 0초 도달 여부 (새 타이머가 시작되면 해제)
+  const [timeUp,setTimeUp]=useState(false);
+  useEffect(()=>{setTimeUp(false);},[timerStartedAt]);
+  function onTimerEnd(){setTimeUp(true);if(sessionRef.current?.status==="running"){if(topBidRef.current)setAwardCd(1);else setAwarded(true);}}
   const handleAwardRef=useRef(handleAward);handleAwardRef.current=handleAward;
   useEffect(()=>{
     if(awardCd===null)return;
@@ -108,10 +109,27 @@ export default function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:numb
     const wonBid=topBidRef.current;
     const frozen=currentPlayer;
     setFrozenPlayer(frozen);setAwarded(true);setAwardedTopBid(wonBid);
-    await fetch("/api/auction",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"award",sessionId})});
-    await load();
-    setAwardCd(null);prevTopRef.current=0;timerResetRef.current?.();
-    awardingRef.current=false;
+    try{
+      const res=await fetch("/api/auction",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"award",sessionId})});
+      const json=await res.json().catch(()=>({}));
+      if(!res.ok){
+        // 서버 기준 아직 입찰 시간이 남음(시계 오차 등) → 낙찰 표시 되돌리고 1초 뒤 재시도
+        setAwarded(false);setAwardedTopBid(null);setFrozenPlayer(null);
+        if(res.status===409)setAwardCd(1);else setAwardCd(null);
+        return;
+      }
+      // 화면 표시는 서버가 실제로 낙찰 처리한 입찰 기준
+      if(json.bid){
+        setAwardedTopBid({...json.bid,points:Number(json.bid.points)});
+        if(frozen&&json.playerId!==frozen.id){
+          const p=players.find(pl=>pl.id===json.playerId);if(p)setFrozenPlayer(p);
+        }
+      }
+      await load();
+      setAwardCd(null);prevTopRef.current=0;timerResetRef.current?.();
+    }finally{
+      awardingRef.current=false;
+    }
   }
   async function handleNext(){
     nextingRef.current=true;setNexting(true);
@@ -157,6 +175,29 @@ export default function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:numb
     await fetch("/api/auction",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,sessionId})});
     load();
   }
+  // ---------- 경매 플랜카드 (경매 시작 전 대기 화면) ----------
+  const bannerFileRef=useRef<HTMLInputElement>(null);
+  const [bannerBusy,setBannerBusy]=useState(false);
+  const [bannerErr,setBannerErr]=useState("");
+  async function uploadBanner(file:File){
+    setBannerBusy(true);setBannerErr("");
+    try{
+      const fd=new FormData();
+      fd.append("sessionId",String(sessionId));
+      fd.append("file",await shrinkImage(file),"banner");
+      const res=await fetch("/api/auction/banner",{method:"PUT",body:fd});
+      if(!res.ok){const j=await res.json().catch(()=>({}));setBannerErr(j.error||"플랜카드 업로드 실패");return;}
+      await load();
+    }catch{setBannerErr("네트워크 오류");}finally{setBannerBusy(false);}
+  }
+  async function removeBanner(){
+    if(!confirm("플랜카드를 삭제할까요?"))return;
+    setBannerBusy(true);setBannerErr("");
+    try{
+      await fetch("/api/auction/banner",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId})});
+      await load();
+    }finally{setBannerBusy(false);}
+  }
   const isDone=session?.status==="done";
   const isRunning=session?.status==="running";
   const isWaiting=session?.status==="waiting";
@@ -166,15 +207,25 @@ export default function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:numb
 
   // 내 팀장 기준 입찰 가능 여부 계산
   const cpLine=currentPlayer?.roster_line??null;
-  const myLineBlocked=!!myCaptain&&!!cpLine&&(myCaptain.roster_line===cpLine||getTeam(myCaptain.id).some(p=>p.roster_line===cpLine));
+  // 팀 경매는 팀장이 선수가 아니므로 팀장 라인을 비워 두고 5라인 모두 경매한다.
+  const isTeamAuction=session?.auction_type==="team";
+  const capLine=(cap:AuctionPlayer)=>isTeamAuction?null:cap.roster_line;
+  const myLineBlocked=!!myCaptain&&!!cpLine&&(capLine(myCaptain)===cpLine||getTeam(myCaptain.id).some(p=>p.roster_line===cpLine));
   const myCurrentBid=myCaptain&&currentPlayer?bids.filter(b=>b.player_id===currentPlayer.id&&b.captain_id===myCaptain.id).reduce((m,b)=>Math.max(m,b.points),0):0;
   const myLeft=myCaptain?myCaptain.points-getUsed(myCaptain.id):0;
 
   // 무대 강조색: 최고 입찰 팀 색 (없으면 기본 강조색)
   const heroColor=topBid?capColor(topBid.captain_id):"var(--accent)";
-  const heroChamp=activePlayer&&champRevealed?(activePlayer.champ1||activePlayer.champ2||activePlayer.champ3):null;
   const queueBase=isRunning?remaining.filter(p=>p.id!==currentPlayer?.id):remaining;
+  // 선수 소개 단계: 입찰 시작(타이머) 전이고 소개사진이 있으면 사진을 먼저 크게 보여준다.
+  const introSrc=activePlayer?introUrl(activePlayer.member_id,activePlayer.intro_ver):null;
+  const showIntro=!!(isRunning&&activePlayer&&introSrc&&!timerStartedAt&&!awarded&&!nexting);
+  // 다음 선수 소개사진은 미리 받아 둔다 (다음 선수로 넘어갈 때 바로 뜨도록)
+  const nextIntroSrc=queueBase[0]?introUrl(queueBase[0].member_id,queueBase[0].intro_ver):null;
   const upcoming=queueBase.slice(0,10);
+  // 경매 시작 전(대기 중)에는 플랜카드를 먼저 크게 보여준다.
+  const bannerSrc=session?bannerUrl(session.id,session.banner_ver):null;
+  const canManage=isAdmin&&!myCaptain;
   const total=nonCaptains.length;
 
   return(
@@ -182,16 +233,41 @@ export default function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:numb
       {/* ================= 무대 (현재 경매) ================= */}
       <section className={"auc-hero"+(awarded&&topBid?" sold":"")} style={teamVar(heroColor)}>
         <div className="auc-hero-glow"/>
-        {heroChamp&&<div className="auc-hero-splash" style={{backgroundImage:`url(/champions/${heroChamp}.png)`}}/>}
+        {nextIntroSrc&&<link rel="preload" as="image" href={nextIntroSrc}/>}
 
-        {isWaiting&&(
+        {isWaiting&&bannerSrc&&(
+          <div className="auc-intro auc-banner" key={String(session?.banner_ver)}>
+            <div className="auc-hero-top">
+              <span className="auc-live intro"><i/>COMING UP</span>
+              <span className="auc-hero-count">팀장 {captains.length} · 선수 {total}</span>
+            </div>
+            <img className="auc-intro-img" src={bannerSrc} alt="경매 플랜카드"/>
+            <div className="auc-intro-foot">
+              {canManage
+                ?<button className="auc-cta sm" onClick={()=>patchAction("start")}>▶ 경매 시작</button>
+                :<span className="auc-intro-wait">운영진이 경매를 시작할 때까지 기다려 주세요</span>}
+            </div>
+          </div>
+        )}
+        {isWaiting&&!bannerSrc&&(
           <div className="auc-hero-state">
             <div className="auc-eyebrow">READY</div>
             <div className="auc-hero-title">경매 대기 중</div>
             <p>팀장 {captains.length}명 · 선수 {total}명이 준비됐어요.</p>
-            {isAdmin&&!myCaptain
+            {canManage
               ?<button className="auc-cta" onClick={()=>patchAction("start")}>경매 시작</button>
               :<p className="dim">운영진이 경매를 시작할 때까지 기다려 주세요.</p>}
+          </div>
+        )}
+        {isWaiting&&canManage&&(
+          <div className="auc-banner-tools">
+            <button className="auc-ghost-btn" disabled={bannerBusy} onClick={()=>bannerFileRef.current?.click()}>
+              {bannerBusy?"올리는 중…":bannerSrc?"플랜카드 변경":"🖼 플랜카드 올리기"}
+            </button>
+            {bannerSrc&&<button className="auc-ghost-btn" disabled={bannerBusy} onClick={removeBanner}>삭제</button>}
+            {bannerErr&&<span className="auc-banner-err">{bannerErr}</span>}
+            <input ref={bannerFileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden
+              onChange={e=>{const f=e.target.files?.[0];e.target.value="";if(f)uploadBanner(f);}}/>
           </div>
         )}
         {isDone&&(
@@ -206,7 +282,23 @@ export default function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:numb
           <div className="auc-hero-state"><div className="auc-hero-title">모든 선수 경매 완료</div></div>
         )}
 
-        {isRunning&&activePlayer&&(
+        {showIntro&&(
+          <div className="auc-intro" key={activePlayer!.id}>
+            <div className="auc-hero-top">
+              <span className="auc-live intro"><i/>PLAYER INTRO</span>
+              <span className="auc-hero-count">{Math.min(soldCount+1,total)} <em>/ {total}</em></span>
+              <div className="auc-progress-track"><span style={{width:`${total?(soldCount/total)*100:0}%`}}/></div>
+            </div>
+            <img className="auc-intro-img" src={introSrc!} alt={activePlayer!.nickname+" 소개"}/>
+            <div className="auc-intro-foot">
+              {isAdmin&&!myCaptain
+                ?<button className="auc-cta sm" onClick={()=>patchAction("timer_start")}>▶ 입찰 시작</button>
+                :<span className="auc-intro-wait">운영진이 입찰을 시작하면 바로 경매가 시작돼요</span>}
+            </div>
+          </div>
+        )}
+
+        {isRunning&&activePlayer&&!showIntro&&(
           <>
             <div className="auc-hero-top">
               <span className="auc-live"><i/>LIVE</span>
@@ -222,13 +314,6 @@ export default function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:numb
                   {activePlayer.roster_line&&<span className="auc-pill"><LineIcon line={activePlayer.roster_line} size={18}/>{LINE_LABEL[activePlayer.roster_line]??activePlayer.roster_line}</span>}
                   {activePlayer.solo_tier&&<span className="auc-pill tier">{activePlayer.solo_tier} {activePlayer.solo_rank}</span>}
                 </div>
-                {(activePlayer.champ1||activePlayer.champ2||activePlayer.champ3)&&(
-                  <div className={"auc-hero-champs"+(champRevealed?" revealed":"")} title={champRevealed?undefined:"낙찰되면 공개돼요"}>
-                    {([activePlayer.champ1,activePlayer.champ2,activePlayer.champ3] as (string|null)[]).map((c,i)=>(
-                      <ChampImg key={(champRevealed?"r":"h")+i} name={c} size={64} hidden={!!c&&!champRevealed}/>
-                    ))}
-                  </div>
-                )}
               </div>
 
               <div className="auc-hero-timer">{timer}</div>
@@ -266,13 +351,13 @@ export default function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:numb
             {myLineBlocked
               ?<div className="auc-bidbar-warn">이미 {LINE_LABEL[cpLine!]??cpLine} 라인 보유 중 · 입찰 불가</div>
               :bidErr?<div className="auc-bidbar-warn">{bidErr}</div>
-              :<div className="auc-bidbar-hint">{timerStartedAt?"버튼을 눌러 바로 입찰하세요":"입찰 시작을 기다리는 중"}</div>}
+              :<div className="auc-bidbar-hint">{timerStartedAt?(timeUp||awardCd!==null?"입찰 마감 · 낙찰 확정 중":"버튼을 눌러 바로 입찰하세요"):"입찰 시작을 기다리는 중"}</div>}
           </div>
           <div className="auc-bid-btns">
             {BID_STEPS.map((n,i)=>{
               const next=(topBid?.points??0)+n;
               const remain=myCaptain.points-getUsed(myCaptain.id)-myCurrentBid;
-              const dis=bidLoading||myLineBlocked||next>remain+myCurrentBid||awarded||!timerStartedAt;
+              const dis=bidLoading||myLineBlocked||next>remain+myCurrentBid||awarded||!timerStartedAt||timeUp||awardCd!==null;
               return(
                 <button key={n} className={"auc-bid-btn t"+i} onClick={()=>handleBid(next)} disabled={dis}>
                   <small>+{n}</small>
@@ -288,19 +373,20 @@ export default function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:numb
       {isAdmin&&!myCaptain&&(isRunning||isWaiting)&&(
         <section className="auc-ctrlbar">
           <div className="auc-ctrl-btns">
-            {isRunning&&activePlayer&&!timerStartedAt&&!awarded&&<button className="auc-cta sm" onClick={()=>patchAction("timer_start")}>▶ 입찰 시작</button>}
+            {isRunning&&activePlayer&&!timerStartedAt&&!awarded&&!showIntro&&<button className="auc-cta sm" onClick={()=>patchAction("timer_start")}>▶ 입찰 시작</button>}
+            {showIntro&&<span className="auc-ctrl-status">선수 소개 중 · 위에서 입찰을 시작하세요</span>}
             {isRunning&&awarded&&<button className="auc-cta sm go" onClick={handleNext}>다음 선수 →</button>}
             {isRunning&&timerStartedAt&&!awarded&&<span className="auc-ctrl-status">입찰 진행 중…</span>}
             {isWaiting&&<span className="auc-ctrl-status">경매 시작 전</span>}
           </div>
-          <div className="auc-queue-strip">
+          {isOwner&&<div className="auc-queue-strip">
             <span className="auc-eyebrow">다음 순서</span>
             <div className="auc-queue-chips">
               {upcoming.map((pl,i)=>(<span key={pl.id} className="auc-qchip"><b>{i+1}</b>{pl.nickname}<LineIcon line={pl.roster_line} size={13} dim/></span>))}
               {queueBase.length>upcoming.length&&<span className="auc-qchip more">+{queueBase.length-upcoming.length}</span>}
               {upcoming.length===0&&<span className="auc-qchip more">없음</span>}
             </div>
-          </div>
+          </div>}
         </section>
       )}
 
@@ -323,7 +409,7 @@ export default function AuctionRoom({sessionId,isAdmin,myUserId}:{sessionId:numb
                 </div>
                 <div className="auc-tcard-slots">
                   {LINES.map(line=>{
-                    const isCaptainLine=cap.roster_line===line;
+                    const isCaptainLine=capLine(cap)===line;
                     const member=isCaptainLine?cap:team.find(pl=>pl.roster_line===line)??null;
                     const wonPts=member&&!isCaptainLine?bids.filter(b=>b.player_id===member.id&&b.captain_id===cap.id).reduce((m,b)=>Math.max(m,b.points),0):null;
                     const target=!member&&!!cpLine&&cpLine===line&&isRunning;

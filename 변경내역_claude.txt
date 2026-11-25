@@ -62,3 +62,570 @@ fix: 판수미달 필터에서 마감 임박 클랜원이 누락되는 문제 �
 - 달성일로부터 10일이 지난 클랜원은 달성 방식과 관계없이 "N일 남음"으로 표시
 - 다른 화면 영향 없음 (isActive2w는 이 필터에서만 사용)
 - API(api/userinfo/route.ts)의 isActive2w 계산은 그대로 둠 (응답 필드 유지)
+
+
+--------------------------------------------------
+[3] 내전 클랜원 상세보기에 DPM / 분당 CS 추가  (2026-10-23)
+--------------------------------------------------
+[커밋 메시지]
+feat: 내전 클랜원 상세보기에 DPM(분당 딜량)과 분당 CS 추가
+
+- scrim_matches에 game_duration(경기 시간, 초) 컬럼 추가
+- Riot 자동 동기화로 새로 들어오는 경기부터 경기 시간 저장
+- 내전 통계 API에서 클랜원별 DPM / 분당 CS 계산 (경기 시간이 있는 경기만 합산)
+- 상세보기 KDA 패널에 DPM, CS/분 표시
+
+[변경 파일]
+- lib/db.ts                        scrim_matches.game_duration 컬럼 추가
+- lib/scrim.ts                     matchDurationSec() 추가 (Riot 응답 → 초)
+- lib/syncScrim.ts                 신규 경기 INSERT 시 game_duration 저장
+- app/api/scrim/route.ts           dpm, cspm, timedGames 응답 필드 추가
+- app/scrim/page.tsx               Player 타입에 dpm/cspm/timedGames 추가, 상세보기에 표시
+- app/globals.css                  .sc-pm, .sc-pm-cell 스타일 추가
+- scripts/backfill-duration.js     (신규) 기존 최근 N경기 경기 시간 1회 보충 스크립트
+
+[참고]
+- DPM = 총 챔피언 딜량 ÷ 총 경기 시간(분), 분당 CS = 총 CS(미니언+정글) ÷ 총 경기 시간(분)
+- 수동 입력 경기는 경기 시간/CS가 없어 계산에서 제외됨
+- 일부 경기만 반영된 경우 "경기 시간이 기록된 N판 기준" 안내 표시
+- 기존 경기는 경기 시간이 없어(0) 계산에서 제외됨. 이후 동기화되는 경기부터 반영
+- 기존 최근 20경기 경기 시간 보충: node scripts/backfill-duration.js  (개수 지정: ... 30)
+
+
+--------------------------------------------------
+[4] 파티 모집글 붙여넣기로 파티 생성 폼 자동 입력  (2026-10-23)
+--------------------------------------------------
+[커밋 메시지]
+feat: 파티 모집글(카톡) 붙여넣기로 모드/시간/참가자 자동 입력
+
+- 파티 생성 폼에 "📋 모집글 붙여넣기" 버튼 추가
+- 제목 줄(칼바람/증칼, 자랭, 솔랭/솔로랭크, 일반)로 모드 선택
+- "시간:" 줄에서 시작 시간 읽기 (1900, 19:00, 7시반, 오후7시 등)
+- "-----" 아래 번호 명단을 참가자로 입력, "대기" 아래 명단은 제외
+- 이름 뒤 라인/티어/코멘트는 무시하고 클랜 닉네임·본계정 닉네임과 비슷한 클랜원 본계정으로 연결
+- 괄호 안 Riot ID(닉#태그)가 있으면 그 본계정으로 우선 연결
+- 모집글을 여러 개 붙여넣으면 만들 파티를 고르는 버튼 표시
+- 시간 미인식 / 못 찾은 이름 / 비슷한 이름 연결 / 정원 초과 안내
+
+[변경 파일]
+- lib/nameMatch.ts                 (신규) 이름 유사도 계산 (내전 붙여넣기와 같은 규칙)
+- lib/partyPaste.ts                (신규) 모집글 파서 + 클랜원 매칭
+- app/api/party/members/route.ts   ?all=1 전체 목록 지원, 클랜 닉네임(nickname) 응답 추가
+- app/party/page.tsx               붙여넣기 버튼/입력창/안내 추가
+- app/globals.css                  .pt-paste-choices 스타일 추가 (나머지는 내전 붙여넣기 스타일 재사용)
+
+[참고]
+- 붙여넣기는 폼만 채우고, "파티 만들기"는 직접 눌러야 생성됨
+- 시간이 "ㅁㅂㅅ"처럼 숫자가 없으면 비워 두고 직접 입력하게 함 (시작 시간은 필수)
+- 날짜는 기존처럼 오늘 날짜 기본값
+
+
+--------------------------------------------------
+[5] 파티 참가자 입력을 클랜원으로 제한  (2026-10-23)
+--------------------------------------------------
+[커밋 메시지]
+fix: 파티 참가자에 클랜원이 아닌 이름/엉뚱한 사람이 들어가는 문제 수정
+
+- 참가자 자동완성을 서버 검색 대신 전체 클랜원 목록에서 화면에서 바로 거르도록 변경
+- 엔터: 방향키로 고른 사람 → 정확히 같은 이름 → 목록 첫 번째 순으로 확정, 목록에 없으면 입력 안 됨
+- 클랜 닉네임으로도 검색 가능 (자동완성에 클랜 닉네임 함께 표시)
+- 목록에 없는 이름 칸은 빨간 테두리 + 안내, 파티 만들기/참가자 수정 시 저장 막음
+- 서버(POST/PATCH)에서도 활동 중인 클랜원 본계정 이름만 허용, 중복 제거, DB 표기로 통일
+
+[변경 파일]
+- app/party/page.tsx         ParticipantInput 재작성, 저장 전 검사 추가
+- app/api/party/route.ts     resolveParticipantNicks() 추가, POST/PATCH에서 검증
+- app/globals.css            .party-participant-nick-input.invalid, .pt-invalid-msg 추가
+
+[원인]
+- 글자를 칠 때마다 /api/party/members?q= 요청을 보내고, 응답이 오면 자동완성 목록을 바꿨음
+- 빠르게 치고 엔터를 누르면 앞 글자로 검색한 예전 결과의 첫 번째 사람이 들어감
+- 자동완성 결과가 없으면 친 글자가 그대로 참가자로 들어감 (클랜원 아닌 이름도 저장됨)
+
+
+--------------------------------------------------
+[6] API 보안 보강  (2026-10-24)
+--------------------------------------------------
+[커밋 메시지]
+fix: API 인증/권한 검사 보강 및 세션 무효화 지원
+
+- 세션 검증 시 매 요청마다 DB의 현재 role/scrim_only/status를 확인
+  (권한 회수·계정 삭제가 쿠키 만료(7일)를 기다리지 않고 바로 반영됨, 5초 메모리 캐시)
+- users.token_version 컬럼 추가: 비밀번호 변경/초기화 시 기존 로그인 쿠키 전부 무효화
+  (본인이 변경한 경우 현재 브라우저는 새 쿠키를 받아 로그인 유지)
+- requireAuth / requireAdmin / getSessionFromRequest 를 async로 변경 → 모든 라우트에 await 적용
+- 내전 전용(관람) 계정은 서버에서도 차단. 내전 화면에 필요한 API만 허용
+  (scrim, scrim/balance, scrim/match GET, scrim/match/sync, scrim/notify,
+   scrim/tournament-code, champions GET, userinfo GET)
+- 내전 전용 계정의 /api/userinfo 응답은 닉네임/라인/상태만 (생년월일·성별·메모·경고 등 제외)
+- 인증 없던 API에 로그인 검사 추가: summoner, tiers, stats, scrim, scrim/balance,
+  scrim/match GET, scrim/tournament-code, champions GET
+- champions POST(챔피언 동기화)는 운영진만
+- deeplol 토너먼트 비밀번호 하드코딩 제거 → DEEPLOL_TOURNAMENT_PASSWORD 환경변수
+- 세션 쿠키 secure: HTTPS=true 또는 HTTPS 요청(x-forwarded-proto 포함)이면 자동 적용
+- /api/settings PATCH 허용 키 화이트리스트 (auction_show_roster)
+- ensureSchema 실패 시 캐시를 비워 다음 요청에서 재시도
+- 에러 응답에 내부 오류 메시지/봇 응답 원문이 노출되던 부분 정리
+
+[변경 파일]
+- lib/auth.ts        세션 DB 검증, token_version, scrimOnly 차단 옵션, secure 쿠키 판단
+- lib/db.ts          users.token_version 컬럼 추가, ensureSchema 재시도
+- app/api/**         requireAuth/requireAdmin await 적용, 위 인증 추가 항목들
+- .env.example       HTTPS, DEEPLOL_TOURNAMENT_PASSWORD 추가
+
+[배포 시 주의]
+- .env.local 에 DEEPLOL_TOURNAMENT_PASSWORD 를 꼭 추가해야 토너먼트 코드 발급이 동작함
+- 기존 로그인 쿠키는 그대로 유효 (token_version 기본값 0)
+
+
+--------------------------------------------------
+[7] 경매내전 UI 정리 및 컴포넌트 통합  (2026-10-24)
+--------------------------------------------------
+[커밋 메시지]
+refactor: 경매내전 UI 정리 및 /auction·이벤트 탭 코드 통합
+
+- 이벤트 페이지와 /auction 페이지에 중복돼 있던 경매 코드(약 700줄)를
+  app/components/auction/ 공통 컴포넌트로 분리
+- /auction 주소는 /event(경매내전 탭)로 이동
+- 인라인 스타일을 globals.css의 auc-* 클래스로 정리 (테마 변수 사용)
+- 경매방
+  · 레이아웃 정리: 팀 현황 | 현재 경매 | 경매 순서(운영진)
+  · 타이머에 진행 막대 추가, 현재 선수 바로 아래로 이동
+  · 낙찰 시 "🏆 OOO 낙찰 · N pt" 표시, 최고 입찰에 '최고' 표시
+  · 팀 카드: 팀 색 상단 띠, 빈 슬롯에 라인 이름 표시, 내 팀 강조
+  · 운영진 버튼 이름 정리 (시작 → ▶ 입찰 시작, 다음 → 다음 선수 →)
+- 라이트 모드: 라인 아이콘이 안 보이던 문제, 흰색 고정 색상 수정
+- 모바일/좁은 화면: 경매방·참여자 보드·생성 모달 반응형 대응
+- 참여자 추가/수정 모달을 하나의 컴포넌트로 통합
+- 쓰지 않던 코드 제거 (CHAMP_LIST, 사용 안 하는 settings 조회 등)
+- 동작(입찰/낙찰/다음/타이머 흐름, API 호출)은 그대로 유지
+
+[변경 파일]
+- app/components/auction/shared.tsx              (신규) 타입·상수·ChampImg·LineIcon·MemberSearchInput
+- app/components/auction/AuctionTimer.tsx        (신규) 카운트다운 타이머
+- app/components/auction/AuctionRoom.tsx         (신규) 경매 진행 화면
+- app/components/auction/CreateSessionModal.tsx  (신규) 새 경매 만들기
+- app/components/auction/RosterManager.tsx       (신규) 참여자 관리
+- app/components/auction/AuctionContent.tsx      (신규) 경매 목록/탭
+- app/event/page.tsx      경매 코드 제거 → 공통 컴포넌트 사용 (솔랭내기는 그대로)
+- app/auction/page.tsx    /event 로 리다이렉트
+- app/globals.css         경매내전(auc-*) 스타일 추가
+
+
+--------------------------------------------------
+[8] 경매방 화면 전면 개편 (무대형 레이아웃)  (2026-10-24)
+--------------------------------------------------
+[커밋 메시지]
+feat: 경매방 무대형 레이아웃으로 전면 개편
+
+- 상단 무대: 현재 선수 이름 크게 + 라인/티어 + 챔피언, 가운데 원형 타이머(3초 이하 깜빡임),
+  오른쪽 최고 입찰 포인트를 팀 색으로 크게 표시 (새 입찰 시 튀어나오는 효과)
+- LIVE 표시와 진행 막대 (n / 전체)
+- 낙찰 시 무대 테두리가 낙찰 팀 색으로 바뀌고 "🏆 OO 팀 낙찰" 배너, 챔피언 공개 애니메이션
+- 팀장 전용 입찰 바: 내 잔여 포인트 + 큰 입찰 버튼 4개
+- 운영진 진행 바: 입찰 시작/다음 선수 버튼 + 다음 순서 칩
+- 팀 보드: 팀 색 헤더, 잔여 포인트 막대, 최고 입찰 팀 강조, 현재 선수 라인 슬롯 강조
+- 입찰 현황을 오른쪽 피드로 분리
+- 무대는 라이트 모드에서도 어두운 방송 화면 톤 유지, 모바일 대응, 애니메이션 최소화 설정 존중
+- 동작/API 호출은 변경 없음
+
+[변경 파일]
+- app/components/auction/AuctionRoom.tsx   화면 구성 전면 교체 (로직 그대로)
+- app/components/auction/AuctionTimer.tsx  원형 타이머로 변경
+- app/globals.css                          경매방 스타일 교체
+
+
+--------------------------------------------------
+[9] 경매 선수 소개사진 (입찰 시작 전 표시)  (2026-10-29)
+--------------------------------------------------
+[커밋 메시지]
+feat: 경매 입찰 시작 전 선수 소개사진 표시
+
+- 참여자 관리 > 추가/수정 모달에 소개사진 업로드 칸 추가 (미리보기 · 변경 · 삭제)
+  · 1.5MB 넘는 사진은 브라우저에서 가로 1920px 이하 WEBP로 줄여서 업로드
+  · 사진이 등록된 참여자는 이름 옆에 📷 표시
+- 경매방: 선수 차례가 오면 입찰 시작 전에 소개사진을 무대에 크게 표시 (모든 화면 동시)
+  · 운영진이 사진 아래 "▶ 입찰 시작"을 누르면 사진이 내려가고 바로 타이머 시작
+  · 소개사진이 없는 선수는 기존처럼 바로 입찰 대기 화면
+  · 다음 선수 사진은 미리 받아 둬서 넘어갈 때 바로 뜸
+- 경매방 무대의 주챔피언 표시(숨김/낙찰 후 공개, 배경 스플래시) 제거
+  → 소개사진에 주챔피언이 들어가 있으므로
+
+[변경 파일]
+- lib/db.ts                                auction_intro 테이블 추가 (member_id, mime, data MEDIUMBLOB, ver)
+- app/api/auction/intro/route.ts   (신규) 소개사진 조회(GET) / 업로드(PUT, 운영진) / 삭제(DELETE, 운영진)
+- app/api/auction/route.ts                 선수 목록에 intro_ver 추가
+- app/api/auction/roster/route.ts          참여자 목록에 intro_ver 추가
+- app/components/auction/shared.tsx        intro_ver 타입, introUrl() 추가
+- app/components/auction/RosterManager.tsx 소개사진 업로드 UI
+- app/components/auction/AuctionRoom.tsx   소개 단계 추가, 주챔피언 표시 제거
+- app/globals.css                          소개사진 스타일 추가
+
+[참고]
+- 사진은 DB에 저장 (public 폴더는 빌드 후 추가한 파일을 서빙하지 않아서 재배포 없이 바로 반영되게 함)
+- 서버 쪽 업로드 한도 8MB. DB max_allowed_packet 이 그보다 작으면 큰 사진 업로드가 실패할 수 있음
+- 테이블은 서버 첫 요청 때 ensureSchema 로 자동 생성됨
+- tsc 타입 체크 통과, 테스트 화면에서 소개 → 입찰 시작 → 타이머 전환 확인
+
+
+--------------------------------------------------
+[10] 경매 플랜카드 (경매 시작 전 표시)  (2026-10-30)
+--------------------------------------------------
+[커밋 메시지]
+feat: 경매 시작 전 대기 화면에 플랜카드 표시
+
+- 경매방 대기 화면에서 운영진이 플랜카드 이미지를 올리기/변경/삭제 (세션별 1장)
+  · 1.5MB 넘는 사진은 소개사진과 같이 가로 1920px 이하 WEBP로 줄여서 업로드
+- 플랜카드가 있으면 경매 시작 전 모든 화면에 크게 표시 (COMING UP)
+  · 운영진이 사진 아래 "▶ 경매 시작"을 누르면 바로 첫 선수 차례로 넘어감
+  · 플랜카드가 없으면 기존 "경매 대기 중" 화면 그대로
+- 이미지 축소 함수(shrinkImage)를 shared.tsx로 옮겨 소개사진/플랜카드가 같이 사용
+
+[변경 파일]
+- lib/db.ts                                 auction_banner 테이블 추가 (session_id, mime, data MEDIUMBLOB, ver)
+- app/api/auction/banner/route.ts   (신규) 플랜카드 조회(GET) / 업로드(PUT, 운영진) / 삭제(DELETE, 운영진)
+- app/api/auction/route.ts                  세션 조회에 banner_ver 추가
+- app/components/auction/shared.tsx         banner_ver 타입, bannerUrl(), shrinkImage() 추가
+- app/components/auction/RosterManager.tsx  shrinkImage를 shared에서 가져오도록 변경
+- app/components/auction/AuctionRoom.tsx    대기 화면 플랜카드 표시 + 업로드 버튼
+- app/globals.css                           플랜카드 스타일 추가
+
+[참고]
+- 세션 삭제 시 플랜카드도 같이 삭제됨 (FK CASCADE)
+- 테이블은 서버 첫 요청 때 ensureSchema 로 자동 생성됨
+
+
+--------------------------------------------------
+[11] 클랜원 본계정 솔랭 티어 매일 새벽 6시 자동 동기화  (2026-11-04)
+--------------------------------------------------
+[커밋 메시지]
+feat: 클랜원 본계정 솔랭 티어 매일 새벽 6시 자동 동기화
+
+- 서버 시작 시 스케줄러 등록 → 매일 한국시간 06:00에 본계정 솔랭 티어 갱신
+  (서버 PC 시간대와 관계없이 한국시간 기준)
+- 탈퇴(withdraw)·블랙(black) 클랜원은 자동 동기화에서 제외
+- Riot API 요청 한도 보호: 계정 사이 1.3초 대기, 429 발생 시 중단
+- 실행 결과(갱신 수/실패 목록/소요 시간)를 서버 콘솔에 기록
+- 동기화 로직을 lib/soloTierSync.ts로 분리해 관리자 "솔랭 동기화" 버튼과 같은 코드 사용
+
+[변경 파일]
+- lib/soloTierSync.ts            (신규) 본계정 솔랭 티어 동기화 공통 함수
+- lib/soloTierScheduler.ts       (신규) 매일 06시(한국시간) 실행 스케줄러
+- instrumentation.ts             (신규) 서버 시작 시 스케줄러 등록
+- app/api/userinfo/sync/route.ts 공통 함수 사용으로 변경 (동작 동일)
+- next.config.js                 experimental.instrumentationHook: true
+- .env.example                   SOLO_TIER_SYNC / SOLO_TIER_SYNC_HOUR / SOLO_TIER_SYNC_DELAY_MS 추가
+
+[참고]
+- 환경변수는 모두 선택. 없으면 켜짐 + 06시 + 1.3초 대기
+- 개발 PC에서 npm run dev 로 띄워 둘 때 같이 돌지 않게 하려면 .env.local 에 SOLO_TIER_SYNC=off
+- 새벽 6시에 서버가 꺼져 있으면 그날은 건너뜀 (다음 날 다시 실행)
+- 서버 시작 로그에 "[솔랭 자동동기화] 다음 실행: ..." 이 찍히면 정상 등록된 것
+- tsc 타입 체크, next build/start 에서 스케줄러 등록 확인
+
+
+--------------------------------------------------
+[12] 파티 내역을 클랜원 관리 → 파티 모집 페이지 옆 패널로 이동  (2026-11-04)
+--------------------------------------------------
+[커밋 메시지]
+feat: 파티 내역을 파티 모집 페이지 옆 패널로 이동 (20개씩 페이지)
+
+- 파티 모집 페이지 상단에 "📜 파티 내역" 버튼 추가 (운영진)
+  · 누르면 오른쪽에 내역 패널이 붙어서, 내역을 보면서 왼쪽 폼으로 빠진 파티를 바로 생성 가능
+  · 열림/닫힘 상태는 브라우저에 기억
+- 내역은 시작 시각 최신순, 날짜별로 묶어서 20개씩 표시 (← 최근 / 이전 → 페이지 이동)
+  · 기존에는 펑한 시각 기준이었으나, 빠진 파티를 찾기 쉽도록 시작 시각 기준으로 변경
+  · 위쪽 모드 탭(자유랭크/칼바람 등)을 따라 내역도 같은 모드만 표시
+- 각 내역의 "↙ 채우기": 그 파티의 모드·날짜·시간·참가자를 생성 폼에 채움
+- 파티를 만들거나 펑하면 내역 자동 새로고침
+- 좁은 화면(1100px 이하)에서는 오른쪽에서 나오는 서랍 형태로 표시
+- 클랜원 관리 페이지의 "파티 내역" 탭 제거
+
+[변경 파일]
+- app/components/PartyHistoryPanel.tsx  (신규) 파티 내역 패널
+- app/api/party/history/route.ts        page/limit/mode 파라미터, total 응답, 시작 시각 정렬
+                                        (기존: 최근 100건 고정, 펑한 시각 정렬)
+- app/party/page.tsx                    내역 버튼/패널 배치, 채우기, 생성·펑 후 새로고침
+- app/userInfo/page.tsx                 파티 내역 탭/state/화면 제거
+- app/globals.css                       .pt-layout, .pt-history-* 스타일, 증바람 배지 색 추가
+
+[참고]
+- 운영진(admin/subadmin)만 보임 (API 권한도 기존과 동일)
+- tsc 타입 체크 통과, 테스트 데이터로 넓은 화면/좁은 화면/채우기 동작 확인
+
+
+--------------------------------------------------
+[13] 클랜원 관리 상단에 솔랭 동기화 상태 표시  (2026-11-04)
+--------------------------------------------------
+[커밋 메시지]
+feat: 클랜원 관리 상단에 솔랭 동기화 마지막 실행/결과/다음 실행 표시
+
+- 전체 동기화(새벽 자동 / 운영진 전체 동기화) 실행 기록을 solo_sync_runs 테이블에 저장
+  (시작·완료 시각, 대상/갱신 수, 실패 목록, 요청 한도 초과 여부)
+- 클랜원 관리 설명 아래에 별도 한 줄로 표시 (운영진만)
+  · "솔랭 동기화 11.04 (수) 06:03 ✓" / 실패가 있으면 "· 실패 N" (마우스를 올리면 실패 계정 목록)
+  · 진행 중이면 "진행 중…", 마지막 완료가 26시간 넘게 지났으면 주황색
+- GET /api/userinfo/sync 추가 (상태 조회, 운영진)
+- 클랜원 1명 동기화는 기록하지 않음
+
+[변경 파일]
+- lib/db.ts                         solo_sync_runs 테이블 추가
+- lib/soloTierSync.ts               logAs 옵션 → 실행 기록 저장 (한국시간 기준)
+- lib/soloTierScheduler.ts          자동 실행을 'auto'로 기록, getSoloTierSchedule() 추가
+- app/api/userinfo/sync/route.ts    GET(상태 조회) 추가, 전체 동기화 POST는 'manual'로 기록
+- app/components/SoloSyncStatus.tsx (신규) 상태 표시 컴포넌트
+- app/userInfo/page.tsx             제목 아래 상태 표시, 전체 동기화 후 새로고침
+- app/globals.css                   .solo-sync-status 스타일
+
+[참고]
+- 테이블은 서버 첫 요청 때 ensureSchema 로 자동 생성됨
+- 배포 직후에는 "아직 실행 기록 없음"으로 보이고, 다음 날 06시 실행 후부터 표시됨
+- tsc 타입 체크 통과, 테스트 데이터로 정상/실패/오래됨(경고) 화면 확인
+
+
+--------------------------------------------------
+[14] 전적 검색에 시즌별 챔피언 판수 표시 (fow.lol 스타일)  (2026-11-08)
+--------------------------------------------------
+[커밋 메시지]
+feat: 전적 검색에 시즌별 챔피언 통계(판수/승률/KDA/CS) 추가
+
+- 왼쪽 "최근 챔피언"(상위 3개) 카드를 "시즌별 챔피언" 카드로 교체
+  · 시즌 탭(S2026 / S2025 / S2024), 기본은 불러온 경기 중 가장 최근 시즌
+  · 챔피언별 판수, 승률, KDA(평균 K/D/A), 평균 CS(분당 CS) — 판수 많은 순
+  · 상위 7개 표시, "챔피언 N개 모두 보기"로 전체 펼침
+  · 위쪽 큐 탭(전체/솔로랭크/자유랭크/일반/칼바람/내전)을 그대로 따름
+  · 다시하기 판 제외, 함께한 소환사 필터는 적용하지 않음
+- "S20XX 전체 불러오기" 버튼: 시즌 시작일 이전 경기가 나올 때까지 더 보기를 자동 반복
+  · 요청 한도(개인 키 2분당 100회)에 걸리면 30초 기다렸다가 이어서 받음
+  · 진행 상황 표시 + 중지 버튼, 다른 소환사를 검색하면 자동 중지
+
+[변경 파일]
+- app/search/page.tsx   SEASONS/seasonOf/champStats 추가, fetchPage로 더 보기 로직 분리,
+                        loadSeason(시즌 전체 불러오기), 시즌별 챔피언 카드
+- app/globals.css       .sr-season-tabs, .sr-schamps, .sr-season-all, .sr-season-load 스타일
+
+[참고]
+- 시즌 경계는 각 시즌 첫 패치일(한국시간) 기준: 2026-01-08 / 2025-01-09 / 2024-01-10
+  새 시즌이 시작되면 page.tsx의 SEASONS 맨 위에 한 줄 추가
+- 서버(API) 변경 없음. 집계는 불러온 경기 기준이라, 시즌 전체를 보려면 "전체 불러오기" 필요
+  (판수가 많은 계정은 한도 때문에 몇 분 걸릴 수 있음)
+- tsc 타입 체크 통과, 목업 데이터로 화면 확인
+
+
+--------------------------------------------------
+[15] 클랜 공유 캘린더 추가 (/calendar)  (2026-11-09)
+--------------------------------------------------
+[커밋 메시지]
+feat: 클랜 공유 캘린더 추가 (일정 + 경고 해제일 + 생일)
+
+- 상단 메뉴에 📅 캘린더 추가, 구글 캘린더 스타일 월간 보기
+  · 오늘/이전/다음 달 이동, 주말 색 구분, 여러 날 일정은 가로 막대로 이어서 표시
+  · 칸당 3줄까지 보이고 넘치면 "+N개" → 그 날 전체 목록
+  · 오른쪽에 이번 달 일정 목록, 상단 칩으로 일정/경고 해제/생일 표시 켜기·끄기
+- 일정 (DB 저장 → 클랜원 모두 같은 화면)
+  · 운영진: 날짜 클릭 → 바로 추가 창, 드래그로 여러 날 선택, 일정 클릭 → 수정/삭제
+  · 제목, 기간, 종일/시간, 색상 6가지, 메모
+  · 클랜원: 보기만 가능 (날짜를 누르면 그 날 목록)
+- 자동 표시 (모두에게 보임)
+  · 🔓 경고 해제일 = 경고일 + 3개월 (경고 여러 개면 각각 표시, 유형도 표시)
+  · 🎂 생일 = 클랜원 생년월일(birth_date) 기준, 윤년 2/29생은 평년엔 2/28
+  · 탈퇴/블랙 클랜원은 제외
+
+[변경 파일]
+- lib/db.ts                         calendar_events 테이블 추가
+- app/api/calendar/route.ts         (신규) GET 전원 / POST·PATCH·DELETE 운영진
+- app/calendar/page.tsx             (신규) 캘린더 화면
+- app/components/SiteHeader.tsx     메뉴에 캘린더 추가
+- app/globals.css                   .cal-* 스타일 (다크/라이트, 모바일 대응)
+
+[참고]
+- 테이블은 서버 첫 요청 때 ensureSchema 로 자동 생성됨
+- 경고 해제 기간은 route.ts 의 WARNING_MONTHS 로 변경 가능
+- tsc 타입 체크 통과, 목업 데이터로 화면/드래그 추가 동작 확인
+
+
+--------------------------------------------------
+[16] 캘린더: 본인 일정만 수정/삭제, 등록자별 색상  (2026-11-09)
+--------------------------------------------------
+[커밋 메시지]
+fix: 캘린더 일정은 등록한 본인만 수정·삭제, 색상은 등록자 기준으로 표시
+
+- 수정/삭제 권한: 운영진이라도 본인이 등록한 일정만 가능
+  · API(PATCH/DELETE)에서 created_by 확인 → 아니면 403
+  · 다른 사람 일정을 누르면 수정/삭제 버튼 대신 "OO님이 등록한 일정이라 수정·삭제할 수 없어요" 안내
+- 색상: 내가 등록한 일정은 항상 파랑, 다른 사람 일정은 등록자마다 고정 색
+  (초록/보라/빨강/주황/청록/갈색/회색 중 사용자 ID로 배정 → 누가 봐도 같은 사람은 같은 색)
+- 일정 추가/수정 창의 색상 선택 제거 (등록자 색으로 자동)
+- 오른쪽 목록 아래에 "등록자" 범례 추가 (나 / 다른 운영진별 색)
+
+[변경 파일]
+- app/api/calendar/route.ts   createdById 응답 추가, checkOwner()로 본인 확인
+- app/calendar/page.tsx       ownerColor(), 등록자 범례, 본인 일정만 수정/삭제 버튼
+- app/globals.css             청록/갈색 색상, .cal-owners, .cal-owner-note
+
+[참고]
+- DB 변경 없음 (기존 color 컬럼은 남아 있지만 화면에서는 쓰지 않음)
+- tsc 타입 체크 통과, 목업 데이터로 내 일정/다른 사람 일정 화면 확인
+
+
+--------------------------------------------------
+[17] 메뉴 정리 + 미니게임 '사과게임' 추가  (2026-11-25)
+--------------------------------------------------
+[커밋 메시지]
+feat: 메뉴 정리(포인트·캘린더 제외) 및 미니게임 사과게임 추가
+
+- 상단 메뉴: '클랜' 묶음은 클랜원 관리 · 지인 관리만, '콘텐츠' 묶음은 미니게임만
+- 포인트 · 캘린더는 묶음에서 꺼내 상단 단독 메뉴로 (이벤트 옆), 홈 바로가기에서는 포인트 제외
+- 사과게임 (/content/apple)
+  · 17×10 판의 1~9 사과를 드래그로 묶어 합이 10이면 사라짐, 사과 1개 = 1점, 2분
+  · 판은 서버가 만들고(전체 합 10의 배수), 끝나면 묶은 순서를 서버가 다시 계산해 저장
+  · 2분이 다 지나기 전/한참 뒤 제출, 규칙에 안 맞는 묶음은 거절
+  · 클랜 랭킹(이번 주/전체, 1인 최고점), PC 전용, 효과음은 테트리스 것 재사용
+
+[변경 파일]
+- app/components/SiteHeader.tsx              포인트·캘린더 단독 메뉴로 이동, 사과게임 추가
+- app/page.tsx                               홈 바로가기에서 포인트 제거
+- app/content/page.tsx                       게임 목록에 사과게임 추가
+- app/content/apple/page.tsx                 (신규)
+- app/components/minigame/AppleGame.tsx      (신규) 게임 화면
+- app/components/minigame/AppleGame.module.css (신규)
+- app/api/minigame/apple/route.ts            (신규) 시작/제출/랭킹 API
+- lib/appleGameShared.ts                     (신규) 판 만들기 · 점수 다시 계산
+- lib/db.ts                                  apple_records 테이블 추가
+
+[참고]
+- 테이블은 서버 첫 요청 때 ensureSchema 로 자동 생성됨
+- tsc 타입 체크 통과, 목업 API로 시작/드래그/사과 제거 화면 확인
+
+
+--------------------------------------------------
+[18] 헤더 프로필 + 마이룸(내 방) 페이지  (2026-11-25)
+--------------------------------------------------
+[커밋 메시지]
+feat: 헤더 오른쪽에 프로필 버튼 추가, 누르면 마이룸(/room)
+
+- 헤더 오른쪽: 테마 전환 옆에 프로필(동그라미 + 닉네임), 좁은 화면에선 동그라미만
+  · 등급 배지 · 닉네임(비밀번호 변경) · 로그아웃 버튼은 헤더에서 빼고 마이룸으로 옮김
+- 마이룸 /room: 왼쪽 프로필 카드(닉네임 · 등급 · 비밀번호 변경 · 로그아웃), 오른쪽 빈 방
+  · 방꾸미기(가구 놓기)는 이 방 화면에 붙일 예정
+- 프로필 색은 사용자 ID로 고정 배정
+
+[변경 파일]
+- app/components/SiteHeader.tsx          프로필 버튼, ChangePasswordModal export
+- app/components/SiteHeader.module.css   .profile 스타일
+- app/components/ProfileAvatar.tsx       (신규) 프로필 동그라미
+- app/components/ProfileAvatar.module.css (신규)
+- app/room/page.tsx                      (신규) 마이룸
+- app/room/room.module.css               (신규)
+
+[참고]
+- DB 변경 없음
+- tsc 타입 체크 통과, 다크/라이트 · 모바일 화면 확인
+
+
+--------------------------------------------------
+[19] 프로필 팝업 + 방꾸미기(아이소메트릭 방) + 프로필 테두리  (2026-11-25)
+--------------------------------------------------
+[커밋 메시지]
+feat: 프로필 팝업, 콘텐츠 > 방꾸미기, 포인트로 가구·프로필 테두리 구매
+
+- 헤더 프로필을 누르면 팝업: 테두리 낀 프로필 · 등급 · 포인트 + 내 방(보기만)
+  · 팝업에서 방 꾸미러 가기 · 비밀번호 변경 · 로그아웃
+  · 다른 사람 프로필도 같은 팝업으로 열 수 있게 만들어 둠 (ProfileModal userId)
+- 콘텐츠 > 방꾸미기 (/content/room): 비스듬히 내려다보는 8×8 방
+  · 가구 끌어서 옮기기, 회전(R), 보관(Delete), 벽 장식은 벽 따라 이동, 러그 위엔 가구 가능
+  · 가구 20종 · 벽 장식 5종 · 벽지 5종 · 바닥 5종 · 프로필 테두리 7종 (그림은 전부 코드로 직접 그림)
+  · 기본 가구(침대 · 책상 · 의자 · 화분 · 러그 · 창문 · 크림 벽지 · 원목 마루)는 무료
+  · 배치는 [저장]을 눌러야 반영, 테두리는 고르면 바로 반영
+- 포인트 구매: members.total_points 에서 차감 + point_logs 에 type 'shop', "[방꾸미기] 이름" 으로 기록
+  · 포인트 부족 시 차감 안 됨 (조건부 UPDATE + 트랜잭션), 클랜원 명단과 연동된 계정만 구매 가능
+- 예전 /room 페이지는 /content/room 으로 이동시킴
+
+[변경 파일]
+- lib/roomShared.ts                     (신규) 상품 목록 · 가격 · 배치 규칙 · 저장 검사
+- lib/db.ts                             user_items, user_rooms 테이블 추가
+- app/api/room/route.ts                 (신규) 방 조회 · 구매 · 저장 · 테두리
+- app/components/room/roomRender.ts     (신규) 방 그리기 · 클릭 판정
+- app/components/room/roomArt.ts        (신규) 가구 그림
+- app/components/room/RoomView.tsx      (신규) 보기 전용 방
+- app/components/room/RoomEditor.tsx    (신규) 방꾸미기 화면 (+ .module.css)
+- app/components/ProfileModal.tsx       (신규) 프로필 팝업 (+ .module.css)
+- app/components/ChangePasswordModal.tsx (신규) SiteHeader 안에 있던 비밀번호 변경 팝업 분리
+- app/components/ProfileAvatar.tsx      테두리 지원 (+ .module.css)
+- app/components/SiteHeader.tsx         프로필 버튼 → 팝업, 콘텐츠에 방꾸미기 추가
+- app/content/page.tsx, app/content/room/page.tsx(신규)
+- app/room/page.tsx                     /content/room 으로 이동 (app/room 폴더는 지워도 됨)
+
+[참고]
+- 가격은 lib/roomShared.ts CATALOG 의 price 만 바꾸면 됨
+- 테이블은 서버 첫 요청 때 ensureSchema 로 자동 생성됨
+- tsc 타입 체크 통과, 목업 API로 배치 · 이동 · 구매 · 저장 · 팝업(데스크톱/모바일) 확인
+
+
+--------------------------------------------------
+[20] 방꾸미기 가구 · 프로필 종류 추가 (프로필 아이콘 신규)  (2026-11-25)
+--------------------------------------------------
+[커밋 메시지]
+feat: 방꾸미기 가구/벽 장식/벽지/바닥 추가, 프로필 아이콘 · 테두리 추가
+
+- 가구 17종 추가: 강아지, 협탁, 스툴, 빈백, 곰인형, 선인장, 몬스테라, 스피커, 기타, 세탁기,
+  식탁, 어항, 자판기, 우승 트로피, 피아노, 크리스마스 트리 / 러그 2종: 하트, 줄무늬
+- 벽 장식 5종 추가: 거울, 메모 보드, 또간집 깃발, GG 네온사인, 전구 줄조명
+- 벽지 3종(빨간 벽돌 · 나무 패널 · 라벤더 체크), 바닥 3종(진한 마루 · 대리석 · 잔디)
+- 프로필 테두리 8종 추가: 새싹, 하트, 얼음, 불꽃, 별밤, 크리스마스, 다이아, 오로라(움직임)
+- 프로필 아이콘(신규): 닉네임 글자 대신 동물 · 캐릭터 이모지 15종 (100~400P)
+- 방꾸미기 오른쪽 탭 '프로필 테두리' → '프로필' (아이콘 + 테두리, 현재 프로필 미리보기)
+- 벽 면에 2D로 그리는 도우미(plane) 추가, 왼쪽 벽에서 글자가 뒤집히지 않게 처리
+
+[변경 파일]
+- lib/roomShared.ts                    상품 추가, 'icon' 종류 추가
+- lib/db.ts                            user_rooms.icon 컬럼 추가
+- app/api/room/route.ts                owner.icon 응답, action 'icon'
+- app/components/room/roomArt.ts       새 가구 · 벽 장식 그림
+- app/components/room/roomRender.ts    새 벽지/바닥 무늬, 벽 면 2D 그리기
+- app/components/room/RoomEditor.tsx   프로필 탭 (+ .module.css)
+- app/components/ProfileAvatar.tsx     아이콘 · 새 테두리 (+ .module.css)
+- app/components/SiteHeader.tsx, app/components/ProfileModal.tsx   아이콘 표시
+- app/content/page.tsx                 설명 문구
+
+[참고]
+- 컬럼은 서버 첫 요청 때 ensureSchema 로 자동 추가됨
+- tsc 타입 체크 통과, 전체 상품 미리보기 · 프로필 탭 화면 확인
+
+
+--------------------------------------------------
+[21] 방꾸미기 전부 무료(테스트) + 회원가입 개편(아이디 중복 확인 · 클랜원 인증 · 승인)  (2026-11-25)
+--------------------------------------------------
+[커밋 메시지]
+feat: 회원가입에 아이디 중복 확인·클랜원 인증 추가, 운영진 승인 화면 개선, 방꾸미기 임시 무료
+
+- 방꾸미기: lib/roomShared.ts FREE_FOR_NOW = true → 모든 가구 · 벽지 · 바닥 · 아이콘 · 테두리 무료
+  (가격은 그대로 남아 있어서 false로 바꾸면 다시 유료)
+- 회원가입
+  · 아이디: 영문 · 숫자 · _ 4~20자, [중복 확인] 버튼
+  · 비밀번호 6자 이상 + 확인 입력
+  · 클랜원 인증: 클랜원 관리에 등록된 롤 계정(닉네임#태그, 본/부계정 모두)으로 본인 확인
+    → 그 클랜원과 계정을 연동(users.member_id). 클랜원 1명당 계정 1개 (이미 가입/신청된 클랜원은 거절)
+    · 탈퇴/블랙 클랜원은 가입 불가, 띄어쓰기 · 대소문자는 무시
+  · 가입하면 '승인 대기' → 완료 화면에서 안내, 승인 전엔 로그인 불가(기존 동작)
+  · 로그인 없이 부르는 API는 IP당 횟수 제한 (lib/rateLimit.ts)
+- 운영진: 클랜원 관리 > 로그인 계정 탭
+  · 승인 대기 계정을 맨 위에, 탭/제목에 '승인 대기 N명'
+  · '연동 클랜원' 칸: 클랜원 이름 + 롤 계정 표시 → 본인 맞는지 보고 승인 / 거절(계정 삭제)
+  · 연동 안 된 기존 계정은 드롭다운으로 클랜원 직접 연동, ✕로 해제
+
+[변경 파일]
+- lib/roomShared.ts, app/api/room/route.ts, app/components/room/RoomEditor.tsx (+ .module.css)
+- lib/signupShared.ts (신규) 아이디/비밀번호 규칙, 롤 계정 파싱
+- lib/memberVerify.ts (신규) 롤 계정으로 클랜원 찾기 + 중복 확인
+- lib/rateLimit.ts (신규)
+- app/api/auth/check-username/route.ts (신규), app/api/auth/verify-member/route.ts (신규)
+- app/api/auth/signup/route.ts           클랜원 인증 + member_id 연동
+- app/components/AuthModal.tsx (+ AuthModal.module.css 신규)
+- app/api/userinfo/link/route.ts         연동 클랜원 정보, linkMemberId(수동 연동)
+- app/userInfo/page.tsx                  로그인 계정 탭 (연동 클랜원 · 승인/거절 · 대기 인원)
+
+[참고]
+- 클랜원 인증은 클랜원 관리에 롤 계정이 등록돼 있어야 됨 (등록 안 된 클랜원은 먼저 계정 추가)
+- 실제 MariaDB로 가입 → 중복 차단 → 승인 대기 로그인 차단 → 승인 → 로그인까지 확인
+- tsc 타입 체크 통과

@@ -44,7 +44,6 @@ const FEATURES = [
   { href: "/party", icon: "🛡️", title: "파티 모집", desc: "협곡 · 칼바람 파티원 모집", color: "c-orange" },
   { href: "/scrim", icon: "⚔️", title: "내전", desc: "팀 자동 구성 · 경기 기록 · 통계", color: "c-purple" },
   { href: "/userInfo", icon: "👥", title: "클랜원", desc: "명단 · 티어 · 라인 보기", color: "c-green" },
-  { href: "/points", icon: "🏅", title: "포인트", desc: "활동 포인트 현황 · 상점", color: "c-yellow" },
   { href: "/event", icon: "🎉", title: "이벤트", desc: "경매내전 · 솔랭내기", color: "c-pink" },
   { href: "/friends", icon: "🤝", title: "지인 관리", desc: "클랜원 지인 관계 조회", color: "c-blue" },
   { href: "/search", icon: "🔍", title: "전적 검색", desc: "소환사 랭크 · 매치 기록 조회", color: "c-blue" },
@@ -86,7 +85,7 @@ export default function Home() {
         <div className="hm-hero-text">
           <p className="hm-eyebrow">함께하는 롤 클랜</p>
           <h1>또간집 클랜 관리</h1>
-          <p className="hm-desc">파티 모집부터 내전 팀 구성, 포인트와 이벤트까지 한곳에서.</p>
+          <p className="hm-desc">파티 모집부터 내전 팀 구성, 이벤트까지 한곳에서.</p>
         </div>
         <div className="hm-stats">
           <div className="hm-stat">

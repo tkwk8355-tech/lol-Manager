@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-// PATCH /api/userinfo/blacklist - 블랙 수정
+// PATCH /api/userinfo/blacklist - 추방 수정
 export async function PATCH(req: NextRequest) {
   const auth = await requireAdmin(req);
   if (!auth.ok) return auth.response;

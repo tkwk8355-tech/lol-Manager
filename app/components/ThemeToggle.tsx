@@ -19,6 +19,8 @@ export default function ThemeToggle() {
     try { localStorage.setItem("theme", next); } catch {}
   }
 
+  // 아이콘은 둘 다 렌더링하고 CSS(:root[data-theme])로 보여준다.
+  // → 첫 로드 때 라이트 모드 사용자에게 아이콘이 깜빡이지 않고, 전환 시 크로스페이드된다.
   return (
     <button
       type="button"
@@ -27,7 +29,8 @@ export default function ThemeToggle() {
       title={theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
       aria-label="테마 전환"
     >
-      {theme === "dark" ? "☀️" : "🌙"}
+      <span className="tt-icon tt-sun" aria-hidden>☀️</span>
+      <span className="tt-icon tt-moon" aria-hidden>🌙</span>
     </button>
   );
 }

@@ -12,29 +12,46 @@ export const SCRIM_TIER_KO: Record<ScrimTier, string> = {
   PLATINUM: "플래티넘", EMERALD: "에메랄드", DIAMOND: "다이아", MASTER: "마스터",
 };
 
+// 내전 티어별 시작 점수 (500점 간격) — 티어 구간을 바꿀 땐 여기만 수정
+export const SCRIM_TIER_MIN: Record<ScrimTier, number> = {
+  BRONZE: 0, SILVER: 500, GOLD: 1000, PLATINUM: 1500, EMERALD: 2000, DIAMOND: 2500, MASTER: 3000,
+};
+
 // 점수 → 내전 티어
 export function mmrToScrimTier(mmr: number): ScrimTier {
-  if (mmr >= 1200) return "MASTER";
-  if (mmr >= 1000) return "DIAMOND";
-  if (mmr >= 800) return "EMERALD";
-  if (mmr >= 600) return "PLATINUM";
-  if (mmr >= 400) return "GOLD";
-  if (mmr >= 200) return "SILVER";
+  for (let i = SCRIM_TIERS.length - 1; i > 0; i--) {
+    if (mmr >= SCRIM_TIER_MIN[SCRIM_TIERS[i]]) return SCRIM_TIERS[i];
+  }
   return "BRONZE";
+}
+
+// 신규 멤버(가입/등록 시) 솔랭 티어 → 내전 초기 MMR (기존값 × 2)
+export function soloTierToNewMemberMmr(tier?: string | null): number {
+  switch ((tier ?? "").toUpperCase()) {
+    case "SILVER":      return 200;
+    case "GOLD":        return 400;
+    case "PLATINUM":    return 600;
+    case "EMERALD":     return 800;
+    case "DIAMOND":
+    case "MASTER":
+    case "GRANDMASTER":
+    case "CHALLENGER":  return 1000;
+    default:            return 0;
+  }
 }
 
 // 솔랭 티어 → 내전 초기 MMR
 export function soloBadgeToInitialMmr(tier?: string | null): number {
   switch ((tier ?? "").toUpperCase()) {
-    case "SILVER":      return 200;
-    case "GOLD":        return 350;
-    case "PLATINUM":    return 450;
-    case "EMERALD":     return 550;
+    case "SILVER":      return 400;
+    case "GOLD":        return 700;
+    case "PLATINUM":    return 900;
+    case "EMERALD":     return 1100;
     case "DIAMOND":
     case "MASTER":
     case "GRANDMASTER":
-    case "CHALLENGER":  return 650;
-    default:            return 100; // 언랭/아이언/브론즈
+    case "CHALLENGER":  return 1300;
+    default:            return 200; // 언랭/아이언/브론즈 (기존값 × 2)
   }
 }
 
@@ -183,10 +200,12 @@ function calcMvpScore(p: MvpParticipant, team: MvpParticipant[], isWin: boolean)
        + ((p.visionScore ?? 0) / maxVis) * MVP_W_VIS;
 }
 
-// MMR 변동: 팀 내 순위(1~5) → +10/+5/0/-5/-10
-export const SCRIM_MMR_DELTA = [10, 5, 0, -5, -10] as const;
+// MMR 변동 = 승패 기본점수(±20) + 팀 내 MVP 순위 보너스(1~5등 → +8/+4/0/-4/-8)
+// 승리: +28/+24/+20/+16/+12, 패배: -12/-16/-20/-24/-28
+export const SCRIM_MMR_WIN_BASE = 20;
+export const SCRIM_MMR_DELTA = [8, 4, 0, -4, -8] as const;
 
-// 팀별 MVP 점수 계산 후 순위 순으로 정렬된 { memberId, delta } 배열 반환
+// 팀별 MVP 점수 계산 후 순위 순으로 정렬된 { memberId, delta } 배열 반환 (delta = 승패 기본 + 순위 보너스)
 export function calcMmrDeltas(
   participants: MvpParticipant[],
   winnerTeam: number
@@ -199,8 +218,9 @@ export function calcMmrDeltas(
     const scored = team
       .map((p) => ({ memberId: p.memberId, score: calcMvpScore(p, team, isWin) }))
       .sort((a, b) => b.score - a.score);
+    const base = isWin ? SCRIM_MMR_WIN_BASE : -SCRIM_MMR_WIN_BASE;
     scored.forEach((p, i) => {
-      result.push({ memberId: p.memberId, delta: SCRIM_MMR_DELTA[Math.min(i, 4)] });
+      result.push({ memberId: p.memberId, delta: base + SCRIM_MMR_DELTA[Math.min(i, 4)] });
     });
   }
   return result;

@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../components/AuthProvider";
 import { parsePartyPosts, matchPartyEntries, PastedParty, PartyCandidate, MatchedEntry } from "@/lib/partyPaste";
+import PartyHistoryPanel from "../components/PartyHistoryPanel";
 
-type Mode = "aram" | "normal" | "flex" | "solo";
+type Mode = "aram" | "arena" | "normal" | "flex" | "solo";
 type Tab = Mode | "all";
 
 interface Participant { userId: number | null; nickname: string; }
@@ -16,10 +17,10 @@ interface Party {
   historyParticipants: string[];
 }
 
-const MODES: Mode[] = ["flex", "solo", "aram", "normal"];
+const MODES: Mode[] = ["flex", "solo", "aram", "arena", "normal"];
 const TABS: Tab[] = ["all", ...MODES];
-const MODE_KO: Record<Mode, string> = { aram: "칼바람", normal: "일반협곡", flex: "자유랭크", solo: "솔로랭크" };
-const TAB_KO: Record<Tab, string> = { all: "전체", flex: "자유랭크", solo: "솔로랭크", aram: "칼바람", normal: "일반협곡" };
+const MODE_KO: Record<Mode, string> = { aram: "칼바람", arena: "증바람", normal: "일반협곡", flex: "자유랭크", solo: "솔로랭크" };
+const TAB_KO: Record<Tab, string> = { all: "전체", flex: "자유랭크", solo: "솔로랭크", aram: "칼바람", arena: "증바람", normal: "일반협곡" };
 
 function fmtStart(startAt: string | null): string {
   if (!startAt) return "미정";
@@ -159,6 +160,16 @@ export default function PartyPage() {
   const [pasteErr, setPasteErr] = useState("");
   const partyMembersRef = useRef<PartyCandidate[] | null>(null);
   const [partyMembers, setPartyMembers] = useState<PartyCandidate[]>([]);
+  // 파티 내역 패널 (운영진) — 열림 여부는 브라우저에 기억
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyKey, setHistoryKey] = useState(0);
+  useEffect(() => {
+    try { if (localStorage.getItem("party-history-open") === "1") setHistoryOpen(true); } catch {}
+  }, []);
+  function toggleHistory(open: boolean) {
+    setHistoryOpen(open);
+    try { localStorage.setItem("party-history-open", open ? "1" : "0"); } catch {}
+  }
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -220,7 +231,7 @@ export default function PartyPage() {
       });
       const json = await res.json();
       if (!res.ok) setError(json.error || "파티 생성 실패");
-      else { setNote(""); setStartDate(new Date(new Date().getTime() + 9*60*60*1000).toISOString().slice(0,10)); setStartTime(""); setParticipants([""]); setPasteReport(null); load(tab); }
+      else { setNote(""); setStartDate(new Date(new Date().getTime() + 9*60*60*1000).toISOString().slice(0,10)); setStartTime(""); setParticipants([""]); setPasteReport(null); load(tab); setHistoryKey((k) => k + 1); }
     } catch { setError("네트워크 오류"); }
     finally { setCreating(false); }
   }
@@ -274,6 +285,19 @@ export default function PartyPage() {
     setPasteChoices(posts); // 여러 개면 고르게 한다
   }
 
+  // 파티 내역의 "채우기" — 모드·날짜·시간·참가자를 생성 폼에 넣는다
+  function fillFromHistory(mode: Mode, names: string[], startAt: string | null) {
+    const max = mode === "solo" ? 2 : 5;
+    setCreateMode(mode);
+    // startAt: "2026-11-03 21:00:00"
+    const m = startAt?.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+    if (m) { setStartDate(m[1]); setStartTime(m[2]); }
+    setParticipants(names.length ? names.slice(0, max) : [""]);
+    setPasteReport(null);
+    setPasteOpen(false);
+    setError("");
+  }
+
   function updateParticipant(i: number, val: string) {
     setParticipants((prev) => prev.map((v, idx) => idx === i ? val : v));
   }
@@ -291,7 +315,7 @@ export default function PartyPage() {
         : await fetch(`/api/party?id=${partyId}`, { method: "DELETE" });
       const json = await res.json();
       if (!res.ok) setError(json.error || "삭제 실패");
-      else load(tab);
+      else { load(tab); setHistoryKey((k) => k + 1); }
     } catch { setError("네트워크 오류"); }
     finally { setBusyId(null); }
   }
@@ -383,7 +407,7 @@ export default function PartyPage() {
               <span>칼바람 판수 입력</span>
               <button className="modal-close" onClick={() => setAramModal(null)}>×</button>
             </div>
-            <p className="pt-hint">참가자별 판수를 입력하세요. (4판당 5점, 하루 최대 5점)</p>
+            <p className="pt-hint">참가자별 판수를 입력하세요. ({aramModal.participants[0] && parties.find(p=>p.id===aramModal.id)?.mode === "arena" ? "증바람" : "칼바람 4판당 5점, 하루 최대 5점"})</p>
             <div className="pt-aram-list">
               {aramModal.participants.map((pp) => (
                 <div key={pp.nickname} className="pt-aram-row">
@@ -420,6 +444,9 @@ export default function PartyPage() {
         </div>
         {user && isAdmin(user.role) && (
           <div className="ui-page-actions">
+            <button type="button" className={`btn-secondary ${historyOpen ? "on" : ""}`} onClick={() => toggleHistory(!historyOpen)}>
+              📜 파티 내역
+            </button>
             <button type="button" className="btn-secondary" onClick={openSettings}>⚙ 점수 설정</button>
           </div>
         )}
@@ -441,7 +468,8 @@ export default function PartyPage() {
       ) : (user.role === "captain" || user.scrimOnly) ? (
         <div className="party-login-notice">접근 권한이 없습니다.</div>
       ) : (
-        <>
+        <div className={`pt-layout ${isAdmin(user.role) && historyOpen ? "with-history" : ""}`}>
+        <div className="pt-main">
           {isAdmin(user.role) && (
             <form className="ui-card pt-create" onSubmit={createParty}>
               <div className="pt-create-head">
@@ -610,7 +638,7 @@ export default function PartyPage() {
                       <button className="pt-end" disabled={busyId === p.id}
                         onClick={() => {
                           if (!confirm("파티를 종료할까요?")) return;
-                          if (p.mode === "aram") { setAramMemberGames({}); setAramModal({id: p.id, participants: (p.historyParticipants ?? []).map(n => ({userId: null, nickname: n}))}); }
+                          if (p.mode === "aram" || p.mode === "arena") { setAramMemberGames({}); setAramModal({id: p.id, participants: (p.historyParticipants ?? []).map(n => ({userId: null, nickname: n}))}); }
                           else deleteParty(p.id);
                         }}>
                         {busyId === p.id ? "처리 중..." : "💥 펑 (파티 종료)"}
@@ -621,7 +649,16 @@ export default function PartyPage() {
               );
             })}
           </div>
-        </>
+        </div>
+        {isAdmin(user.role) && historyOpen && (
+          <PartyHistoryPanel
+            mode={tab}
+            refreshKey={historyKey}
+            onClose={() => toggleHistory(false)}
+            onFill={fillFromHistory}
+          />
+        )}
+        </div>
       )}
     </div>
   );

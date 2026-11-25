@@ -7,7 +7,7 @@ import AuthGate from "./components/AuthGate";
 
 export const metadata: Metadata = {
   title: "또간집 클랜 관리 프로그램",
-  description: "A League of Legends match history & stats website.",
+  description: "또간집 롤 클랜의 파티 모집, 내전 팀 구성, 전적, 포인트와 이벤트를 한곳에서 관리해요.",
 };
 
 export default function RootLayout({

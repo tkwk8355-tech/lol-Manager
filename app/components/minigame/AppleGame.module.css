@@ -1,0 +1,20 @@
+/* 사과게임 전용 (공통 틀은 AimGame.module.css) */
+
+/* 브라우저 높이에 맞춰 최대한 크게 (판 전체가 한 화면에 보이게) */
+.stage {
+  max-width: max(560px, min(1100px, calc((100vh - 170px) * 900 / 568))); width: 100%; margin: 0 auto;
+  border-color: rgba(120, 210, 110, 0.3);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35), 0 0 0 4px rgba(120, 210, 110, 0.07);
+}
+.canvas { width: 100%; height: auto; display: block; aspect-ratio: 900 / 568; }
+.playing { cursor: crosshair; }
+.dragging { cursor: crosshair; }
+
+.score { background: linear-gradient(180deg, #ffffff, #ff7a6b); -webkit-background-clip: text; background-clip: text; }
+
+.hint { margin: 12px 0 0; font-size: 12px; color: rgba(238, 242, 248, 0.55); }
+.hint kbd {
+  display: inline-block; min-width: 22px; padding: 1px 6px; border-radius: 6px; text-align: center;
+  font: 700 11px/18px ui-monospace, SFMono-Regular, Menlo, monospace; color: #eef2f8;
+  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.14); border-bottom-width: 2px;
+}
